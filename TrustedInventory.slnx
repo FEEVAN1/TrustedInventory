@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TrustedInventory.Api/TrustedInventory.Api.csproj" />
+    <Project Path="src/TrustedInventory.Application/TrustedInventory.Application.csproj" />
+    <Project Path="src/TrustedInventory.Domain/TrustedInventory.Domain.csproj" />
+    <Project Path="src/TrustedInventory.Infrastructure/TrustedInventory.Infrastructure.csproj" />
+    <Project Path="src/TrustedInventory.Migrator/TrustedInventory.Migrator.csproj" />
+    <Project Path="src/TrustedInventory.Worker/TrustedInventory.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TrustedInventory.IntegrationTests/TrustedInventory.IntegrationTests.csproj" />
+    <Project Path="tests/TrustedInventory.UnitTests/TrustedInventory.UnitTests.csproj" />
+  </Folder>
+</Solution>

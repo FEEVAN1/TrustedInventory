@@ -1,0 +1,79 @@
+namespace TrustedInventory.Application.Errors;
+
+/// <summary>Error codes from section 15 / docs/enums.md. On the wire they are UPPER_SNAKE (see <see cref="ErrorCodes.Wire"/>).</summary>
+public enum ErrorCode
+{
+    MalformedRequest,
+    InvalidCursor,
+    IdempotencyKeyRequired,
+    Unauthenticated,
+    Forbidden,
+    ReauthRequired,
+    NotFound,
+    InsufficientStock,
+    StockBlocked,
+    InvalidState,
+    IdempotencyMismatch,
+    ApprovalStale,
+    ApprovalSelf,
+    CountLocked,
+    RetryableConflict,
+    VersionConflict,
+    PreconditionRequired,
+    ValidationFailed,
+    OverReceipt,
+    IncompatibleBin,
+    BarcodeConflict,
+    UnknownBarcode,
+    MissingMedicalEvidence,
+    DuplicateSerial,
+    ReturnExceedsShipped,
+    RateLimited,
+    ServiceUnavailable,
+}
+
+public static class ErrorCodes
+{
+    /// <summary>Wire spelling, e.g. VersionConflict → VERSION_CONFLICT.</summary>
+    public static string Wire(ErrorCode code) => System.Text.Json.JsonNamingPolicy.SnakeCaseUpper.ConvertName(code.ToString());
+}
+
+public sealed record FieldError(string Field, ErrorCode Code, string Message);
+
+/// <summary>An expected failure with a wire error code. Anything else is a 500 with no internals exposed.</summary>
+public class AppException(ErrorCode code, string detail, IReadOnlyList<FieldError>? errors = null) : Exception(detail)
+{
+    public ErrorCode Code { get; } = code;
+    public IReadOnlyList<FieldError> Errors { get; } = errors ?? [];
+    public int Status => StatusOf(Code);
+
+    public static int StatusOf(ErrorCode code) => code switch
+    {
+        ErrorCode.MalformedRequest or ErrorCode.InvalidCursor or ErrorCode.IdempotencyKeyRequired => 400,
+        ErrorCode.Unauthenticated => 401,
+        ErrorCode.Forbidden or ErrorCode.ReauthRequired => 403,
+        ErrorCode.NotFound => 404,
+        ErrorCode.VersionConflict => 412,
+        ErrorCode.PreconditionRequired => 428,
+        ErrorCode.ValidationFailed or ErrorCode.OverReceipt or ErrorCode.IncompatibleBin or ErrorCode.BarcodeConflict
+            or ErrorCode.UnknownBarcode or ErrorCode.MissingMedicalEvidence or ErrorCode.DuplicateSerial
+            or ErrorCode.ReturnExceedsShipped => 422,
+        ErrorCode.RateLimited => 429,
+        ErrorCode.ServiceUnavailable => 503,
+        _ => 409,
+    };
+
+    public static AppException NotFound(string what) => new(ErrorCode.NotFound, $"{what} was not found.");
+
+    /// <summary>Same response whether the target is missing or outside the caller's scope (TEN isolation evidence).</summary>
+    public static AppException Forbidden(string detail = "You do not have permission for this action.") =>
+        new(ErrorCode.Forbidden, detail);
+
+    public static AppException InvalidState(string detail) => new(ErrorCode.InvalidState, detail);
+
+    public static AppException VersionConflict() =>
+        new(ErrorCode.VersionConflict, "The resource was changed by someone else. Reload it and retry.");
+
+    public static AppException Validation(string field, string message) =>
+        new(ErrorCode.ValidationFailed, "The request has invalid fields.", [new FieldError(field, ErrorCode.ValidationFailed, message)]);
+}

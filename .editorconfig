@@ -1,0 +1,29 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{json,yaml,yml,ts,tsx,js,css,html,props,csproj,slnx}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# Optional<T> models merge-patch fields; the VB 'Optional' keyword clash is irrelevant here.
+dotnet_diagnostic.CA1716.severity = none
+
+[src/TrustedInventory.Application/**.cs]
+# Case-insensitive search runs as SQL (lower(...) LIKE); culture and StringComparison overloads do not translate.
+dotnet_diagnostic.CA1304.severity = none
+dotnet_diagnostic.CA1311.severity = none
+dotnet_diagnostic.CA1862.severity = none
+
+[tests/**.cs]
+# Descriptive Scenario_condition_result test names.
+dotnet_diagnostic.CA1707.severity = none

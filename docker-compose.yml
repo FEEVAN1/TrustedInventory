@@ -1,0 +1,113 @@
+# Development stack (ARC-004): PostgreSQL 16, Keycloak, migrator, API, worker and PWA.
+# Copy .env.example to .env and fill every value first. Everything here is synthetic and development-only:
+# the Keycloak realm, users and seed data must never be used for real operations (AGT-004).
+#
+# Tokens are issued for http://keycloak:8080 (KC_HOSTNAME) so the API inside the network and clients on the
+# host see the same issuer. A browser login on the host needs "127.0.0.1 keycloak" in the hosts file.
+name: trustedinventory
+
+x-dotnet-build: &dotnet-build
+  context: .
+  dockerfile: deploy/dotnet.Dockerfile
+
+services:
+  db:
+    image: postgres:16.10
+    environment:
+      POSTGRES_DB: trustedinventory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    ports: ["55432:5432"]
+    volumes: [db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trustedinventory"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Superuser-only cluster setup: roles, schema, extension, role passwords (db/bootstrap).
+  db-bootstrap:
+    build: { <<: *dotnet-build, target: migrator }
+    image: trustedinventory-migrator:dev
+    command: ["bootstrap"]
+    environment:
+      TI_SUPERUSER_CONNECTION: Host=db;Database=trustedinventory;Username=postgres;Password=${POSTGRES_PASSWORD}
+      TI_MIGRATOR_PASSWORD: ${TI_MIGRATOR_PASSWORD:?set in .env}
+      TI_APP_PASSWORD: ${TI_APP_PASSWORD:?set in .env}
+      TI_PLATFORM_PASSWORD: ${TI_PLATFORM_PASSWORD:?set in .env}
+    depends_on:
+      db: { condition: service_healthy }
+
+  migrator:
+    image: trustedinventory-migrator:dev
+    command: ["migrate"]
+    environment:
+      TI_MIGRATOR_CONNECTION: Host=db;Database=trustedinventory;Username=ti_migrator;Password=${TI_MIGRATOR_PASSWORD}
+    depends_on:
+      db-bootstrap: { condition: service_completed_successfully }
+
+  # SYNTHETIC tenants and memberships for the Keycloak users (development only).
+  seed:
+    image: trustedinventory-migrator:dev
+    command: ["seed"]
+    environment:
+      TI_PLATFORM_CONNECTION: Host=db;Database=trustedinventory;Username=ti_platform;Password=${TI_PLATFORM_PASSWORD}
+    depends_on:
+      migrator: { condition: service_completed_successfully }
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.2
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set in .env}
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HEALTH_ENABLED: "true"
+      # Substituted into the realm import; never stored in the repository.
+      TI_DEV_USER_PASSWORD: ${TI_DEV_USER_PASSWORD:?set in .env}
+      TI_DEV_OTP_SECRET: ${TI_DEV_OTP_SECRET:?set in .env}
+    volumes: ["./deploy/keycloak:/opt/keycloak/data/import:ro"]
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  api:
+    build: { <<: *dotnet-build, target: api }
+    image: trustedinventory-api:dev
+    environment: &app-settings
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__App: Host=db;Database=trustedinventory;Username=ti_app;Password=${TI_APP_PASSWORD}
+      ConnectionStrings__Platform: Host=db;Database=trustedinventory;Username=ti_platform;Password=${TI_PLATFORM_PASSWORD}
+      Paging__CursorKey: ${TI_CURSOR_KEY:?set in .env}
+      Auth__Authority: http://keycloak:8080/realms/trustedinventory
+      Auth__Audience: trustedinventory-api
+      Auth__RequireHttpsMetadata: "false"
+      Platform__AdministratorSubjects__0: 00000000-0000-4000-8000-000000000001
+      Cors__AllowedOrigins__0: http://localhost:5173
+    ports: ["8081:8080"]
+    depends_on:
+      migrator: { condition: service_completed_successfully }
+      keycloak: { condition: service_healthy }
+
+  worker:
+    build: { <<: *dotnet-build, target: worker }
+    image: trustedinventory-worker:dev
+    environment:
+      <<: *app-settings
+      DOTNET_ENVIRONMENT: Development
+      Audit__CheckpointKey: ${TI_CHECKPOINT_KEY:?set in .env}
+      Audit__CheckpointKeyId: dev-checkpoint-key
+      # SIMULATED retention store (AUD-003 production storage is D06).
+      Audit__RetentionDirectory: /tmp/ti-retention-simulated
+    depends_on:
+      migrator: { condition: service_completed_successfully }
+
+  web:
+    build: { context: ., dockerfile: deploy/web.Dockerfile }
+    image: trustedinventory-web:dev
+    ports: ["5173:8080"]
+
+volumes:
+  db-data:

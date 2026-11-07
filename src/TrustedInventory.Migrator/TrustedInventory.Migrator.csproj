@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <!-- SQL is embedded so the deployable migrator carries exactly the reviewed scripts. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\db\bootstrap\*.sql" LogicalName="bootstrap/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\db\migrations\*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

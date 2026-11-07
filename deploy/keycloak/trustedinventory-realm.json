@@ -1,0 +1,262 @@
+{
+    "realm":  "trustedinventory",
+    "enabled":  true,
+    "sslRequired":  "external",
+    "registrationAllowed":  false,
+    "bruteForceProtected":  true,
+    "accessTokenLifespan":  300,
+    "otpPolicyType":  "totp",
+    "otpPolicyAlgorithm":  "HmacSHA1",
+    "otpPolicyDigits":  6,
+    "otpPolicyPeriod":  30,
+    "otpPolicyLookAheadWindow":  1,
+    "browserFlow":  "ti browser",
+    "directGrantFlow":  "ti direct grant",
+    "authenticatorConfig":  [
+                                {
+                                    "alias":  "ti-amr-pwd",
+                                    "config":  {
+                                                   "default.reference.value":  "pwd",
+                                                   "default.reference.maxAge":  "0"
+                                               }
+                                },
+                                {
+                                    "alias":  "ti-amr-otp",
+                                    "config":  {
+                                                   "default.reference.value":  "otp",
+                                                   "default.reference.maxAge":  "0"
+                                               }
+                                },
+                                {
+                                    "alias":  "ti-amr-pwd-dg",
+                                    "config":  {
+                                                   "default.reference.value":  "pwd",
+                                                   "default.reference.maxAge":  "0"
+                                               }
+                                },
+                                {
+                                    "alias":  "ti-amr-otp-dg",
+                                    "config":  {
+                                                   "default.reference.value":  "otp",
+                                                   "default.reference.maxAge":  "0"
+                                               }
+                                }
+                            ],
+    "authenticationFlows":  [
+                                {
+                                    "alias":  "ti browser",
+                                    "description":  "Password plus mandatory OTP (IAM-002)",
+                                    "providerId":  "basic-flow",
+                                    "topLevel":  true,
+                                    "builtIn":  false,
+                                    "authenticationExecutions":  [
+                                                                     {
+                                                                         "requirement":  "ALTERNATIVE",
+                                                                         "priority":  10,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticator":  "auth-cookie",
+                                                                         "authenticatorFlow":  false
+                                                                     },
+                                                                     {
+                                                                         "requirement":  "ALTERNATIVE",
+                                                                         "priority":  20,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticatorFlow":  true,
+                                                                         "flowAlias":  "ti browser forms"
+                                                                     }
+                                                                 ]
+                                },
+                                {
+                                    "alias":  "ti browser forms",
+                                    "providerId":  "basic-flow",
+                                    "topLevel":  false,
+                                    "builtIn":  false,
+                                    "authenticationExecutions":  [
+                                                                     {
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  10,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticator":  "auth-username-password-form",
+                                                                         "authenticatorFlow":  false,
+                                                                         "authenticatorConfig":  "ti-amr-pwd"
+                                                                     },
+                                                                     {
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  20,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticator":  "auth-otp-form",
+                                                                         "authenticatorFlow":  false,
+                                                                         "authenticatorConfig":  "ti-amr-otp"
+                                                                     }
+                                                                 ]
+                                },
+                                {
+                                    "alias":  "ti direct grant",
+                                    "description":  "Development verification only: password plus mandatory OTP",
+                                    "providerId":  "basic-flow",
+                                    "topLevel":  true,
+                                    "builtIn":  false,
+                                    "authenticationExecutions":  [
+                                                                     {
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  10,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticator":  "direct-grant-validate-username",
+                                                                         "authenticatorFlow":  false
+                                                                     },
+                                                                     {
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  20,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticator":  "direct-grant-validate-password",
+                                                                         "authenticatorFlow":  false,
+                                                                         "authenticatorConfig":  "ti-amr-pwd-dg"
+                                                                     },
+                                                                     {
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  30,
+                                                                         "userSetupAllowed":  false,
+                                                                         "authenticator":  "direct-grant-validate-otp",
+                                                                         "authenticatorFlow":  false,
+                                                                         "authenticatorConfig":  "ti-amr-otp-dg"
+                                                                     }
+                                                                 ]
+                                }
+                            ],
+    "clients":  [
+                    {
+                        "clientId":  "trustedinventory-pwa",
+                        "name":  "TrustedInventory PWA (development)",
+                        "enabled":  true,
+                        "publicClient":  true,
+                        "protocol":  "openid-connect",
+                        "standardFlowEnabled":  true,
+                        "implicitFlowEnabled":  false,
+                        "directAccessGrantsEnabled":  true,
+                        "serviceAccountsEnabled":  false,
+                        "redirectUris":  [
+                                             "http://localhost:5173/*"
+                                         ],
+                        "webOrigins":  [
+                                           "http://localhost:5173"
+                                       ],
+                        "attributes":  {
+                                           "pkce.code.challenge.method":  "S256",
+                                           "post.logout.redirect.uris":  "http://localhost:5173/*"
+                                       },
+                        "protocolMappers":  [
+                                                {
+                                                    "name":  "api audience",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-audience-mapper",
+                                                    "config":  {
+                                                                   "included.custom.audience":  "trustedinventory-api",
+                                                                   "access.token.claim":  "true",
+                                                                   "id.token.claim":  "false",
+                                                                   "introspection.token.claim":  "true"
+                                                               }
+                                                },
+                                                {
+                                                    "name":  "amr",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-amr-mapper",
+                                                    "config":  {
+                                                                   "access.token.claim":  "true",
+                                                                   "id.token.claim":  "true",
+                                                                   "introspection.token.claim":  "true"
+                                                               }
+                                                }
+                                            ]
+                    }
+                ],
+    "users":  [
+                  {
+                      "id":  "00000000-0000-4000-8000-000000000001",
+                      "username":  "platform-admin",
+                      "enabled":  true,
+                      "emailVerified":  true,
+                      "firstName":  "Platform",
+                      "lastName":  "Admin",
+                      "email":  "platform-admin@example.invalid",
+                      "credentials":  [
+                                          {
+                                              "type":  "password",
+                                              "value":  "${TI_DEV_USER_PASSWORD}",
+                                              "temporary":  false
+                                          },
+                                          {
+                                              "type":  "otp",
+                                              "userLabel":  "synthetic-dev",
+                                              "secretData":  "{\"value\":\"${TI_DEV_OTP_SECRET}\"}",
+                                              "credentialData":  "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+                                          }
+                                      ]
+                  },
+                  {
+                      "id":  "00000000-0000-4000-8000-000000000002",
+                      "username":  "alice",
+                      "enabled":  true,
+                      "emailVerified":  true,
+                      "firstName":  "Alice",
+                      "lastName":  "Synthetic",
+                      "email":  "alice@example.invalid",
+                      "credentials":  [
+                                          {
+                                              "type":  "password",
+                                              "value":  "${TI_DEV_USER_PASSWORD}",
+                                              "temporary":  false
+                                          },
+                                          {
+                                              "type":  "otp",
+                                              "userLabel":  "synthetic-dev",
+                                              "secretData":  "{\"value\":\"${TI_DEV_OTP_SECRET}\"}",
+                                              "credentialData":  "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+                                          }
+                                      ]
+                  },
+                  {
+                      "id":  "00000000-0000-4000-8000-000000000003",
+                      "username":  "quinn",
+                      "enabled":  true,
+                      "emailVerified":  true,
+                      "firstName":  "Quinn",
+                      "lastName":  "Synthetic",
+                      "email":  "quinn@example.invalid",
+                      "credentials":  [
+                                          {
+                                              "type":  "password",
+                                              "value":  "${TI_DEV_USER_PASSWORD}",
+                                              "temporary":  false
+                                          },
+                                          {
+                                              "type":  "otp",
+                                              "userLabel":  "synthetic-dev",
+                                              "secretData":  "{\"value\":\"${TI_DEV_OTP_SECRET}\"}",
+                                              "credentialData":  "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+                                          }
+                                      ]
+                  },
+                  {
+                      "id":  "00000000-0000-4000-8000-000000000004",
+                      "username":  "bob",
+                      "enabled":  true,
+                      "emailVerified":  true,
+                      "firstName":  "Bob",
+                      "lastName":  "Synthetic",
+                      "email":  "bob@example.invalid",
+                      "credentials":  [
+                                          {
+                                              "type":  "password",
+                                              "value":  "${TI_DEV_USER_PASSWORD}",
+                                              "temporary":  false
+                                          },
+                                          {
+                                              "type":  "otp",
+                                              "userLabel":  "synthetic-dev",
+                                              "secretData":  "{\"value\":\"${TI_DEV_OTP_SECRET}\"}",
+                                              "credentialData":  "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+                                          }
+                                      ]
+                  }
+              ]
+}

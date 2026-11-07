@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Web
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Local configuration and secrets (only .env.example is committed)
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
