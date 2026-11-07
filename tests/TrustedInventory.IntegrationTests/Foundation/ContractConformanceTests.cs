@@ -132,7 +132,8 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
 
     private static List<Operation> LoadContract()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        // TI_REPO_ROOT lets builds with a separate --artifacts-path still find docs/openapi.yaml.
+        var dir = new DirectoryInfo(Environment.GetEnvironmentVariable("TI_REPO_ROOT") is { Length: > 0 } root ? root : AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "docs", "openapi.yaml")))
             dir = dir.Parent;
         using var reader = new StreamReader(Path.Combine(dir!.FullName, "docs", "openapi.yaml"));

@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0002_conversion_active_unique";
+    public const string Required = "0004_saas_control_plane";
 }
 
 public static class DependencyInjection
@@ -33,6 +33,8 @@ public static class DependencyInjection
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IMembershipDirectory, MembershipDirectory>();
         services.AddScoped<ITenantUnitOfWork, TenantUnitOfWork>();
+        services.AddSingleton<Application.Saas.ITenantAccessReader, Saas.TenantAccessReader>();
+        services.AddSingleton<Application.Saas.IQuotaGate, Saas.QuotaGate>();
         services.AddScoped<Application.Organization.IPlatformUnitOfWork, Organization.PlatformUnitOfWork>();
         services.AddSingleton<Application.Audit.IAuditSupport, Audit.AuditSupport>();
 

@@ -31,7 +31,12 @@ public static partial class Problems
             case AppException app:
                 if (app.Code == ErrorCode.RateLimited)
                     http.Response.Headers.RetryAfter = "60";
-                await WriteAsync(http, app.Status, app.Code, app.Message, app.Errors);
+                if (!http.Response.HasStarted)
+                {
+                    http.Response.StatusCode = app.Status;
+                    http.Response.ContentType = "application/problem+json";
+                    await http.Response.WriteAsync(ProblemBody.From(app, TraceId(http)).ToJsonString());
+                }
                 break;
             case BadHttpRequestException { InnerException: JsonException json }:
                 await WriteAsync(http, 400, ErrorCode.MalformedRequest, JsonDetail(json));

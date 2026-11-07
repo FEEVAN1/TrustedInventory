@@ -14,19 +14,27 @@ public static class ClusterBootstrap
         await using var conn = new NpgsqlConnection(superuserConnectionString);
         await conn.OpenAsync(ct);
 
-        await using (var exists = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ti_owner')", conn))
+        // Each bootstrap script creates roles; the first role it creates marks it as applied.
+        foreach (var script in SqlScripts.ClusterBootstrap)
         {
-            if (!(bool)(await exists.ExecuteScalarAsync(ct))!)
+            var marker = script.Id switch
             {
-                await using var cmd = new NpgsqlCommand(SqlScripts.ClusterBootstrap.Sql, conn);
-                await cmd.ExecuteNonQueryAsync(ct);
-                await log.WriteLineAsync("cluster bootstrap applied");
-            }
+                "0000_cluster" => "ti_owner",
+                "0001_control_plane" => "ti_control",
+                _ => throw new InvalidOperationException($"Bootstrap script {script.Id} has no applied-marker role."),
+            };
+            await using var exists = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = @r)", conn);
+            exists.Parameters.AddWithValue("r", marker);
+            if ((bool)(await exists.ExecuteScalarAsync(ct))!)
+                continue;
+            await using var cmd = new NpgsqlCommand(script.Sql, conn);
+            await cmd.ExecuteNonQueryAsync(ct);
+            await log.WriteLineAsync($"cluster bootstrap {script.Id} applied");
         }
 
         foreach (var (role, password) in rolePasswords)
         {
-            if (role is not ("ti_migrator" or "ti_app" or "ti_platform"))
+            if (role is not ("ti_migrator" or "ti_app" or "ti_platform" or "ti_control"))
                 throw new ArgumentException($"Unexpected login role {role}.", nameof(rolePasswords));
             // Identifiers come from the allowlist above; the password is a quoted literal.
             await using var cmd = new NpgsqlCommand(

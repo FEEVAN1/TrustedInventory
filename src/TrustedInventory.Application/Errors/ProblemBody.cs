@@ -8,8 +8,14 @@ namespace TrustedInventory.Application.Errors;
 /// </summary>
 public static class ProblemBody
 {
-    public static JsonObject From(AppException ex, string? traceId) =>
-        Create(ex.Status, ex.Code, ex.Message, traceId, ex.Errors);
+    public static JsonObject From(AppException ex, string? traceId)
+    {
+        var body = Create(ex.Status, ex.Code, ex.Message, traceId, ex.Errors);
+        if (ex.Extensions is { } extra)
+            foreach (var (key, value) in extra)
+                body[key] = value?.DeepClone();
+        return body;
+    }
 
     public static JsonObject Create(int status, ErrorCode code, string detail, string? traceId, IReadOnlyList<FieldError>? errors = null)
     {

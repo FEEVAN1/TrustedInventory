@@ -1,6 +1,6 @@
 using Npgsql;
 using TrustedInventory.Application.Security;
-using TrustedInventory.Domain.Organization;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 using TrustedInventory.Infrastructure.Persistence;
 
@@ -14,8 +14,11 @@ public sealed class MembershipDirectory(AppDataSource dataSource) : IMembershipD
 {
     public async Task<IReadOnlyList<MembershipRole>> ForSubjectAsync(string subject, CancellationToken ct)
     {
-        await using var cmd = dataSource.Source.CreateCommand(
-            "SELECT tenant_id, tenant_name, tenant_status, membership_id, role, warehouse_id FROM ti.user_memberships(@s)");
+        // Enum columns are read as text so new labels never depend on the pool's cached type mapping.
+        await using var cmd = dataSource.Source.CreateCommand("""
+            SELECT tenant_id, tenant_name, tenant_slug, lifecycle::text, security_suspended, membership_id, role::text, warehouse_id
+            FROM ti.user_memberships_v2(@s)
+            """);
         cmd.Parameters.AddWithValue("s", subject);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var rows = new List<MembershipRole>();
@@ -24,10 +27,12 @@ public sealed class MembershipDirectory(AppDataSource dataSource) : IMembershipD
             rows.Add(new MembershipRole(
                 reader.GetGuid(0),
                 reader.GetString(1),
-                reader.GetFieldValue<TenantStatus>(2),
-                reader.GetGuid(3),
-                reader.IsDBNull(4) ? null : reader.GetFieldValue<RoleName>(4),
-                reader.IsDBNull(5) ? null : reader.GetGuid(5)));
+                reader.GetString(2),
+                Enum.Parse<TenantLifecycle>(reader.GetString(3)),
+                reader.GetBoolean(4),
+                reader.GetGuid(5),
+                reader.IsDBNull(6) ? null : Enum.Parse<RoleName>(reader.GetString(6)),
+                reader.IsDBNull(7) ? null : reader.GetGuid(7)));
         }
         return rows;
     }

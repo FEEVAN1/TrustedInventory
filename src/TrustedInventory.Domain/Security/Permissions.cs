@@ -49,6 +49,16 @@ public static class Permissions
     public const string TelemetryIngest = "telemetry.ingest";
     public const string AuditRead = "audit.read";
     public const string ExportsCreate = "exports.create";
+    public const string PlatformBillingManage = "platform.billing.manage";
+    public const string BillingRead = "billing.read";
+    public const string BillingManage = "billing.manage";
+    public const string SubscriptionCancel = "subscription.cancel";
+    public const string TenantOwnershipTransfer = "tenant.ownership.transfer";
+    public const string TenantClose = "tenant.close";
+    public const string BillingDelegate = "billing.delegate";
+
+    /// <summary>Contract special value: any active member of the tenant (DEC-041).</summary>
+    public const string Member = "member";
 
     public static readonly IReadOnlyDictionary<string, PermissionScope> Scopes = new Dictionary<string, PermissionScope>
     {
@@ -89,5 +99,12 @@ public static class Permissions
         [TelemetryIngest] = PermissionScope.Device,
         [AuditRead] = PermissionScope.Tenant,
         [ExportsCreate] = PermissionScope.Tenant,
+        [PlatformBillingManage] = PermissionScope.Platform,
+        [BillingRead] = PermissionScope.Tenant,
+        [BillingManage] = PermissionScope.Tenant,
+        [SubscriptionCancel] = PermissionScope.Tenant,
+        [TenantOwnershipTransfer] = PermissionScope.Tenant,
+        [TenantClose] = PermissionScope.Tenant,
+        [BillingDelegate] = PermissionScope.Tenant,
     };
 }

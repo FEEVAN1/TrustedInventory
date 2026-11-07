@@ -3,7 +3,7 @@ using TrustedInventory.Migrator;
 // Usage:
 //   migrate     applies db/migrations          needs TI_MIGRATOR_CONNECTION
 //   bootstrap   development/test cluster setup needs TI_SUPERUSER_CONNECTION, TI_MIGRATOR_PASSWORD,
-//                                                    TI_APP_PASSWORD, TI_PLATFORM_PASSWORD
+//                                                    TI_APP_PASSWORD, TI_PLATFORM_PASSWORD, TI_CONTROL_PASSWORD
 //   seed        SYNTHETIC development data        needs TI_PLATFORM_CONNECTION (never production)
 var command = args.FirstOrDefault();
 try
@@ -20,6 +20,7 @@ try
                 ["ti_migrator"] = Required("TI_MIGRATOR_PASSWORD"),
                 ["ti_app"] = Required("TI_APP_PASSWORD"),
                 ["ti_platform"] = Required("TI_PLATFORM_PASSWORD"),
+                ["ti_control"] = Required("TI_CONTROL_PASSWORD"),
             }, Console.Out);
             return 0;
         case "seed":

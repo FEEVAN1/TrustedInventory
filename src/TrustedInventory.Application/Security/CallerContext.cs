@@ -1,5 +1,6 @@
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Domain.Organization;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
 namespace TrustedInventory.Application.Security;
@@ -29,7 +30,9 @@ public sealed class CallerContext(
     TenantStatus tenantStatus,
     IReadOnlyDictionary<string, PermissionGrant> grants,
     string? requestId = null,
-    string? correlationId = null)
+    string? correlationId = null,
+    TenantAccessState? access = null,
+    bool isOwner = false)
 {
     public string Subject { get; } = subject;
     public ActorType ActorType { get; } = actorType;
@@ -38,6 +41,12 @@ public sealed class CallerContext(
     public IReadOnlyDictionary<string, PermissionGrant> Grants { get; } = grants;
     public string? RequestId { get; } = requestId;
     public string? CorrelationId { get; } = correlationId;
+
+    /// <summary>Lifecycle, subscription and entitlement state read for this request (SAS-005); null for jobs.</summary>
+    public TenantAccessState? Access { get; } = access;
+
+    /// <summary>The caller holds TenantOwner in this tenant (owner-only cells of the state matrix).</summary>
+    public bool IsOwner { get; } = isOwner;
 
     public bool Has(string permission) => Grants.ContainsKey(permission);
 

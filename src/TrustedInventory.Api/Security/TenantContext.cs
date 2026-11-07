@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using TrustedInventory.Application.Errors;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Application.Security;
+using TrustedInventory.Domain.Saas;
+using TrustedInventory.Domain.Security;
 
 namespace TrustedInventory.Api.Security;
 
-/// <summary>Request-scoped holder for the caller resolved by <see cref="TenantContextFilter"/>.</summary>
+/// <summary>Request-scoped holder for the caller resolved by <see cref="TenantContextMiddleware"/>.</summary>
 public sealed class HttpCallerAccessor : ICallerAccessor
 {
     private CallerContext? _caller;
@@ -24,17 +27,18 @@ public sealed class TenantScopedMetadata
 }
 
 /// <summary>
-/// Establishes the tenant context for tenant routes (API-001, IAM-002) and enforces the endpoint permission
-/// (IAM-001). Runs as middleware after authorization and before parameter binding, so an unauthorized caller
-/// learns nothing about request validation. X-Tenant-Id must name a tenant where the token subject has an
-/// active membership; permissions come from that membership's role grants only. A tenant the caller does not
-/// belong to gets the same 403 as a non-existent one (no existence leak).
+/// The tenant half of the request pipeline (SAS-005), run as middleware after authentication and before
+/// parameter binding, so a refused caller learns nothing about request validation:
+/// membership (API-001, IAM-002) → access mode against the operation's category (state matrix, DEC-034) →
+/// permission (IAM-001) → feature entitlement (DEC-038). Quota is reserved later, inside the command
+/// transaction. A tenant the caller does not belong to gets the same 403 as a non-existent one.
 /// </summary>
 public sealed class TenantContextMiddleware(RequestDelegate next)
 {
     public const string TenantHeader = "X-Tenant-Id";
 
-    public async Task InvokeAsync(HttpContext http, IMembershipDirectory memberships, HttpCallerAccessor accessor)
+    public async Task InvokeAsync(HttpContext http, IMembershipDirectory memberships, ITenantAccessReader accessReader,
+        TimeProvider clock, HttpCallerAccessor accessor)
     {
         var endpoint = http.GetEndpoint();
         if (endpoint?.Metadata.GetMetadata<TenantScopedMetadata>() is null)
@@ -57,18 +61,64 @@ public sealed class TenantContextMiddleware(RequestDelegate next)
         if (rows.Count == 0)
             throw AppException.Forbidden("You are not a member of this tenant.");
 
+        // Deny by default: a tenant endpoint without a declared permission or access category never runs.
+        var permission = endpoint.Metadata.GetMetadata<PermissionMetadata>()?.Permission
+            ?? throw new InvalidOperationException($"Tenant endpoint {endpoint.DisplayName} declares no permission.");
+        var access = endpoint.Metadata.GetMetadata<AccessMetadata>()
+            ?? throw new InvalidOperationException($"Tenant endpoint {endpoint.DisplayName} has no x-access policy.");
+
+        var state = await accessReader.ReadAsync(tenantId, http.RequestAborted)
+            ?? throw AppException.Forbidden("You are not a member of this tenant.");
+        var isOwner = rows.Any(r => r.Role == RoleName.TenantOwner);
+        var now = clock.GetUtcNow();
+
         var grants = CallerContext.GrantsFrom(rows.Where(r => r.Role is not null).Select(r => (r.Role!.Value, r.WarehouseId)));
         var caller = new CallerContext(subject, ActorType.User, tenantId, rows[0].TenantStatus, grants,
             requestId: Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier,
-            correlationId: http.Request.Headers["X-Correlation-Id"].FirstOrDefault() is { Length: > 0 and <= 100 } cid ? cid : null);
+            correlationId: http.Request.Headers["X-Correlation-Id"].FirstOrDefault() is { Length: > 0 and <= 100 } cid ? cid : null,
+            access: state, isOwner: isOwner);
 
-        // Deny by default: a tenant endpoint without a declared permission never runs (IAM-001).
-        var permission = endpoint.Metadata.GetMetadata<PermissionMetadata>()?.Permission
-            ?? throw new InvalidOperationException($"Tenant endpoint {endpoint.DisplayName} declares no permission.");
-        caller.Require(permission);
+        AccessGate.Enforce(state, now, access.Category, isOwner, feature: null);
+        RequirePermission(caller, permission);
+        AccessGate.Enforce(state, now, access.Category, isOwner, endpoint.Metadata.GetMetadata<EntitlementMetadata>()?.Feature);
         accessor.Set(caller);
 
         await next(http);
+    }
+
+    /// <summary>Contract permission forms: a name, <c>a|b</c> (either), or <c>member</c> (any active member).</summary>
+    private static void RequirePermission(CallerContext caller, string permission)
+    {
+        if (permission == Permissions.Member)
+            return;
+        if (!permission.Split('|').Any(caller.Has))
+            throw AppException.Forbidden();
+    }
+}
+
+/// <summary>The operation's `x-access` category (DEC-034).</summary>
+public sealed record AccessMetadata(AccessCategory Category);
+
+/// <summary>The operation's `x-entitlement` feature key (DEC-038).</summary>
+public sealed record EntitlementMetadata(string Feature);
+
+/// <summary>The operation's `x-quota` key; the service reserves it inside its transaction (DEC-038).</summary>
+public sealed record QuotaMetadata(QuotaKey Quota);
+
+/// <summary>Attaches contract policies (generated from docs/openapi.yaml) to endpoints by operationId.</summary>
+public static class OperationPolicyConvention
+{
+    public static void Apply(EndpointBuilder builder)
+    {
+        var name = builder.Metadata.OfType<IEndpointNameMetadata>().LastOrDefault()?.EndpointName;
+        if (name is null || !Contract.OperationPolicies.ByOperationId.TryGetValue(name, out var policy))
+            return;
+        if (policy.Access is not ("none" or "platform"))
+            builder.Metadata.Add(new AccessMetadata(SaasWire.ParseCategory(policy.Access)));
+        if (policy.Entitlement is { } feature)
+            builder.Metadata.Add(new EntitlementMetadata(feature));
+        if (policy.Quota is { } quota)
+            builder.Metadata.Add(new QuotaMetadata(SaasWire.ParseQuota(quota)));
     }
 }
 

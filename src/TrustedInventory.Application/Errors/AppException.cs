@@ -30,6 +30,13 @@ public enum ErrorCode
     ReturnExceedsShipped,
     RateLimited,
     ServiceUnavailable,
+    SubscriptionRestricted,
+    TenantSecuritySuspended,
+    FeatureNotEnabled,
+    TrialNotEligible,
+    PlanLimitReached,
+    DowngradeBlocked,
+    RetentionBlocked,
 }
 
 public static class ErrorCodes
@@ -45,13 +52,17 @@ public class AppException(ErrorCode code, string detail, IReadOnlyList<FieldErro
 {
     public ErrorCode Code { get; } = code;
     public IReadOnlyList<FieldError> Errors { get; } = errors ?? [];
+
+    /// <summary>Optional contract fields added to the error body: quota, feature, recovery, blockers (DEC-041).</summary>
+    public System.Text.Json.Nodes.JsonObject? Extensions { get; init; }
     public int Status => StatusOf(Code);
 
     public static int StatusOf(ErrorCode code) => code switch
     {
         ErrorCode.MalformedRequest or ErrorCode.InvalidCursor or ErrorCode.IdempotencyKeyRequired => 400,
         ErrorCode.Unauthenticated => 401,
-        ErrorCode.Forbidden or ErrorCode.ReauthRequired => 403,
+        ErrorCode.Forbidden or ErrorCode.ReauthRequired or ErrorCode.SubscriptionRestricted or ErrorCode.TenantSecuritySuspended
+            or ErrorCode.FeatureNotEnabled => 403,
         ErrorCode.NotFound => 404,
         ErrorCode.VersionConflict => 412,
         ErrorCode.PreconditionRequired => 428,

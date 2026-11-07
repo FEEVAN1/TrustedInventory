@@ -29,7 +29,8 @@ public class ArchitectureTests
 
     private static string RepositoryRoot()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        // TI_REPO_ROOT lets builds with a separate --artifacts-path still find the sources.
+        var dir = new DirectoryInfo(Environment.GetEnvironmentVariable("TI_REPO_ROOT") is { Length: > 0 } root ? root : AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "TrustedInventory.slnx")))
             dir = dir.Parent;
         return dir?.FullName ?? throw new InvalidOperationException("TrustedInventory.slnx not found above test output.");

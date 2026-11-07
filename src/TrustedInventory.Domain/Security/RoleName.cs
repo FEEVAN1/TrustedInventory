@@ -13,6 +13,9 @@ public enum RoleName
     InventoryApprover,
     Auditor,
     TelemetryIntegration,
+    TenantOwner,
+    BillingAdministrator,
+    PlatformBilling,
 }
 
 public static class RoleBundles
@@ -53,6 +56,15 @@ public static class RoleBundles
         [RoleName.Auditor] =
             [Permissions.CatalogRead, Permissions.StockRead, Permissions.AuditRead, Permissions.ExportsCreate, Permissions.AlertsRead],
         [RoleName.TelemetryIntegration] = [Permissions.TelemetryIngest],
+        // Granted only by signup or an accepted ownership transfer (DEC-036, SOD-5).
+        [RoleName.TenantOwner] =
+        [
+            Permissions.BillingRead, Permissions.BillingManage, Permissions.SubscriptionCancel,
+            Permissions.TenantOwnershipTransfer, Permissions.TenantClose, Permissions.BillingDelegate, Permissions.ExportsCreate,
+        ],
+        // Billing only; no inventory permission implied (ONB-006).
+        [RoleName.BillingAdministrator] = [Permissions.BillingRead, Permissions.BillingManage],
+        [RoleName.PlatformBilling] = [Permissions.PlatformBillingManage, Permissions.PlatformHealthRead],
     };
 
     public static IReadOnlyList<string> PermissionsOf(RoleName role) => Bundles[role];

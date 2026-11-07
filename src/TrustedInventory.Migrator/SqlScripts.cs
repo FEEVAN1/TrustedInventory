@@ -14,7 +14,8 @@ public static class SqlScripts
 {
     public static IReadOnlyList<SqlScript> Migrations => Load("migrations/");
 
-    public static SqlScript ClusterBootstrap => Load("bootstrap/").Single();
+    /// <summary>Cluster bootstrap scripts in order (db/bootstrap); each runs once per cluster as a superuser.</summary>
+    public static IReadOnlyList<SqlScript> ClusterBootstrap => Load("bootstrap/");
 
     private static List<SqlScript> Load(string prefix)
     {

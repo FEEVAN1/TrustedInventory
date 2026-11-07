@@ -77,6 +77,8 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });
 
 var api = app.MapGroup("/api/v1").RequireAuthorization();
+// Contract policies (x-access, x-entitlement, x-quota) attach by operationId after each endpoint is named.
+((IEndpointConventionBuilder)api).Finally(OperationPolicyConvention.Apply);
 api.MapIdentityEndpoints();   // GET /me: authenticated, no tenant context
 api.MapPlatformEndpoints();   // /platform/*: platform administrators, no tenant context
 

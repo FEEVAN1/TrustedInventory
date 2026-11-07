@@ -19,6 +19,7 @@ public sealed class ApiFixture : IAsyncLifetime
     private const string AppPassword = "test-app-password";
     private const string PlatformPassword = "test-platform-password";
     private const string MigratorPassword = "test-migrator-password";
+    private const string ControlPassword = "test-control-password";
 
     private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:16")
         .WithDatabase("trustedinventory")
@@ -30,6 +31,7 @@ public sealed class ApiFixture : IAsyncLifetime
     public string AppConnection => Connection("ti_app", AppPassword);
     public string PlatformConnection => Connection("ti_platform", PlatformPassword);
     public string MigratorConnection => Connection("ti_migrator", MigratorPassword);
+    public string ControlConnection => Connection("ti_control", ControlPassword);
 
     public WebApplicationFactory<Program> Factory => _factory ?? throw new InvalidOperationException("Fixture not started.");
 
@@ -43,6 +45,7 @@ public sealed class ApiFixture : IAsyncLifetime
             ["ti_migrator"] = MigratorPassword,
             ["ti_app"] = AppPassword,
             ["ti_platform"] = PlatformPassword,
+            ["ti_control"] = ControlPassword,
         }, TextWriter.Null);
         await new MigrationRunner(MigratorConnection, TextWriter.Null).ApplyAsync();
         Seed = await SeedData.CreateAsync(SuperuserConnection);
