@@ -1,7 +1,10 @@
 # Agent and contributor guide
 
 Read this before changing code. The specification is
-`TrustedInventory_Implementation_Specification.pdf` (v2.0, 5 November 2026); requirement IDs below refer to it.
+`TrustedInventory_Implementation_Specification_updated.pdf` (**v3.0 SaaS**, 7 November 2026); requirement IDs
+below refer to it. v2.0 (`TrustedInventory_Implementation_Specification.pdf`) is superseded but kept for
+traceability of DEC-001 to DEC-031. Read spec sections 22–31 and `docs/saas-state-matrix.md` first:
+SaaS access, billing and lifecycle rules apply to every module.
 
 ## Operating rules (spec section 01)
 
@@ -17,9 +20,12 @@ Read this before changing code. The specification is
 4. **Synthetic data and simulated integrations only (AGT-004).** No secrets in the repository; only
    `.env.example` with placeholders. Mark simulators visibly. Passing tests are not regulatory validation.
 5. **Contract first (DEC-003).** Change `docs/openapi.yaml` before changing an endpoint. Enum values
-   come from `docs/enums.md`; permission names from `docs/permissions.md`.
+   come from `docs/enums.md`; permission names from `docs/permissions.md`. Every operation declares
+   `x-permission` and `x-access`, plus `x-entitlement` / `x-quota` where they apply (DEC-034, DEC-038).
+6. **No live commerce (DEC-039, DEC-040).** Billing runs only against the labelled simulator; never
+   publish prices, charge customers or delete production data from development or tests.
 
-## Milestones (spec section 20)
+## Milestones (spec sections 20 and 31)
 
 | Milestone | Status | Exit gate |
 |-----------|--------|-----------|
@@ -30,6 +36,13 @@ Read this before changing code. The specification is
 | M4 general operations | Not started | Stock conservation, independent approvals, end-to-end general flow pass |
 | M5 medical | Not started | Medical blocking, historical traceability, audit evidence pass |
 | M6 release readiness | Not started | Owner reviews evidence and approves production policies |
+| v3.0 contract pass | **Gate met** (7 Nov 2026): contract lints clean, SaaS schema draft passes 59 checks | SaaS contracts, state matrix, control-plane design; no unresolved isolation or stock conflict |
+| S1 provisioning | Not started (next) | AT-ONB and AT-SAS pass |
+| S2 commercial control | Not started | AT-BIL and AT-ENT pass in provider sandbox; no live charging |
+| S3 lifecycle and service | Not started | AT-LFC and AT-SOP pass; owner approves commercial defaults |
+
+Order: v3.0 contract pass → S1 → M2 → M3 → M4, with S2 and S3 before any commercial activation. R1A
+launch needs M0–M4, S1–S3 and release readiness; R1B also needs M5 and medical validation.
 
 **Definition of done (every milestone):** builds; migrations apply; relevant tests pass; contract
 matches actual responses; server authorization and error cases implemented; no mocked success in live
@@ -55,6 +68,13 @@ workflows; docs and example config updated; UI evidence for UI work; known limit
 - **Warnings are errors.** Analyzer suppressions need a comment explaining why.
 - **Tests:** real PostgreSQL 16 for anything touching transactions or RLS; in-memory providers are not
   evidence (section 19). Use a controllable clock for expiry, signatures and telemetry.
+
+## Handoff documents (spec section 20)
+
+Keep these current in the same change that affects them: `README.md`, `AGENTS.md`, `DECISIONS.md`,
+`docs/openapi.yaml`, `docs/data-dictionary.md`, `docs/requirement-test-matrix.csv`,
+`docs/operations.md`, and for SaaS `docs/saas-state-matrix.md`, `docs/entitlement-catalog.json`,
+`docs/billing-adapter.md`, `docs/tenant-offboarding.md`.
 
 ## Progress reports
 

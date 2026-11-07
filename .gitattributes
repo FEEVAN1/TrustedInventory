@@ -1,0 +1,4 @@
+# Keep LF in the repository and working tree on every platform (matches .editorconfig).
+* text=auto eol=lf
+*.pdf binary
+*.png binary

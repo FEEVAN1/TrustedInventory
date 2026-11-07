@@ -24,7 +24,7 @@ TEN-004,06,Jobs establish explicit tenant context; no universal bypass role,M1,R
 TEN-005,06,Tenant-scoped storage/export/cache/idempotency keys; short-lived links,M4,R1A,integration,Cross-tenant attachment/export link denied; expired link denied,Planned,
 SEC-TRANSPORT,06 (derived),HTTPS/TLS 1.3 target; encryption at rest; secrets in secret manager,M6,R1A,deployment,Deployment checklist evidence,Planned,
 SEC-INPUT,06 (derived),Input size/enum/precision validation; rate limits; attachment scan; CSP/CORS; PKCE,M1,R1A,integration,Oversized/invalid payload 400/422; rate limit 429; CORS allowlist,Partial,Unknown fields; enums; lengths; precision validated; body size limit; rate limit and CORS configured but not tested
-SEC-SUPPORT,06 (derived),No support impersonation; suspension blocks mutations and ingestion,M1,R1A,integration,Suspended tenant mutation and telemetry rejected,Partial,Suspension blocks mutations; v3.0 replaces this with reason-specific restrictions (section 26)
+SEC-SUPPORT,06 (derived),No support impersonation; suspension blocks mutations and ingestion,M1,R1A,integration,Suspended tenant mutation and telemetry rejected,Partial,Superseded by v3.0 section 26 (LFC-001 / saas-state-matrix.md); suspension blocks mutations today
 DATA-07,07 (derived),Org/catalog entities and constraints,M1,R1A,database,Constraint tests per entity,Passing,Catalog and location entities with constraints and lifecycle tests
 DATA-08,08 (derived),Stock/transaction entities and constraints,M2,R1A,database,Constraint tests per entity,Planned,docs/data-dictionary.md
 STORE-COMPAT,07 (derived),Bin compatibility for temperature/hazard/capacity,M2,R1A,unit+integration,AT-INB-03; compatibility rule unit tests (DEC-012),Planned,
@@ -110,3 +110,55 @@ AT-EXC-01,12,Transfer 20 receive 18 conserves total,M4,R1A,integration,TransferT
 AT-EXC-02,12,Modified adjustment returns 409 APPROVAL_STALE,M4,R1A,integration,AdjustmentTests.StaleApproval,Planned,
 AT-EXC-03,12,Return over net dispatched rejected,M4,R1A,integration,ReturnTests.ExceedsShipped,Planned,
 SUCCESS-02,02 (derived),Release success criteria,M6,R1A,process,Evidence pack links each release-critical row above to passing results,Planned,
+SAS-001,22,One tenant per business; one subscription and billing account; at least one owner,S1,R1S,integration,Provisioning creates one of each; last owner cannot be removed,Planned,
+SAS-002,22,Shared deployment and schema with forced RLS; home_region recorded at provisioning,S1,R1S,integration,Provisioned tenant has home_region; isolation suite unchanged,Planned,DEC-035
+SAS-003,22,Public surface; tenant workspace; separately authorized platform console; slug is navigation only,S1,R1S,integration,Slug never grants access; platform routes under /platform/v1,Planned,DEC-037
+SAS-004,22,Control-plane separated from inventory; billing operators cannot read stock,S1,R1S,database+integration,ti_control has no stock privileges; tenant_access function scoped to caller tenant,Planned,DEC-035; db/design/saas-smoke.sql
+SAS-005,22,Central request order incl. lifecycle; entitlement and quota gates,S1,R1S,integration,Pipeline order test; no endpoint or worker bypasses gates,Planned,DEC-034; DEC-038
+ONB-001,23,Verified identity; business details; terms and privacy acceptance before provisioning,S1,R1S,integration,Unverified email rejected; acceptance recorded,Planned,
+ONB-002,23,Idempotent resumable provisioning job,S1,R1S,integration,AT-ONB-01,Planned,
+ONB-003,23,14-day trial from Ready; one trial per tenant; abuse review flag,S1,R1S,integration,Trial clock from ready_at; repeat signup flagged,Planned,D09 / DEC-040
+ONB-004,23,Setup checklist; opt-in labelled sample data; no live stock side effects,S1,R1S,integration+browser,Checklist state API; sample data isolated,Planned,
+ONB-005,23,Hashed single-use 72h invitations bound to email and scope; atomic seat check,S1,R1S,integration,AT-ONB-02,Planned,
+ONB-006,23,Owner and billing administrator separation; ownership transfer with acceptance and re-auth,S1,R1S,integration,SOD-5/SOD-6 tests; transfer flow,Planned,DEC-036
+ONB-007,23,Provisioning states and retry-safe job reference; abuse limits; no email enumeration,S1,R1S,integration,Status endpoint; identical responses for registered/unregistered emails,Planned,
+ENT-001,24,Immutable plan and price versions; contracted versions retained,S2,R1S,database+integration,Referenced price version immutable; catalog change leaves subscriptions,Planned,
+ENT-002,24,Feature and quota keys; one current entitlement snapshot,S2,R1S,integration,Snapshot versioning; feature gate 403,Planned,docs/entitlement-catalog.json
+ENT-003,24,Seat and resource usage counting; atomic quota reservation; attachment byte reservations,S2,R1S,integration,AT-ENT-01; AT-ENT-03,Planned,
+ENT-004,24,At quota only increases are blocked; PLAN_LIMIT_REACHED / FEATURE_NOT_ENABLED,S2,R1S,integration,Quota boundary tests per resource,Planned,
+ENT-005,24,Upgrades after verified payment from next cycle; no proration,S2,R1S,integration,Change preview and scheduling,Planned,
+ENT-006,24,Downgrades scheduled only when usage fits; medical removal blocked by obligations,S2,R1S,integration,AT-ENT-02,Planned,
+BIL-001,25,Integer minor units with currency and exponent; snapshots; no tax inference,S2,R1S,unit+database,Money type tests; CHECKs,Planned,
+BIL-002,25,Provider-hosted checkout; no PAN/CVV; return URL is not proof,S2,R1S,integration,AT-BIL-01,Planned,DEC-039
+BIL-003,25,Preview and explicit consent before checkout; paid initial invoice activates,S2,R1S,integration,Checkout requires accepted preview digest,Planned,
+BIL-004,25,Signed webhooks on raw body; durable inbox before ack; dedupe; ownership check,S2,R1S,integration,AT-BIL-02 forged signature; duplicate event,Planned,docs/billing-adapter.md
+BIL-005,25,Async idempotent processing; out-of-order safe; outage keeps last verified entitlement,S2,R1S,integration,AT-BIL-02; AT-SOP-01,Planned,
+BIL-006,25,Invoice and payment states; UTC periods; daily reconciliation,S2,R1S,integration,Reconciliation converges with simulator,Planned,
+BIL-007,25,PastDue with single 7-day grace; payment never clears security suspension,S2,R1S,integration,AT-BIL-03; AT-BIL-04,Planned,D10
+BIL-008,25,Cancellation at period end; disputes create review tasks without deleting data,S2,R1S,integration,AT-LFC-01,Planned,
+LFC-001,26,Restriction precedence; computed access per command; no billing event recreates a tenant,S1,R1S,unit+integration,State-matrix table test; AT-BIL-04,Planned,docs/saas-state-matrix.md
+LFC-002,26,Cancel without deleting; closure with re-auth; export offer; retention check,S3,R1S,integration,AT-LFC-01,Planned,docs/tenant-offboarding.md
+LFC-003,26,Tenant-scoped archive export with lineage; 15-minute links,S3,R1S,integration,AT-LFC-02,Planned,
+LFC-004,26,Approved deletion; backup expiry; deletion register replay on restore,S3,R1S,operations,AT-LFC-02,Planned,
+SUI-001,29,Loading/empty/validation/provider-unavailable/payment-pending/restricted states,S3,R1S,browser,Checkout return pending state,Planned,
+SUI-002,29,Billing notices to owner and billing contacts via outbox; deduplicated,S3,R1S,integration,Notice dedupe test,Planned,
+SUI-003,29,Upgrade prompts name the limit; restrictions never hide recalls or safety alerts,S3,R1S,browser+integration,Safety categories allowed in BillingRestricted,Planned,
+SOP-001,30,Tenant-aware rate limits; export concurrency; fair worker scheduling,S3,R1S,integration,Per-tenant limiter; two concurrent exports,Planned,
+SOP-002,30,Load test with ten tenants; noisy tenant cannot starve others,S3,R1S,performance,AT-SOP-01,Planned,
+SOP-003,30,SaaS monitoring and alerts (webhook age; entitlement mismatch),S3,R1S,integration,Alert on webhook age > 5 min,Planned,
+SOP-004,30,Production separation; redundancy; one primary region,M6,R1S,deployment,Deployment evidence,Planned,D06
+SOP-005,30,Expand/migrate/contract rollout; canary; rollback compatibility,M6,R1S,deployment,Migration 0003 expand-contract rehearsal,Planned,
+SOP-006,30,No impersonation; support sees metadata and trace ids only,S3,R1S,integration,Platform routes return no tenant data,Planned,
+AT-ONB-01,23,Signup retried ten times gives one tenant/owner/trial; resumed provisioning no duplicates,S1,R1S,integration,SignupTests,Planned,
+AT-ONB-02,23,Invite mismatch/expired/revoked creates no membership; final seat race admits one,S1,R1S,integration,InvitationTests,Planned,
+AT-SAS-01,31,Two tenants on different plans share pooled connections without leaks; HTTP and worker,S1,R1S,integration,MultiPlanIsolationTests,Planned,
+AT-ENT-01,24,Concurrent final warehouse slot yields one creation,S2,R1S,integration,QuotaRaceTests,Planned,
+AT-ENT-02,24,Downgrade with medical stock refused with blockers; safety workers continue,S2,R1S,integration,DowngradeTests,Planned,
+AT-ENT-03,31,Concurrent seat/warehouse/attachment reservations bounded; downgrade recheck,S2,R1S,integration,QuotaRaceTests,Planned,
+AT-BIL-01,31,Checkout return without paid event changes nothing; duplicate paid events activate once,S2,R1S,integration,CheckoutTests,Planned,
+AT-BIL-02,31,Out-of-order events keep paid access; forged signature rejected; unknown reference quarantined,S2,R1S,integration,WebhookTests,Planned,
+AT-BIL-03,31,Writes block at trial_end and grace_end without workers; safety keeps working,S2,R1S,integration,RestrictionTests,Planned,
+AT-BIL-04,31,Payment during security suspension keeps restriction; payment after deletion never recreates,S2,R1S,integration,RestrictionTests,Planned,
+AT-LFC-01,31,Cancel at period end; ownership never zero; deletion blocked by stock or legal hold,S3,R1S,integration,LifecycleTests,Planned,
+AT-LFC-02,31,Export scoped and complete; expired links fail; restored backup keeps deleted tenant inaccessible,S3,R1S,integration+operations,OffboardingTests,Planned,
+AT-SOP-01,31,Provider outage preserves access and reconciles; noisy tenant does not starve others,S3,R1S,integration+performance,ResilienceTests,Planned,

@@ -240,3 +240,116 @@ append-only grants and triggers, duplicate operation and audit-sequence keys, qu
 excess-precision rejection, transaction-local context non-leakage, the membership definer function, and the
 absence of owner or platform stock bypass. This is design evidence only. The M1 gate needs the same checks
 through the real application stack.
+
+## 11. v3.0 control plane (S1/S2)
+
+Design draft `db/design/saas-schema-draft.sql`; checked by `db/design/run-saas-smoke.ps1` (bootstrap,
+0001, 0002, then the draft's sections applied exactly as the migrator would, with smoke stages between
+them: 59 checks pass on PostgreSQL 16). Decisions DEC-032 to DEC-040; access rules
+`docs/saas-state-matrix.md`.
+
+### 11.1 Identities and schema
+
+| Role | Login | Purpose |
+|------|-------|---------|
+| `ti_control` | yes | Control plane: signup, provisioning jobs, invitation acceptance, billing adapter, webhook inbox, reconciliation, platform billing console. Full access to schema `cp`; on `ti` only tenant, membership, role_grant, audit_stream, audit_event (insert/read), usage_counter and invitation (read/update). **No catalog, location or stock privileges** (SAS-004). |
+| `cp_access_reader` | no | Owns `cp.tenant_access()` only (same pattern as `ti_membership_reader`). |
+
+Both roles and schema `cp` are created by a **bootstrap addendum** (superuser, once per cluster), because
+role creation needs a superuser. `ti_platform` gets no USAGE on `cp`. Schema `cp` is owned by `ti_owner`,
+every `cp` table has forced RLS, and `ti_app` sees only its own tenant's tenant-facing rows (subscription,
+invoice, payment, entitlement snapshot, checkout, change, billing account without `tax_reference`).
+
+### 11.2 Migration files
+
+| File | Content | Why separate |
+|------|---------|--------------|
+| `0003_saas_enum_values` | New labels on `ti.role_name`, `ti.export_type`, `ti.alert_type` | `ALTER TYPE … ADD VALUE` must commit before any later statement uses the label |
+| `0004_saas_control_plane` | Tenant **expand**, `ti` SaaS tables, schema `cp` tables, RLS, grants, `cp.tenant_access()`, `ti.user_memberships_v2()` | One atomic expand step |
+| `0005_tenant_status_contract` | Lifecycle/slug/region NOT NULL, lifecycle default, drop compatibility trigger, `ti.user_memberships`, `tenant.status` and its type | Released only when no running version reads `status` |
+
+### 11.3 Tenant expand/contract without breaking M1
+
+1. **0004 (expand):** add the new columns nullable, backfill v2.0 rows (`Active → Ready`, `Suspended →
+   Ready + security suspension`, generated slug, region `default`), and install
+   `ti.tenant_sync_legacy_status`. The trigger keeps both shapes consistent in both directions: old code
+   that writes `status` updates the security suspension, new code that writes the suspension updates
+   `status`, and an old-style insert (no lifecycle) is treated as `Ready`. **No lifecycle default** is set
+   yet, so an old insert can be told apart from a new one.
+2. **Release the new code** (reads `lifecycle` and the suspension; uses `user_memberships_v2`). M1 code and
+   new code can run side by side against 0004 (smoke checks x1–x6).
+3. **0005 (contract):** set `lifecycle DEFAULT 'Provisioning'` and NOT NULL, drop the trigger, the old
+   membership function, `status` and `ti.tenant_status`.
+
+**Backfills under forced RLS.** `ti_owner` has no policy on tenant tables (TEN-004), so with FORCE RLS a
+migration's `UPDATE ti.tenant` affects zero rows. A data backfill therefore wraps the statement in
+`ALTER TABLE … NO FORCE ROW LEVEL SECURITY` / `FORCE ROW LEVEL SECURITY` inside the same migration
+transaction. Only the migration identity can do this; the schema conformance test asserts FORCE is set on
+every table after migrating. This applies to every future data migration on a tenant table.
+
+### 11.4 Access decision per request
+
+The unit of work, after `set_config('app.tenant_id', …)`, calls `cp.tenant_access()`. The function takes no
+argument and reads `app.tenant_id`, so a tenant request can never ask about another tenant, and without
+context it returns no row (fail closed). The C# access-mode calculator applies the matrix in
+`docs/saas-state-matrix.md` to that row and the request time. SQL deliberately does not duplicate that
+logic, so there is exactly one implementation to test. Because the row is read inside the command's own
+transaction, a boundary such as `trial_end` takes effect on the first request after it passes, with no job
+involved (section 26, AT-BIL-03).
+
+### 11.5 Quota reservation (ENT-003, AT-ENT-01, AT-ENT-03)
+
+Inside the transaction that creates the counted resource, after the access check and before the insert:
+
+```
+SELECT used FROM ti.usage_counter WHERE metric = @metric FOR UPDATE;      -- RLS scopes to the tenant
+limit = (cp.tenant_access()).limits ->> @metric                           -- same transaction
+IF used + amount > limit → rollback; 409 PLAN_LIMIT_REACHED {quota, used, limit, upgradeAction}
+UPDATE ti.usage_counter SET used = used + amount, version = version + 1 WHERE metric = @metric;
+INSERT … the resource …
+```
+
+- Retiring or deactivating the resource decrements the counter in its own transaction.
+- Concurrent creations serialise on the counter row, so the last slot is taken once.
+- Lock order: the counter row is locked after document rows and before stock buckets and the audit stream
+  (extends §5).
+- Attachment uploads insert a `usage_reservation` and increment `attachment_bytes` up front. A worker
+  releases expired reservations, and a failed upload releases its own.
+- A daily job reconciles counters against authoritative active-record counts and alerts on any difference
+  (`EntitlementMismatch`). It never silently rewrites usage to unblock a tenant.
+
+### 11.6 Provisioning job (ONB-002, AT-ONB-01)
+
+- `POST /saas/signup` requires an `Idempotency-Key`.
+- The job row is created with `signup_key = subject + '|' + key`, a request digest and a tenant id
+  allocated up front:
+  - The same key with the same body returns the existing job.
+  - The same key with a different body is `IDEMPOTENCY_MISMATCH`.
+- The control-plane worker leases runnable jobs (`FOR UPDATE SKIP LOCKED`) and runs the steps in order. Each
+  step checks whether its record already exists before creating it, and records its outcome in
+  `step_outcomes` / `completed_steps`:
+
+| Step | Creates (idempotently) |
+|------|------------------------|
+| AllocateTenant | `ti.tenant` with the job's tenant id, lifecycle `Provisioning`, slug, region; audit stream |
+| CreateOwnerMembership | Owner membership and `TenantOwner` + `TenantAdministrator` grants; seat counter = 1 |
+| CreateBillingAccount | `cp.billing_account` |
+| AttachTrial | `cp.subscription` (Trialing, plan version from the request, `trial_*` set at Ready time) and the first entitlement snapshot; one trial per tenant, repeat identities flagged for abuse review |
+| InitializeConfiguration | Usage counters for every quota key |
+| MarkReady | `lifecycle = Ready`, `ready_at`; trial clock starts now (ONB-003) |
+
+- A failure stores `failure_code`, backs off, and retries the same step; it never re-runs a completed one.
+- Until `MarkReady`, the tenant is `Provisioning`, so nothing usable is exposed.
+- The trial starts only at Ready, so a resumed job never starts a second trial.
+
+### 11.7 Webhook inbox and out-of-order events (BIL-004, BIL-005)
+
+The flow is in `docs/billing-adapter.md`. Database guarantees:
+- `UNIQUE (provider, event_id)` makes duplicates no-ops.
+- Each apply runs in one transaction that locks the subscription row and compares the provider's revision or
+  authoritative resource with `provider_revision`. Older state is ignored, so a late failure cannot regress
+  a paid period.
+- The same transaction bumps `revision`, writes a new current entitlement snapshot when plan or period
+  change (the partial unique index guarantees one current row), and writes audit and outbox rows.
+- Lifecycle precedence is checked in that transaction: no event can change a `Deleted` tenant or clear a
+  security suspension.

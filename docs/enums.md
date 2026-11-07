@@ -6,7 +6,7 @@ Changing a value requires a DECISIONS.md entry and a migration.
 
 | Enum | Values | Notes |
 |------|--------|-------|
-| TenantStatus | `Active`, `Suspended` | Suspension blocks tenant mutations and telemetry ingestion |
+| TenantLifecycle | `Provisioning`, `Ready`, `Archived`, `DeletionPending`, `Deleted` | v3.0 section 26; replaces v2.0 TenantStatus (DEC-033) |
 | HandlingProfile | `General`, `Medical` | Medical requires lot tracking and expiry |
 | TrackingMode | `Quantity`, `Lot`, `Serial`, `LotAndSerial` | |
 | RotationRule | `FIFO`, `LIFO`, `FEFO` | Medical products: FEFO only |
@@ -31,10 +31,10 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | SignatureMeaning | `Approval`, `Rejection`, `QualityRelease`, `Disposition` | |
 | ExcursionStatus | `Open`, `Acknowledged`, `Resolved` | |
 | ExcursionDisposition | `Release`, `KeepOnHold`, `Damaged` | QA decision on resolution |
-| AlertType | `Excursion`, `StaleDevice`, `ExpiryApproaching`, `ReconciliationMismatch`, `AuditChainFailure`, `OutboxDeadLetter`, `PutawayException` | |
+| AlertType | `Excursion`, `StaleDevice`, `ExpiryApproaching`, `ReconciliationMismatch`, `AuditChainFailure`, `OutboxDeadLetter`, `PutawayException`, `ProvisioningFailed`, `WebhookBacklog`, `EntitlementMismatch`, `BillingReconciliation` | SaaS alerts are platform-level (SOP-003) |
 | AlertSeverity | `Info`, `Warning`, `High` | |
 | AlertStatus | `Open`, `Acknowledged`, `Closed` | |
-| ExportType | `Audit`, `Movements`, `Traceability`, `StockSnapshot` | |
+| ExportType | `Audit`, `Movements`, `Traceability`, `StockSnapshot`, `TenantArchive` | TenantArchive: LFC-003 |
 | ExportStatus | `Queued`, `Running`, `Completed`, `Failed`, `Expired` | |
 | AttachmentScanStatus | `Pending`, `Clean`, `Rejected` | |
 | ApprovalAction | `Post`, `Release`, `Close`, `Correct`, `Dispose` | What the consuming command will do |
@@ -47,7 +47,32 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | ReadingProcessingStatus | `Stored`, `ExcursionOpened`, `LateReviewQueued` | |
 | AuditVerificationFailure | `HashMismatch`, `SequenceGap`, `CheckpointMismatch`, `MissingCheckpoint` | |
 | ActorType | `User`, `Service`, `Device`, `System` | |
-| Role | `PlatformAdministrator`, `TenantAdministrator`, `WarehouseManager`, `Receiver`, `Picker`, `Dispatcher`, `QaOfficer`, `InventoryApprover`, `Auditor`, `TelemetryIntegration` | Bundles in `permissions.md` |
+| Role | `PlatformAdministrator`, `TenantAdministrator`, `WarehouseManager`, `Receiver`, `Picker`, `Dispatcher`, `QaOfficer`, `InventoryApprover`, `Auditor`, `TelemetryIntegration`, `TenantOwner`, `BillingAdministrator`, `PlatformBilling` | Bundles in `permissions.md`; TenantOwner only via signup or transfer (DEC-036) |
+
+## SaaS control plane (v3.0 sections 23–28)
+
+| Enum | Values | Notes |
+|------|--------|-------|
+| AccessMode | `Normal`, `Provisioning`, `BillingRestricted`, `SecuritySuspended`, `Closed`, `Deleted` | Computed per request (DEC-033, saas-state-matrix.md) |
+| RestrictionReason | `Provisioning`, `TrialEnded`, `PaymentOverdue`, `SubscriptionEnded`, `SecuritySuspended`, `Archived`, `DeletionPending`, `Deleted` | Every active reason, highest precedence first |
+| AccessCategory | `identity`, `setup-status`, `read`, `export`, `routine-write`, `safety`, `team-admin`, `protective-admin`, `billing`, `ownership`, `telemetry-ingest` | `x-access` on each operation (DEC-034) |
+| SubscriptionState | `Trialing`, `Active`, `PastDue`, `Cancelled` | Initial unpaid checkout lives in CheckoutSession |
+| SubscriptionChangeState | `Pending`, `Scheduled`, `Blocked`, `Applied`, `Cancelled` | ENT-005, ENT-006 |
+| BillingInterval | `Month`, `Year` | |
+| CheckoutStatus | `Open`, `Completed`, `Expired` | A return URL never completes it (BIL-002) |
+| InvoiceStatus | `Draft`, `Open`, `Paid`, `Void`, `Uncollectible` | BIL-006 |
+| PaymentStatus | `Pending`, `Succeeded`, `Failed`, `Refunded` | BIL-006 |
+| ProvisioningStatus | `Pending`, `Provisioning`, `Ready`, `Failed` | ONB-007 |
+| ProvisioningStep | `AllocateTenant`, `CreateOwnerMembership`, `CreateBillingAccount`, `AttachTrial`, `InitializeConfiguration`, `MarkReady` | ONB-002, in this order |
+| InvitationStatus | `Pending`, `Accepted`, `Revoked`, `Expired` | ONB-005 |
+| WebhookProcessingState | `Received`, `Processed`, `Ignored`, `Quarantined`, `Failed` | Quarantined: unknown billing reference (AT-BIL-02) |
+| ClosureStatus | `Requested`, `ExportWindow`, `Blocked`, `DeletionPending`, `Deleted`, `Withdrawn` | LFC-002 |
+| FeatureKey | `core_inventory`, `service_api`, `advanced_reporting`, `medical_storage`, `telemetry` | Wire values as written (ENT-002) |
+| QuotaKey | `active_seats`, `active_warehouses`, `active_skus`, `active_devices`, `attachment_bytes` | ENT-002, ENT-003 |
+| OwnershipTransferStatus | `Pending`, `Accepted`, `Cancelled`, `Expired` | ONB-006 |
+| PlanVersionStatus | `Draft`, `Published`, `Retired` | ENT-001; immutable once referenced |
+| ReconciliationTaskKind | `SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`, `UnknownBillingReference`, `Dispute`, `Refund`, `Chargeback` | BIL-006, BIL-008 |
+| ReconciliationTaskStatus | `Open`, `Resolved` | |
 
 ## Stock movement types
 
@@ -78,9 +103,9 @@ Every movement has `base_qty > 0`; direction comes from source/destination, neve
 |------|------|
 | 400 | `MALFORMED_REQUEST`, `INVALID_CURSOR`, `IDEMPOTENCY_KEY_REQUIRED` |
 | 401 | `UNAUTHENTICATED` |
-| 403 | `FORBIDDEN`, `REAUTH_REQUIRED` |
+| 403 | `FORBIDDEN`, `REAUTH_REQUIRED`, `SUBSCRIPTION_RESTRICTED`, `TENANT_SECURITY_SUSPENDED`, `FEATURE_NOT_ENABLED` |
 | 404 | `NOT_FOUND` |
-| 409 | `INSUFFICIENT_STOCK`, `STOCK_BLOCKED`, `INVALID_STATE`, `IDEMPOTENCY_MISMATCH`, `APPROVAL_STALE`, `APPROVAL_SELF`, `COUNT_LOCKED`, `RETRYABLE_CONFLICT` |
+| 409 | `INSUFFICIENT_STOCK`, `STOCK_BLOCKED`, `INVALID_STATE`, `IDEMPOTENCY_MISMATCH`, `APPROVAL_STALE`, `APPROVAL_SELF`, `COUNT_LOCKED`, `RETRYABLE_CONFLICT`, `TRIAL_NOT_ELIGIBLE`, `PLAN_LIMIT_REACHED`, `DOWNGRADE_BLOCKED`, `RETENTION_BLOCKED` |
 | 412 | `VERSION_CONFLICT` |
 | 428 | `PRECONDITION_REQUIRED` |
 | 422 | `VALIDATION_FAILED`, `OVER_RECEIPT`, `INCOMPATIBLE_BIN`, `BARCODE_CONFLICT`, `UNKNOWN_BARCODE`, `MISSING_MEDICAL_EVIDENCE`, `DUPLICATE_SERIAL`, `RETURN_EXCEEDS_SHIPPED` |

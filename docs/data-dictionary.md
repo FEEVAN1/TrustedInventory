@@ -374,3 +374,73 @@ A daily signed checkpoint: sequence, hash, signature, `signing_key_id` and `exte
 Because the database cannot express eligibility, expiry and compatibility, those rules live in one
 Application-layer eligibility service used by allocation, pick, dispatch and release. Integration tests
 for that service run against real PostgreSQL with a controllable clock (section 19).
+
+## 10. SaaS control plane (v3.0, sections 22–28)
+
+Design draft: `db/design/saas-schema-draft.sql`, validated by `db/design/run-saas-smoke.ps1` (59 checks on
+PostgreSQL 16). Real migrations arrive in S1/S2 (DEC-032). Decisions: DEC-033 to DEC-040.
+
+### Tenant changes (replaces `status`, DEC-033)
+
+| Column | Type | Null | Notes |
+|--------|------|------|-------|
+| lifecycle | ti.tenant_lifecycle | no (after 0005) | Provisioning, Ready, Archived, DeletionPending, Deleted; default Provisioning |
+| slug | text | no (after 0005) | Lowercase DNS-label style, globally unique (`lower(slug)` index); navigation only (SAS-003) |
+| home_region | text | no (after 0005) | Explicit at provisioning (SAS-002) |
+| ready_at, archived_at, deletion_requested_at, deleted_at | timestamptz | yes | Ready requires ready_at |
+| retention_hold | boolean | no | Blocks deletion (LFC-004) |
+| security_suspended_at, security_suspension_reason, security_suspended_by | | yes | All or none; set by platform operations |
+| provisioning_job_id | uuid | yes | FK `cp.provisioning_job` |
+
+`status` and type `ti.tenant_status` are dropped by the contract step (0005) after a compatibility trigger
+keeps both shapes in sync during rollout. Billing restriction is **not** a column: it is computed per
+request (`docs/saas-state-matrix.md`).
+
+### Tenant-scoped SaaS tables in `ti` (forced RLS, `tenant_isolation` for `ti_app`)
+
+| Table | Purpose | Key constraints | Requirement |
+|-------|---------|-----------------|-------------|
+| invitation | Pending team invitations | `token_hash` (SHA-256) unique; lifetime ≤ 72 h; one pending per email; roles exclude owner and platform roles; Accepted ⇔ accepted_at, subject and membership | ONB-005, AT-ONB-02 |
+| ownership_transfer | Owner hand-over awaiting recipient acceptance | One pending per tenant; recipient must be a member (composite FK); stores re-auth digest | ONB-006, SOD-5 |
+| usage_counter | Quota usage per metric | PK (tenant_id, metric); `used ≥ 0`; locked FOR UPDATE inside the creating transaction | ENT-003, AT-ENT-01 |
+| usage_reservation | Attachment-byte reservations before upload | `amount > 0`; expiry index for release | ENT-003 |
+
+Invitations are in `ti` because tenant administrators manage them in their own tenant transaction;
+acceptance happens before the invitee is a member, so `ti_control` reads (not creates) them by token hash.
+
+### Control-plane tables in `cp` (forced RLS; `ti_control` full access)
+
+| Table | Purpose | Key constraints | `ti_app` access |
+|-------|---------|-----------------|-----------------|
+| plan_version | Plan code + version, features, quota map | `(plan_code, version)` unique; immutable once published | SELECT published public rows |
+| price_version | Amount per plan version, currency, interval | Minor units ≥ 0; exponent 0–4; ISO currency; immutable once referenced (trigger) | SELECT prices of published plans |
+| billing_account | One per tenant | `tenant_id` unique; `(provider, provider_customer_id)` unique | SELECT own row **without** `tax_reference` |
+| subscription | One per tenant | `tenant_id` unique; state-dependent CHECKs (Trialing needs trial dates, Active needs price and period, PastDue needs grace_end); `revision` bumps on every change | SELECT own |
+| checkout_session | Hosted checkout attempts | One open per tenant; `(tenant_id, idempotency_key)` unique; HTTPS URL only; Completed ⇔ completed_at | SELECT own |
+| subscription_change | Scheduled upgrade/downgrade | One Pending/Scheduled per subscription; Blocked needs blockers | SELECT own |
+| entitlement_snapshot | Features + limits in force | Exactly one `is_current` per tenant; `(tenant_id, entitlement_version)` unique | SELECT own |
+| invoice | Provider invoice snapshot | `(provider, provider_invoice_ref)` unique; `total = subtotal − discount + tax`; Paid ⇔ paid_at | SELECT own |
+| payment | Payment and refund records | `(provider, provider_payment_ref)` unique; refunds reference the original | SELECT own |
+| webhook_inbox | Verified provider events | `(provider, event_id)` unique; encrypted payload, redacted summary | none |
+| provisioning_job | Resumable signup provisioning | `signup_key` unique; tenant id allocated up front; Ready ⇔ ready_at | none |
+| terms_acceptance | Terms/privacy/subscription-terms evidence | Append-only | none |
+| deletion_record | Closure, deletion register | One open per tenant; Deleted needs approval and backup expiry | none |
+
+Money columns everywhere: `bigint` minor units + `char(3)` currency + `smallint` exponent (BIL-001).
+
+### Access decision function
+
+`cp.tenant_access()` (SECURITY DEFINER, owner `cp_access_reader`, EXECUTE for `ti_app` only) returns the
+current tenant's lifecycle, security suspension, subscription state and clocks, and current entitlement
+version, features and limits. It takes no tenant argument and reads `app.tenant_id`, so a request can only
+ask about its own tenant and gets nothing without context. Access mode is computed in C# from this row.
+`ti.user_memberships_v2(subject)` replaces `ti.user_memberships` and adds slug, lifecycle and a suspension
+flag for the tenant selector.
+
+### Roles
+
+| Role | Login | Privileges |
+|------|-------|------------|
+| `ti_control` | yes | All `cp` tables (no DELETE; no UPDATE on terms_acceptance); `ti.tenant`, `membership`, `role_grant`, `audit_stream`, `usage_counter` (S/I/U); `audit_event` (S/I); `invitation` (S/U). **No** catalog, location or stock privileges. |
+| `cp_access_reader` | no | Owns `cp.tenant_access()`; SELECT on tenant, subscription, entitlement_snapshot |
+| `ti_platform` | yes | Unchanged; no USAGE on schema `cp` |

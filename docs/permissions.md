@@ -11,7 +11,8 @@ Separation-of-duty rules apply regardless of how many roles a user holds (sectio
 
 | Permission | Scope | Used by |
 |------------|-------|---------|
-| `platform.tenants.manage` | platform | Provision, suspend, reactivate tenants |
+| `platform.tenants.manage` | platform | Tenant metadata, provisioning failures, reasoned security suspend/resume (no tenant creation: signup only, DEC-037) |
+| `platform.billing.manage` | platform | Plan/price publication, billing reconciliation, disputes, complimentary access with independent approval |
 | `platform.health.read` | platform | Service health |
 | `tenant.members.manage` | tenant | Memberships and role grants |
 | `tenant.config.manage` | tenant | Configuration versions, rotation rule, storage profiles |
@@ -48,12 +49,19 @@ Separation-of-duty rules apply regardless of how many roles a user holds (sectio
 | `telemetry.ingest` | device | `POST /telemetry/readings` (service principal only) |
 | `audit.read` | tenant | Audit events, verification |
 | `exports.create` | tenant | Create and download exports |
+| `billing.read` | tenant | Subscription, usage, invoices (owner and billing administrator only) |
+| `billing.manage` | tenant | Checkout, plan change, billing portal, payment methods (via provider) |
+| `subscription.cancel` | tenant | Cancel or resume the subscription |
+| `tenant.ownership.transfer` | tenant | Start an ownership transfer (recipient must accept; re-auth required) |
+| `tenant.close` | tenant | Request closure and tenant archive export (re-auth required) |
+| `billing.delegate` | tenant | Grant or revoke `BillingAdministrator` |
 
 ## Role bundles (default; owner to confirm under D03)
 
 | Role | Permissions |
 |------|-------------|
-| PlatformAdministrator | `platform.*` only. No tenant stock access. |
+| PlatformAdministrator | `platform.tenants.manage`, `platform.health.read`. Platform operations; no tenant data or stock access. |
+| PlatformBilling | `platform.billing.manage`, `platform.health.read`. Separate from operations; no tenant stock access (section 05). |
 | TenantAdministrator | `tenant.members.manage`, `tenant.config.manage`, `catalog.manage`, `catalog.read`, `warehouses.manage`, `devices.manage`, `stock.read` |
 | WarehouseManager | `catalog.read`, `stock.read`, `purchase-orders.create`, `purchase-orders.approve`, `orders.create`, `orders.allocate`, `transfers.manage`, `counts.perform`, `counts.manage`, `adjustments.request`, `adjustments.post`, `returns.manage`, `approvals.request`, `tasks.manage`, `alerts.read`, `alerts.acknowledge`, `quality.hold` |
 | Receiver | `catalog.read`, `stock.read`, `receipts.post`, `putaway.confirm`, `returns.manage`, `counts.perform` |
@@ -63,6 +71,8 @@ Separation-of-duty rules apply regardless of how many roles a user holds (sectio
 | InventoryApprover | `catalog.read`, `stock.read`, `approvals.sign.inventory` |
 | Auditor | `catalog.read`, `stock.read`, `audit.read`, `exports.create`, `alerts.read` |
 | TelemetryIntegration | `telemetry.ingest` (service principal bound to its devices) |
+| TenantOwner | `billing.read`, `billing.manage`, `subscription.cancel`, `tenant.ownership.transfer`, `tenant.close`, `billing.delegate`, `exports.create`. Granted only by signup or ownership transfer (DEC-036). |
+| BillingAdministrator | `billing.read`, `billing.manage`. No inventory permission implied (ONB-006). |
 
 ## Separation-of-duty rules (server-enforced)
 
@@ -73,3 +83,18 @@ Separation-of-duty rules apply regardless of how many roles a user holds (sectio
 - **SOD-3** A tenant administrator cannot grant themselves `approvals.sign.quality`. A role grant
   that adds QA permissions must be made by a different administrator and is audited.
 - **SOD-4** Signing requires an active membership at signing time and at posting time (IAM-004).
+- **SOD-5** `TenantOwner` cannot be granted or revoked through role-grant routes; only signup (first owner)
+  and an accepted ownership transfer change it. The last active owner can be neither removed nor
+  deactivated (ONB-006, AT-LFC-01).
+- **SOD-6** Only a holder of `billing.delegate` (an owner) grants or revokes `BillingAdministrator`. A
+  tenant administrator cannot cancel service, transfer ownership or close the tenant (ONB-006).
+- **SOD-7** Ownership transfer, closure and signing need recent re-authentication (5 minutes, DEC-009).
+- **SOD-8** Platform roles never hold tenant permissions, and billing operators cannot read stock
+  (SAS-004); enforced by database roles as well (DEC-035).
+
+## SaaS gates in the request pipeline (SAS-005)
+
+Order on every tenant request: authenticate → validate membership and warehouse scope → compute access
+mode and check the operation's access category (`docs/saas-state-matrix.md`) → check permission → check
+feature entitlement (`x-entitlement`, skipped for `safety`) → reserve quota inside the transaction
+(`x-quota`) → domain validation and work → audit and outbox, then commit.

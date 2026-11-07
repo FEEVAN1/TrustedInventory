@@ -1,13 +1,15 @@
 # Decisions
 
-Engineering decisions taken while implementing the TrustedInventory v2.0 specification
-(`TrustedInventory_Implementation_Specification.pdf`, 5 November 2026). Each entry records the
+Engineering decisions taken while implementing the TrustedInventory specification. The current baseline
+is **v3.0 SaaS** (`TrustedInventory_Implementation_Specification_updated.pdf`, 7 November 2026), which
+replaces v2.0 (`TrustedInventory_Implementation_Specification.pdf`, 5 November 2026); DEC-001 to DEC-031
+were taken against v2.0 and remain in force unless a later entry supersedes them. Each entry records the
 conflict or gap, the resolution, and whether owner confirmation is still needed (AGT-003).
 
 Status values: **Adopted** (engineering default, revisit only with a new entry), **Needs owner**
 (default in force for development, must be confirmed before launch), **Superseded**.
 
-Owner-level launch decisions D01–D08 from spec section 21 remain open and are tracked at the end.
+Owner-level launch decisions D01–D10 from spec section 21 remain open and are tracked at the end.
 
 ---
 
@@ -326,6 +328,155 @@ Owner-level launch decisions D01–D08 from spec section 21 remain open and are 
   no provisioning audit events; development only.
 - Images restore in locked mode and run as non-root.
 
+## DEC-032 Adopting the v3.0 SaaS baseline
+- **Status:** Adopted (owner instruction, 7 November 2026)
+- **Decision:** v3.0 sections 22–31 (SaaS delivery, onboarding, plans, billing, lifecycle) are in scope.
+  Delivery order: close M1 → v3.0 contract pass (this entry and DEC-033 to DEC-040) → S1 provisioning →
+  M2 → S2/S3 before any commercial activation (spec section 31). Sections 7–19 are unchanged in
+  substance, so M0/M1 work stands except where the entries below say otherwise.
+- **Conflicts kept from earlier decisions:** v3.0 section 04 still names MediatR and .NET 8. The owner's
+  no-mediator instruction (DEC-015) and .NET 10 (DEC-001; .NET 8 support ends 10 November 2026) stay.
+
+## DEC-033 Tenant state: stored lifecycle, computed access mode
+- **Status:** Adopted
+- **Context:** Section 07 gives the tenant one `access_restriction` value; section 27 says
+  `restriction_reasons` (plural); section 26 requires effective access computed on every command from
+  current state, without waiting for a worker. A tenant can be both security-suspended and unpaid.
+- **Decision:** The tenant row stores `lifecycle` (Provisioning, Ready, Archived, DeletionPending,
+  Deleted) and a nullable **security suspension** (reason, at, by). Billing restriction is **not stored**:
+  it is derived on each request from the subscription (state, `trial_end`, `grace_end`, `period_end`) and
+  the request time. The computed **access mode** applies LFC-001 precedence:
+  `Deleted > Closed (Archived/DeletionPending) > SecuritySuspended > BillingRestricted > Provisioning >
+  Normal`. `restrictionReasons` in API responses lists every active reason, highest first. The v2.0
+  `status Active/Suspended` column is replaced (migration 0003).
+
+## DEC-034 Access categories and the state matrix
+- **Status:** Adopted
+- **Decision:** Every operation carries an access category (`x-access` in the contract, metadata on the
+  endpoint). One table, `docs/saas-state-matrix.md`, decides which categories each access mode allows;
+  the request pipeline enforces it before body binding, after membership and before permission
+  (SAS-005). No endpoint carries its own lifecycle checks. Safety categories (monitoring, holds, recall
+  initiation, safe reservation release) stay available in every mode except Deleted and, for humans,
+  SecuritySuspended (section 26, SUI-003).
+
+## DEC-035 Control-plane schema and roles
+- **Status:** Adopted
+- **Decision:** Control-plane tables (billing accounts, plan/price versions, subscriptions, changes,
+  entitlement snapshots, invoices, payments, webhook inbox, provisioning jobs, checkout sessions, terms
+  acceptance, deletion records, invitations) live in schema `cp`, owned by `ti_owner`. A new runtime role
+  `ti_control` (provisioning, billing, webhooks, reconciliation) has privileges on `cp` and on the tenant
+  provisioning rows only — **no stock or catalog privileges** (SAS-004). `ti_app` reads its own tenant's
+  access state through the SECURITY DEFINER function `cp.tenant_access(tenant_id)` and has RLS-scoped
+  SELECT on its own tenant's tenant-facing billing rows (gated in the application by `billing.read`).
+  Usage counters are tenant-scoped rows in `ti` updated inside the command transaction (ENT-003).
+  `ti_platform` keeps tenant metadata and security suspension only.
+
+## DEC-036 SaaS roles and permissions
+- **Status:** Adopted; bundles Need owner (with D03)
+- **Decision:** New tenant roles `TenantOwner` and `BillingAdministrator`, new platform role
+  `PlatformBilling` beside `PlatformAdministrator` (renamed in prose to platform operations). New
+  permissions in `docs/permissions.md`. `TenantOwner` is never granted through the role-grant endpoint:
+  only signup (first owner) and the ownership-transfer flow create it, and at least one active owner must
+  remain (ONB-006). `BillingAdministrator` is granted only by an owner (billing delegation). A tenant
+  administrator cannot grant either. Signup gives the first owner both `TenantOwner` and
+  `TenantAdministrator` so setup can start.
+
+## DEC-037 Routes for the SaaS surface
+- **Status:** Adopted
+- **Decision:** Tenant-facing SaaS routes are under `/api/v1/saas/*` (section 28). Platform routes move
+  from `/api/v1/platform/*` to `/platform/v1/*` as section 28 shows. Platform tenant creation is removed:
+  tenants are created only through signup (ONB-002); the platform console keeps metadata, provisioning
+  failures and reasoned security suspend/resume. Public routes (no token): `GET /api/v1/saas/plans` and
+  `POST /api/v1/webhooks/billing/{provider}` (signature-authenticated). Signup requires a verified email
+  claim and MFA like every human route (IAM-002).
+
+## DEC-038 Entitlements and quotas in the pipeline
+- **Status:** Adopted
+- **Decision:** Each operation may declare a feature key (`x-entitlement`) and a quota key (`x-quota`).
+  The pipeline rejects a missing feature with 403 `FEATURE_NOT_ENABLED` before binding. Quota
+  reservation happens inside the command transaction by locking and incrementing the tenant's usage
+  counter row, so concurrent creations cannot exceed the limit (ENT-003, AT-ENT-01); the limit comes from
+  the current entitlement snapshot read in the same transaction. Exports stay on every plan (section 24).
+  `core_inventory` gates all inventory operations; `medical_storage` gates medical products, quality
+  release and recall; `telemetry` gates devices and readings; `service_api` gates service credentials;
+  `advanced_reporting` gates reports beyond the basic set.
+
+## DEC-039 Billing provider adapter and simulator
+- **Status:** Adopted; provider choice Needs owner (D09)
+- **Decision:** Billing goes through an `IBillingProvider` adapter (checkout session, portal session,
+  webhook signature verification, authoritative resource fetch). The only implementation until the owner
+  chooses a provider is a clearly labelled **simulator** with its own signing secret and a test console;
+  live checkout stays disabled by configuration (section 25, AGT-004). Amounts are integer minor units
+  with currency and exponent (BIL-001). Design in `docs/billing-adapter.md`.
+
+## DEC-040 Commercial and lifecycle defaults used for development
+- **Status:** Needs owner (D09, D10)
+- **Decision:** Development uses the spec's proposed defaults: 14-day trial from Ready, no card, one
+  trial per tenant; Starter/Growth/Enterprise **fixture** plans (`docs/entitlement-catalog.json`) with
+  placeholder prices in a test currency; monthly/annual flat subscriptions; 7-day past-due grace; 90-day
+  export window; no proration. None of these may be published, charged or applied to production data
+  until the owner approves them.
+
+## DEC-041 v3.0 contract details
+- **Status:** Adopted
+- **Invitations** use tenant-header routes (`POST/GET /api/v1/invitations`, `/invitations/{id}/revoke`)
+  instead of the spec's `/tenants/{id}/invitations`, consistent with every other tenant route.
+  `POST /invitations/accept` takes no tenant header (the caller is not a member yet); the token binds
+  the tenant.
+- **Special annotation values:** `x-access: none` (health, public plans, billing webhook) and
+  `x-access: platform` (every `/platform/v1` route); `x-permission: member` (any active member: own
+  entitlements, accepting an ownership transfer addressed to the caller). The tenant middleware must
+  support `member` in S1.
+- **Preview routes** `POST /saas/checkout/preview` and `/saas/subscription/change/preview` return the
+  `previewDigest` that checkout and plan changes must echo (BIL-003, ENT-005).
+- **`/platform/v1`** paths use a path-level `servers: [{url: '/'}]` override. The five v2.0
+  `/api/v1/platform/tenants` operations stay, deprecated, with their v2.0 response shape until S1 moves
+  the implementation; tenant creation is then removed (DEC-037).
+- **Problem body** gains optional `quota`, `feature`, `recovery` and `blockers[]` so 409/403 SaaS
+  errors name the limit, the missing feature or the recovery action (ENT-004, section 28).
+- **Entitlements:** `core_inventory` on every non-safety inventory operation, `telemetry` on device and
+  reading operations, `medical_storage` on quality release; body-dependent medical checks (medical
+  products, medical return release) are enforced by the service. No route needs `service_api` or
+  `advanced_reporting` yet.
+- **`resolveExcursion` is `safety`;** its Release outcome is refused while restricted (state matrix).
+  `completeTask` and `dispositionTransitQuantity` are `routine-write`; rework that frees stock does so
+  through `unpick`, which is `safety`, so a restricted tenant can still clear held picks.
+- Closure and ownership transfer requests carry a `reauthToken` (SOD-7, DEC-009); closure also needs the
+  typed confirmation `CLOSE <slug>`.
+
+## DEC-042 Control-plane schema design (validated draft)
+- **Status:** Adopted; validated by `db/design/run-saas-smoke.ps1` (59 checks, PostgreSQL 16)
+- **Backfills under forced RLS.** `ti_owner` has no RLS policy (no universal bypass, TEN-004), so a data
+  migration's `UPDATE` on a tenant table silently affects zero rows. A migration that must backfill wraps
+  it as `ALTER TABLE … NO FORCE ROW LEVEL SECURITY; <backfill>; ALTER TABLE … FORCE ROW LEVEL SECURITY;`
+  inside its own transaction, so no other session ever sees the table unforced. Every future data
+  migration on a tenant table follows this rule.
+- **Tenant change in three migrations:** 0003 adds enum labels (they must commit before use); 0004
+  expands (lifecycle, slug, home region, security suspension, with a two-way compatibility trigger
+  between the old `status` and the security suspension so M1 code keeps working); 0005 contracts (drops
+  `status`, `ti.tenant_status` and the v2.0 membership function). v2.0 `Suspended` tenants become
+  security-suspended, not billing-restricted.
+- **`cp.tenant_access()` takes no argument;** it reads `app.tenant_id`, so a request can only see its own
+  tenant's state. The access mode itself is computed only in C# from the function's output
+  (saas-state-matrix.md), giving one implementation to test. `ti.user_memberships_v2` adds slug,
+  lifecycle and the suspension flag and excludes Deleted tenants.
+- **Placement:** invitations, ownership transfers, usage counters and upload reservations live in `ti`
+  with tenant RLS, because tenants change them in their own transactions (ownership acceptance changes
+  role grants). The control plane only reads and updates invitations for acceptance. Everything billing
+  lives in `cp`.
+- **Roles:** `ti_control` has no DELETE anywhere and runs the platform billing console; there is no
+  separate billing-operator database role. `cp_access_reader` (NOLOGIN) owns `cp.tenant_access()`.
+  `ti_app` reads `billing_account` without `tax_reference` (column grant), and reads published public
+  plan and price rows without a tenant context.
+- **Additions:** `tenant.deleted_at`; `subscription.revision` (internal, monotonic) plus
+  `provider_revision` on subscriptions and invoices for out-of-order provider events (BIL-005);
+  `plan_version.is_public` for contract-only plans; one open checkout per tenant; one Pending/Scheduled
+  change per subscription.
+- **Simulator:** HMAC-SHA256 webhook signatures from `Billing:Simulator:SigningSecret`, 5-minute replay
+  window, two secrets during rotation; `Billing:Provider` and `Billing:LiveCheckoutEnabled=false`; inbox
+  processing gives up after 10 attempts and quarantines. Fixture plans in `docs/entitlement-catalog.json`
+  use the ISO test currency XTS.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which
@@ -349,3 +500,5 @@ Owner-level launch decisions D01–D08 from spec section 21 remain open and are 
 | D06 hosting | Managed PostgreSQL, encrypted object storage | Region, provider, failover, recovery budget |
 | D07 integrations | Simulator only | Real sensors, gateway transport, GS1 samples |
 | D08 operational limits | Zero over-receipt, 24 h reservation expiry, online-only mutations | Suitability |
+| D09 SaaS commercial | 14-day trial, flat recurring subscription, fixture plans, simulator provider (DEC-039, DEC-040) | Plan names, quotas, currency, prices, taxes, payment provider |
+| D10 SaaS lifecycle | 7-day past-due grace, 90-day export window, retention overrides deletion | Approve before launch |

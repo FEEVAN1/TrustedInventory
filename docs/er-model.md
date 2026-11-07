@@ -411,3 +411,120 @@ erDiagram
 ```
 
 `AUDIT_CHECKPOINT` and `AUDIT_STREAM` are related through `tenant_id` only; there is no direct foreign key.
+
+## 6. SaaS control plane (v3.0)
+
+Schema `cp` plus the tenant-scoped SaaS tables in `ti` (`db/design/saas-schema-draft.sql`). Tenant ids are
+carried on every tenant-scoped row; composite foreign keys keep a subscription, checkout, change, invoice
+or payment inside the same tenant as its billing account (TEN-001).
+
+```mermaid
+erDiagram
+    TENANT ||--o| PROVISIONING_JOB : "created by"
+    TENANT ||--|| BILLING_ACCOUNT : "has one"
+    TENANT ||--|| SUBSCRIPTION : "has one"
+    TENANT ||--o{ ENTITLEMENT_SNAPSHOT : "history (one current)"
+    TENANT ||--o{ INVITATION : "invites"
+    TENANT ||--o{ OWNERSHIP_TRANSFER : "hands over"
+    TENANT ||--o{ USAGE_COUNTER : "counts"
+    TENANT ||--o{ USAGE_RESERVATION : "reserves"
+    TENANT ||--o{ DELETION_RECORD : "closure register"
+    TENANT ||--o{ TERMS_ACCEPTANCE : "accepted"
+    PROVISIONING_JOB ||--o{ TERMS_ACCEPTANCE : "at signup"
+    BILLING_ACCOUNT ||--|| SUBSCRIPTION : "pays for"
+    BILLING_ACCOUNT ||--o{ CHECKOUT_SESSION : "starts"
+    BILLING_ACCOUNT ||--o{ INVOICE : "billed"
+    PLAN_VERSION ||--o{ PRICE_VERSION : "priced by"
+    PLAN_VERSION ||--o{ SUBSCRIPTION : "contracted"
+    PLAN_VERSION ||--o{ ENTITLEMENT_SNAPSHOT : "grants"
+    PRICE_VERSION ||--o{ SUBSCRIPTION : "charged at"
+    PRICE_VERSION ||--o{ CHECKOUT_SESSION : "offered"
+    PRICE_VERSION ||--o{ SUBSCRIPTION_CHANGE : "target"
+    SUBSCRIPTION ||--o{ SUBSCRIPTION_CHANGE : "scheduled"
+    SUBSCRIPTION ||--o{ INVOICE : "periods"
+    INVOICE ||--o{ PAYMENT : "settled by"
+    PAYMENT ||--o{ PAYMENT : "refund of"
+    MEMBERSHIP ||--o| INVITATION : "accepted as"
+    MEMBERSHIP ||--o{ OWNERSHIP_TRANSFER : "recipient"
+    WEBHOOK_INBOX }o--o| TENANT : "resolved to"
+
+    TENANT {
+        uuid id PK
+        text slug UK
+        tenant_lifecycle lifecycle
+        text home_region
+        timestamptz security_suspended_at
+        boolean retention_hold
+    }
+    SUBSCRIPTION {
+        uuid id PK
+        uuid tenant_id UK
+        subscription_state state
+        timestamptz trial_end
+        timestamptz period_end
+        timestamptz grace_end
+        boolean cancel_at_period_end
+        bigint revision
+    }
+    ENTITLEMENT_SNAPSHOT {
+        uuid id PK
+        uuid tenant_id FK
+        int entitlement_version
+        text_array features
+        jsonb limits
+        boolean is_current
+    }
+    PLAN_VERSION {
+        uuid id PK
+        text plan_code
+        int version
+        timestamptz published_at
+    }
+    PRICE_VERSION {
+        uuid id PK
+        char3 currency
+        bigint minor_unit_amount
+        smallint exponent
+        billing_interval billing_interval
+    }
+    INVOICE {
+        uuid id PK
+        text provider_invoice_ref UK
+        bigint total
+        invoice_status status
+    }
+    PAYMENT {
+        uuid id PK
+        text provider_payment_ref UK
+        payment_status status
+        bigint amount
+    }
+    WEBHOOK_INBOX {
+        uuid id PK
+        text provider
+        text event_id
+        webhook_processing_state processing_state
+    }
+    PROVISIONING_JOB {
+        uuid id PK
+        text signup_key UK
+        provisioning_status status
+        provisioning_step current_step
+    }
+    INVITATION {
+        uuid id PK
+        bytea token_hash UK
+        invitation_status status
+        timestamptz expires_at
+    }
+    USAGE_COUNTER {
+        uuid tenant_id PK
+        quota_key metric PK
+        bigint used
+    }
+    DELETION_RECORD {
+        uuid id PK
+        closure_status status
+        timestamptz backup_expiry_at
+    }
+```

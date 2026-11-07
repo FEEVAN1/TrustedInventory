@@ -1,0 +1,87 @@
+{
+  "$comment": "TEST FIXTURES ONLY. Plan names, limits, attachment sizes and prices are illustrative (spec v3.0 section 24) and NOT approved (D09, DEC-040). Prices use ISO 4217 code XTS, reserved for testing, so they can never be charged. Do not publish, display as real prices or seed into production.",
+  "catalogVersion": 1,
+  "fixture": true,
+  "featureKeys": ["core_inventory", "service_api", "advanced_reporting", "medical_storage", "telemetry"],
+  "quotaKeys": {
+    "active_seats": "Active human memberships including owners; deactivated users and pending invitations do not count (ENT-003)",
+    "active_warehouses": "Active (not retired) warehouses",
+    "active_skus": "Active products",
+    "active_devices": "Active telemetry devices",
+    "attachment_bytes": "Stored attachment bytes plus open upload reservations"
+  },
+  "trial": {
+    "days": 14,
+    "startsAt": "Ready time (ONB-003)",
+    "cardRequired": false,
+    "automaticCharge": false,
+    "maxPerTenant": 1
+  },
+  "plans": [
+    {
+      "planCode": "starter",
+      "version": 1,
+      "displayName": "Starter (fixture)",
+      "public": true,
+      "features": ["core_inventory"],
+      "quotas": {
+        "active_seats": 5,
+        "active_warehouses": 1,
+        "active_skus": 1000,
+        "active_devices": 0,
+        "attachment_bytes": 1073741824
+      },
+      "notes": "General goods, stock workflows, basic reports. attachment_bytes (1 GiB) is a test value.",
+      "prices": [
+        { "priceKey": "starter-v1-month", "interval": "Month", "currency": "XTS", "minorUnitAmount": 1000, "exponent": 2 },
+        { "priceKey": "starter-v1-year", "interval": "Year", "currency": "XTS", "minorUnitAmount": 10000, "exponent": 2 }
+      ]
+    },
+    {
+      "planCode": "growth",
+      "version": 1,
+      "displayName": "Growth (fixture)",
+      "public": true,
+      "features": ["core_inventory", "service_api", "advanced_reporting"],
+      "quotas": {
+        "active_seats": 25,
+        "active_warehouses": 5,
+        "active_skus": 10000,
+        "active_devices": 0,
+        "attachment_bytes": 5368709120
+      },
+      "notes": "General core plus service API access and expanded reporting. attachment_bytes (5 GiB) is a test value.",
+      "prices": [
+        { "priceKey": "growth-v1-month", "interval": "Month", "currency": "XTS", "minorUnitAmount": 5000, "exponent": 2 },
+        { "priceKey": "growth-v1-year", "interval": "Year", "currency": "XTS", "minorUnitAmount": 50000, "exponent": 2 }
+      ]
+    },
+    {
+      "planCode": "enterprise",
+      "version": 1,
+      "displayName": "Enterprise (fixture)",
+      "public": true,
+      "features": ["core_inventory", "service_api", "advanced_reporting", "medical_storage", "telemetry"],
+      "quotas": {
+        "active_seats": 100,
+        "active_warehouses": 20,
+        "active_skus": 100000,
+        "active_devices": 100,
+        "attachment_bytes": 53687091200
+      },
+      "notes": "Growth plus medical workflows and telemetry. Activating medical_storage also requires medical readiness (R1B gates, M5). attachment_bytes (50 GiB) is a test value.",
+      "prices": [
+        { "priceKey": "enterprise-v1-month", "interval": "Month", "currency": "XTS", "minorUnitAmount": 20000, "exponent": 2 },
+        { "priceKey": "enterprise-v1-year", "interval": "Year", "currency": "XTS", "minorUnitAmount": 200000, "exponent": 2 }
+      ]
+    }
+  ],
+  "rules": {
+    "alwaysIncluded": ["tenant isolation", "core audit history", "exports", "MFA"],
+    "neverForSale": "No plan can disable medical safety controls or tenant security (section 24).",
+    "safetyIgnoresEntitlements": "Operations in access category 'safety' are never refused for a missing feature (ENT-006, docs/saas-state-matrix.md).",
+    "atQuota": "Reads, edits and stock operations on existing records continue; only creations of the constrained resource fail with 409 PLAN_LIMIT_REACHED (ENT-004).",
+    "upgrade": "Effective from the next full billing cycle after verified payment; no proration in R1 (ENT-005).",
+    "downgrade": "Scheduled for renewal only when usage fits; blocked while medical/telemetry obligations remain (ENT-006)."
+  }
+}
