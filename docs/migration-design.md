@@ -266,7 +266,7 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 |------|---------|--------------|
 | `0003_saas_enum_values` | New labels on `ti.role_name`, `ti.export_type`, `ti.alert_type` | `ALTER TYPE … ADD VALUE` must commit before any later statement uses the label |
 | `0004_saas_control_plane` | Tenant **expand**, `ti` SaaS tables, schema `cp` tables, RLS, grants, `cp.tenant_access()`, `ti.user_memberships_v2()` | One atomic expand step |
-| `0005_tenant_status_contract` | Lifecycle/slug/region NOT NULL, lifecycle default, drop compatibility trigger, `ti.user_memberships`, `tenant.status` and its type | Released only when no running version reads `status` |
+| `0005_tenant_status_contract` | Lifecycle/slug/region NOT NULL, lifecycle default, drop compatibility trigger, `ti.user_memberships`, `tenant.status` and its type | Released with M2 (8 Nov 2026) once no API or worker code read `status` (DEC-043) |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

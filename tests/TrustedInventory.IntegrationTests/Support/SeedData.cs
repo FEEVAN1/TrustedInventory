@@ -96,7 +96,10 @@ public sealed class TenantSeed
     public static async Task<TenantSeed> CreateAsync(NpgsqlConnection conn, string key)
     {
         var tenantId = Guid.CreateVersion7();
-        await Exec(conn, "INSERT INTO ti.tenant (id, name, created_by) VALUES (@id, @name, 'seed')", ("id", tenantId), ("name", $"Tenant {key.ToUpperInvariant()}"));
+        await Exec(conn, """
+            INSERT INTO ti.tenant (id, name, slug, lifecycle, home_region, ready_at, created_by)
+            VALUES (@id, @name, @slug, 'Ready', 'default', now(), 'seed')
+            """, ("id", tenantId), ("name", $"Tenant {key.ToUpperInvariant()}"), ("slug", "seed-" + tenantId.ToString("N")[..20]));
         await Exec(conn, "INSERT INTO ti.audit_stream (tenant_id) VALUES (@id)", ("id", tenantId));
 
         var scopedWarehouse = Guid.CreateVersion7();

@@ -31,7 +31,7 @@ SaaS access, billing and lifecycle rules apply to every module.
 |-----------|--------|-----------|
 | M0 contracts | **Gate met** (6 Nov 2026); owner decisions in DECISIONS.md still open | No unresolved stock or isolation contract conflict |
 | M1 foundation | **Gate met** (7 Nov 2026): 30 unit + 53 integration tests on PostgreSQL 16 | Isolation and authorization suites pass on real PostgreSQL |
-| M2 inbound ledger | Not started (next) | Receiving retries, precision, serial uniqueness, reconciliation pass |
+| M2 inbound ledger | In progress: tenant contract migration 0005 released | Receiving retries, precision, serial uniqueness, reconciliation pass |
 | M3 outbound | Not started | Concurrency and stock arithmetic scenarios pass |
 | M4 general operations | Not started | Stock conservation, independent approvals, end-to-end general flow pass |
 | M5 medical | Not started | Medical blocking, historical traceability, audit evidence pass |

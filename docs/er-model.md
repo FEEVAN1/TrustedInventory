@@ -32,7 +32,7 @@ erDiagram
     TENANT {
         uuid id PK
         text name
-        tenant_status status
+        tenant_lifecycle lifecycle
     }
     MEMBERSHIP {
         uuid id PK

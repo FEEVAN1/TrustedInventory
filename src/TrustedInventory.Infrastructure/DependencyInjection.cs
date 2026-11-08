@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0004_saas_control_plane";
+    public const string Required = "0005_tenant_status_contract";
 }
 
 public static class DependencyInjection

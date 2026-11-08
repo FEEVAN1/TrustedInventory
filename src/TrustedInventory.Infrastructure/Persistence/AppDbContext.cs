@@ -48,7 +48,8 @@ public static class PgEnums
 
     public static void Map(NpgsqlDataSourceBuilder builder)
     {
-        builder.MapEnum<TenantStatus>("ti.tenant_status", Verbatim);
+        // ti.tenant_status was dropped by 0005 (DEC-042); TenantStatus survives only as a C# value derived from the
+        // security suspension, so it has no database mapping.
         builder.MapEnum<RoleName>("ti.role_name", Verbatim);
         builder.MapEnum<HandlingProfile>("ti.handling_profile", Verbatim);
         builder.MapEnum<TrackingMode>("ti.tracking_mode", Verbatim);
@@ -66,7 +67,6 @@ public static class PgEnums
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
     {
-        o.MapEnum<TenantStatus>("tenant_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<RoleName>("role_name", AppDbContext.Schema, Verbatim);
         o.MapEnum<HandlingProfile>("handling_profile", AppDbContext.Schema, Verbatim);
         o.MapEnum<TrackingMode>("tracking_mode", AppDbContext.Schema, Verbatim);

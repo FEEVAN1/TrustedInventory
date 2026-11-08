@@ -36,7 +36,6 @@ Isolated business account. There is no `tenant_id`: `ti_app` can read only the r
 |--------|------|------|------------|
 | id | uuid | N | PK |
 | name | name_text | N | |
-| status | tenant_status | N | default `Active` |
 | Std | | | |
 
 ### membership
@@ -392,8 +391,8 @@ PostgreSQL 16). Real migrations arrive in S1/S2 (DEC-032). Decisions: DEC-033 to
 | security_suspended_at, security_suspension_reason, security_suspended_by | | yes | All or none; set by platform operations |
 | provisioning_job_id | uuid | yes | FK `cp.provisioning_job` |
 
-`status` and type `ti.tenant_status` are dropped by the contract step (0005) after a compatibility trigger
-keeps both shapes in sync during rollout. Billing restriction is **not** a column: it is computed per
+`status` and type `ti.tenant_status` were dropped by the contract step (0005, released with M2) after a compatibility trigger
+kept both shapes in sync during rollout. Billing restriction is **not** a column: it is computed per
 request (`docs/saas-state-matrix.md`).
 
 ### Tenant-scoped SaaS tables in `ti` (forced RLS, `tenant_isolation` for `ti_app`)

@@ -22,7 +22,10 @@ public sealed class TeamTests(ApiFixture fx)
         await using var conn = new NpgsqlConnection(fx.SuperuserConnection);
         await conn.OpenAsync();
         var tenantId = Guid.CreateVersion7();
-        await Exec(conn, "INSERT INTO ti.tenant (id, name, created_by) VALUES (@id, 'Team tenant', 'seed')", ("id", tenantId));
+        await Exec(conn, """
+            INSERT INTO ti.tenant (id, name, slug, lifecycle, home_region, ready_at, created_by)
+            VALUES (@id, 'Team tenant', @slug, 'Ready', 'default', now(), 'seed')
+            """, ("id", tenantId), ("slug", "team-" + tenantId.ToString("N")[..20]));
         await Exec(conn, "INSERT INTO ti.audit_stream (tenant_id) VALUES (@id)", ("id", tenantId));
         var owner = Unique("user-owner");
         var admin = Unique("user-admin");

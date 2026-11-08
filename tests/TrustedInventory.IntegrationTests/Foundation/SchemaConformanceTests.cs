@@ -105,6 +105,26 @@ public sealed class SchemaConformanceTests(ApiFixture fx)
         Assert.Equal(SqlScripts.Migrations.Select(m => $"{m.Id}:{m.Checksum}"), applied);
     }
 
+    [Fact]
+    [Trait("Requirement", "NFR-MIGRATIONS")]
+    [Trait("Requirement", "SOP-005")]
+    public async Task Tenant_contract_step_removed_the_v2_status_and_enforces_lifecycle()
+    {
+        // 0005 (DEC-042): the v2.0 status column, its type, the compatibility trigger and the v1 membership function are gone.
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'ti' AND table_name = 'tenant' AND column_name = 'status'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'ti' AND t.typname = 'tenant_status'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM pg_trigger WHERE tgname = 'tenant_sync_legacy_status'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'ti' AND p.proname IN ('tenant_sync_legacy_status', 'user_memberships')"));
+        // Lifecycle, slug and home region are mandatory; an omitted lifecycle means a fresh signup.
+        var required = await QueryAsync("""
+            SELECT column_name || ':' || is_nullable || ':' || coalesce(column_default, '')
+            FROM information_schema.columns
+            WHERE table_schema = 'ti' AND table_name = 'tenant' AND column_name IN ('lifecycle', 'slug', 'home_region')
+            ORDER BY column_name
+            """, r => r.GetString(0));
+        Assert.Equal(["home_region:NO:", "lifecycle:NO:'Provisioning'::ti.tenant_lifecycle", "slug:NO:"], required);
+    }
+
     private async Task<List<string>> QueryAsync(string sql, Func<NpgsqlDataReader, string?> map)
     {
         await using var conn = new NpgsqlConnection(fx.SuperuserConnection);
