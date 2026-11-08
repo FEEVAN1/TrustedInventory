@@ -52,7 +52,9 @@ public sealed class SchemaConformanceTests(ApiFixture fx)
         // No universal stock bypass: neither the platform role nor the owner has a policy on catalog/stock tables.
         Assert.Equal(0, await CountAsync("""
             SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-            WHERE c.relname IN ('warehouse','product','bin') AND p.polroles && ARRAY(SELECT oid FROM pg_roles WHERE rolname IN ('ti_platform','ti_owner'))
+            WHERE c.relname IN ('warehouse','product','bin','lot','serial','stock_bucket','stock_movement','receipt','receipt_line',
+                                'purchase_order','purchase_order_line','warehouse_task','document_operation','receipt_line_serial')
+              AND p.polroles && ARRAY(SELECT oid FROM pg_roles WHERE rolname IN ('ti_platform','ti_owner','ti_control'))
             """));
     }
 
@@ -62,7 +64,10 @@ public sealed class SchemaConformanceTests(ApiFixture fx)
     {
         // Billing and platform operators never read stock or catalog data (SAS-004, DEC-035).
         var inventory = new[] { "warehouse", "zone", "bin", "product", "product_conversion", "product_barcode", "unit",
-            "partner", "storage_profile", "configuration_version", "alert", "outbox_event", "idempotency_record" };
+            "partner", "storage_profile", "configuration_version", "alert", "outbox_event", "idempotency_record",
+            // M2 inbound ledger (0006)
+            "lot", "serial", "stock_bucket", "purchase_order", "purchase_order_line", "receipt", "receipt_line",
+            "receipt_line_serial", "warehouse_task", "stock_movement", "document_operation" };
         var leaks = await QueryAsync($"""
             SELECT r || ' on ' || t FROM unnest(ARRAY['ti_control','ti_platform']) r,
                  unnest(ARRAY['{string.Join("','", inventory)}']) t
