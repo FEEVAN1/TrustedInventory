@@ -72,6 +72,8 @@ public static class PgEnums
         builder.MapEnum<DocumentType>("ti.document_type", Verbatim);
         builder.MapEnum<TaskType>("ti.task_type", Verbatim);
         builder.MapEnum<Domain.Inbound.TaskStatus>("ti.task_status", Verbatim);
+        builder.MapEnum<Domain.Outbound.OutboundOrderStatus>("ti.outbound_order_status", Verbatim);
+        builder.MapEnum<Domain.Outbound.ReservationState>("ti.reservation_state", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -97,5 +99,7 @@ public static class PgEnums
         o.MapEnum<DocumentType>("document_type", AppDbContext.Schema, Verbatim);
         o.MapEnum<TaskType>("task_type", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Inbound.TaskStatus>("task_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Outbound.OutboundOrderStatus>("outbound_order_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Outbound.ReservationState>("reservation_state", AppDbContext.Schema, Verbatim);
     }
 }

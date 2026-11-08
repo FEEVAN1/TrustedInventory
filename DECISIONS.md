@@ -684,11 +684,31 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   `shipment_line` stays updatable only for `returned_qty` (EXC-005, M4).
 - **Grants:** `ti_app` SELECT/INSERT/UPDATE on the mutable tables, SELECT/INSERT on append-only ones, no DELETE
   except draft order lines; nothing for `ti_control` or `ti_platform` (SAS-004).
-- **Additions to the draft (stricter only):** an order is `Cancelled` exactly when it has a cancel reason;
+- **Additions to the draft (stricter only, see DEC-052 for the workflow):** an order is `Cancelled` exactly when it has a cancel reason;
   `confirmed_at` and `confirmed_by` are set together; `pick_confirmation.movement_id` and `shipment_line.movement_id`
   reference the ledger entry they record.
 
-## DEC-024 Audit chain and lock order
+## DEC-052 Outbound order workflow (M3, OUT-001, OUT-006 cancellation)
+- **Status:** Adopted
+- **Reference:** as for purchase orders (DEC-047), the contract's 100 characters did not fit the 64-character column;
+  the order reference now uses the contract `Code` schema (1–50 characters), unique per tenant.
+- **Lines (OUT-001):** quantities are in the product's base unit (the contract line has no unit), positive, within the
+  product's base precision and whole for serial-tracked products; products must be active; minimum shelf life is
+  0–3650 days. The customer must be an active partner of type Customer or Both; the warehouse must be active; the
+  planned dispatch date cannot be before today in the warehouse's time zone. Confirmation rechecks all of these.
+- **Status (section 13):** Draft and Cancelled are stored decisions; every other status is derived from line
+  quantities after each change: any dispatched → PartDispatched, all dispatched → Dispatched; else all picked →
+  Picked, any picked → PartPicked; else all allocated → Allocated, any allocated → PartAllocated; else Confirmed.
+  Closed is reserved for the post-dispatch window (returns, M4).
+- **Draft edits** replace all lines (0010 trigger, DEC-051); confirmed orders cannot change their lines.
+- **Cancellation (OUT-006):** a safety operation (`x-access: safety`) with `Idempotency-Key`, If-Match and a reason.
+  It refuses with 409 `INVALID_STATE` while any quantity is picked or dispatched (picked stock must be unpicked
+  first). Otherwise it releases every Active reservation of the order in one transaction, with lock order order row →
+  lines → reservations (by id) → buckets (by id) → audit stream: bucket `reserved_qty` decreases, the reservation
+  becomes `Released`, the line's allocated quantity decreases. Then the order is `Cancelled` with its reason.
+- **Blocks:** releasing a reservation changes only `reserved_qty`, never on hand, so it cannot hide stock; cancellation
+  therefore releases even on buckets blocked under OPS-001 (DEC-049), which would otherwise trap the commitment.
+  Commands that change on hand (pick, dispatch) stay blocked.
 
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted

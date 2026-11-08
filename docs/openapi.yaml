@@ -3862,7 +3862,7 @@ paths:
           required: false
           schema:
             type: string
-            maxLength: 100
+            maxLength: 50
       responses:
         "200":
           description: Completed.
@@ -11348,9 +11348,7 @@ components:
         warehouseId:
           $ref: "#/components/schemas/Uuid"
         reference:
-          type: string
-          minLength: 1
-          maxLength: 100
+          $ref: "#/components/schemas/Code"
         plannedDispatchDate:
           $ref: "#/components/schemas/Date"
           description: Must not be before the current warehouse date (OUT-001).
@@ -12946,9 +12944,7 @@ components:
         warehouseId:
           $ref: "#/components/schemas/Uuid"
         reference:
-          type: string
-          minLength: 1
-          maxLength: 100
+          $ref: "#/components/schemas/Code"
         plannedDispatchDate:
           $ref: "#/components/schemas/Date"
         status:
@@ -16940,9 +16936,7 @@ components:
       type: object
       properties:
         reference:
-          type: string
-          minLength: 1
-          maxLength: 100
+          $ref: "#/components/schemas/Code"
         plannedDispatchDate:
           $ref: "#/components/schemas/Date"
         lines:

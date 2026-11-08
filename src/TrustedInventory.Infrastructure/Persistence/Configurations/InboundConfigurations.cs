@@ -67,6 +67,30 @@ internal sealed class WarehouseTaskConfiguration() : TenantEntityConfiguration<W
         builder.HasOne<ReceiptLine>().WithMany().HasForeignKey(t => t.ReceiptLineId).OnDelete(DeleteBehavior.NoAction);
 }
 
+internal sealed class OutboundOrderConfiguration() : TenantEntityConfiguration<Domain.Outbound.OutboundOrder>("outbound_order")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Outbound.OutboundOrder> builder)
+    {
+        builder.HasOne<Partner>().WithMany().HasForeignKey(o => o.CustomerId).OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Warehouse>().WithMany().HasForeignKey(o => o.WarehouseId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class OutboundOrderLineConfiguration() : TenantEntityConfiguration<Domain.Outbound.OutboundOrderLine>("outbound_order_line")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Outbound.OutboundOrderLine> builder)
+    {
+        builder.HasOne<Domain.Outbound.OutboundOrder>().WithMany().HasForeignKey(l => l.OrderId).OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Product>().WithMany().HasForeignKey(l => l.ProductId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class ReservationConfiguration() : TenantEntityConfiguration<Domain.Outbound.Reservation>("reservation")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Outbound.Reservation> builder) =>
+        builder.HasOne<Domain.Outbound.OutboundOrderLine>().WithMany().HasForeignKey(r => r.OrderLineId).OnDelete(DeleteBehavior.NoAction);
+}
+
 internal sealed class LotConfiguration() : TenantEntityConfiguration<Lot>("lot")
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Lot> builder) { }

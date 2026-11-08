@@ -1,0 +1,41 @@
+using Microsoft.AspNetCore.Mvc;
+using TrustedInventory.Api.Http;
+using TrustedInventory.Api.Security;
+using TrustedInventory.Application.Administration;
+using TrustedInventory.Application.Outbound;
+using TrustedInventory.Domain.Outbound;
+using TrustedInventory.Domain.Security;
+
+namespace TrustedInventory.Api.Endpoints;
+
+/// <summary>Outbound orders (docs/openapi.yaml tag Orders, OUT-001). Handlers only translate HTTP to service calls.</summary>
+public static class OutboundEndpoints
+{
+    public static RouteGroupBuilder MapOutboundEndpoints(this RouteGroupBuilder tenant)
+    {
+        var orders = tenant.MapGroup("/orders");
+        orders.MapGet("", (OutboundOrderService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] Guid? customerId,
+                [FromQuery] OutboundOrderStatus? status, [FromQuery] string? reference, CancellationToken ct) =>
+                svc.ListAsync(new OutboundOrderFilter(warehouseId, customerId, status, reference), q.ToPage(), ct))
+            .WithName("listOutboundOrders").RequirePermission(Permissions.StockRead);
+        orders.MapPost("", async (HttpContext http, OutboundOrderService svc, CreateOutboundOrder body, CancellationToken ct) =>
+            {
+                var created = await svc.CreateAsync(body, ct);
+                return Conventions.Created(http, $"/api/v1/orders/{created.Id}", created);
+            })
+            .WithName("createOutboundOrder").RequirePermission(Permissions.OrdersCreate);
+        orders.MapGet("/{id:guid}", async (HttpContext http, OutboundOrderService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getOutboundOrder").RequirePermission(Permissions.StockRead);
+        orders.MapPatch("/{id:guid}", async (HttpContext http, OutboundOrderService svc, Guid id, UpdateOutboundOrder body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.UpdateAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("updateOutboundOrder").RequirePermission(Permissions.OrdersCreate);
+        orders.MapPost("/{id:guid}/confirm", async (HttpContext http, OutboundOrderService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.ConfirmAsync(id, Conventions.IfMatch(http), ct)))
+            .WithName("confirmOutboundOrder").RequirePermission(Permissions.OrdersCreate);
+        orders.MapPost("/{id:guid}/cancel", async (HttpContext http, OutboundOrderService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.CancelAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("cancelOutboundOrder").RequirePermission(Permissions.OrdersCreate);
+        return tenant;
+    }
+}
