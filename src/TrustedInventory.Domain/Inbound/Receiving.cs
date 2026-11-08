@@ -82,6 +82,16 @@ public sealed class Receipt : TenantEntity
         receipt.Stamp(tenantId, actor, now);
         return receipt;
     }
+
+    /// <summary>Posted → Closed once every putaway task of the receipt is complete (DEC-005).</summary>
+    public void Close(DateTimeOffset now)
+    {
+        if (Status != ReceiptStatus.Posted)
+            throw new DomainException("Only a posted receipt can be closed.");
+        Status = ReceiptStatus.Closed;
+        ClosedAt = now;
+        Touch(now);
+    }
 }
 
 /// <summary>Append-only receipt line: what arrived, where it landed and in which quality (INB-004).</summary>
@@ -189,6 +199,23 @@ public sealed class StockMovement
     public DateTimeOffset OccurredAt { get; private set; }
     public DateTimeOffset RecordedAt { get; private set; }
     public string? CorrelationId { get; private set; }
+
+    /// <summary>Staging to storage within tenant stock (INB-006): both buckets, same product, lot, serial and quality.</summary>
+    public static StockMovement Putaway(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid sourceBucketId,
+        Guid destinationBucketId, decimal baseQty, Guid taskId, Guid receiptLineId, string? reason, string actor, DateTimeOffset now, string? correlationId)
+    {
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        if (sourceBucketId == destinationBucketId)
+            throw new DomainException("Putaway must move stock to a different bucket.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = MovementType.Putaway, OperationKey = operationKey, ProductId = productId, LotId = lotId,
+            SerialId = serialId, SourceBucketId = sourceBucketId, DestinationBucketId = destinationBucketId, BaseQty = baseQty,
+            DocumentType = DocumentType.PutawayTask, DocumentId = taskId, DocumentLineId = receiptLineId, Reason = reason, ActorSubject = actor,
+            OccurredAt = now, RecordedAt = now, CorrelationId = correlationId,
+        };
+    }
 
     /// <summary>Goods entering stock from outside (no source bucket).</summary>
     public static StockMovement Receipt(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid destinationBucketId,

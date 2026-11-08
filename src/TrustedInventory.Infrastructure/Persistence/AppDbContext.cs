@@ -70,6 +70,8 @@ public static class PgEnums
         builder.MapEnum<ReceiptStatus>("ti.receipt_status", Verbatim);
         builder.MapEnum<MovementType>("ti.movement_type", Verbatim);
         builder.MapEnum<DocumentType>("ti.document_type", Verbatim);
+        builder.MapEnum<TaskType>("ti.task_type", Verbatim);
+        builder.MapEnum<Domain.Inbound.TaskStatus>("ti.task_status", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -93,5 +95,7 @@ public static class PgEnums
         o.MapEnum<ReceiptStatus>("receipt_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<MovementType>("movement_type", AppDbContext.Schema, Verbatim);
         o.MapEnum<DocumentType>("document_type", AppDbContext.Schema, Verbatim);
+        o.MapEnum<TaskType>("task_type", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Inbound.TaskStatus>("task_status", AppDbContext.Schema, Verbatim);
     }
 }

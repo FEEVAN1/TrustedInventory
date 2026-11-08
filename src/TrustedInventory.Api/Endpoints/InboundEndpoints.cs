@@ -71,6 +71,16 @@ public static class InboundEndpoints
             .WithName("listStockMovements").RequirePermission(Permissions.StockRead);
         stock.MapGet("/movements/{id:guid}", (StockService svc, Guid id, CancellationToken ct) => svc.GetMovementAsync(id, ct))
             .WithName("getStockMovement").RequirePermission(Permissions.StockRead);
+
+        // Putaway (INB-005, INB-006, DEC-050).
+        var putaway = tenant.MapGroup("/putaway");
+        putaway.MapGet("/tasks", (PutawayService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId,
+                [FromQuery] Domain.Inbound.TaskStatus? status, [FromQuery] Guid? receiptId, CancellationToken ct) =>
+                svc.ListAsync(new TaskFilter(warehouseId, status, receiptId), q.ToPage(), ct))
+            .WithName("listPutawayTasks").RequirePermission(Permissions.PutawayConfirm);
+        putaway.MapPost("/confirm", async (HttpContext http, PutawayService svc, ConfirmPutaway body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.ConfirmAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("confirmPutaway").RequirePermission(Permissions.PutawayConfirm);
         return tenant;
     }
 }

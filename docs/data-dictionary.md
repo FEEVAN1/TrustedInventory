@@ -242,7 +242,7 @@ Records the frozen conversion, `base_qty > 0`, `measured_temperature_c`, `stagin
 One row per bucket per `ReconciliationMismatch` alert (0008, OPS-001, DEC-049): `bucket_id`, `alert_id`, the on hand recomputed from the ledger (`expected_qty`) and the stored projection (`stored_qty`, always different). A bucket is blocked while any of its alerts is not `Closed`; stock commands then fail with `409 STOCK_BLOCKED`. Rows are never updated or deleted; closing the alert is the operator procedure and the rows remain as evidence. An open `AuditChainFailure` alert blocks every stock mutation of the tenant without rows here.
 
 ### warehouse_task
-Putaway, rework and exception tasks (DEC-011). Putaway tasks require `receipt_line_id` and `task_qty`, and `remaining_qty ≤ task_qty`. Bin FKs check the warehouse.
+Putaway, rework and exception tasks (DEC-011). Putaway tasks require `receipt_line_id` and `task_qty`, and `remaining_qty ≤ task_qty`. Bin FKs check the warehouse. Receiving creates one task per receipt line: `Putaway` with `recommended_bin_id` set to the top recommendation, or `Exception` (with `reason`) when no bin is suitable (DEC-050). 0009 adds `completed_by` and `resolution`; a task is `Completed` exactly when `completed_at` and `completed_by` are set, and an exception's resolution is the reason given when it was confirmed.
 
 ## 5. Outbound
 

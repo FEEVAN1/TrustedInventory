@@ -6,6 +6,7 @@ using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Persistence;
 using TrustedInventory.Application.Security;
+using TrustedInventory.Domain.Alerts;
 using TrustedInventory.Domain.Catalog;
 using TrustedInventory.Domain.Inbound;
 using TrustedInventory.Domain.Locations;
@@ -81,7 +82,8 @@ public sealed class ReceivingService(
     ITenantUnitOfWork uow,
     ICallerAccessor callers,
     ICursorCodec cursors,
-    IValidator<ReceiveInventory> validator)
+    IValidator<ReceiveInventory> validator,
+    Audit.IAuditSupport audit)
 {
     public const string Route = "POST /inventory/receive";
 
@@ -110,7 +112,7 @@ public sealed class ReceivingService(
                 var receiptId = Guid.Parse((string)JsonNode.Parse(earlier[0])!["receiptId"]!);
                 return Ok(await ResultAsync(s, receiptId, c));
             }
-            return Ok(await PostAsync(s, cmd, operationKey, caller, c));
+            return Ok(await PostAsync(s, cmd, operationKey, caller, audit, c));
         }, ct);
     }
 
@@ -156,7 +158,7 @@ public sealed class ReceivingService(
         decimal UomQty, decimal BaseQty, string? LotNumber, DateOnly? Expiry, string? SerialNumber, QualityStatus Quality,
         InspectionResult Inspection, string? Reason);
 
-    private static async Task<ReceiveResult> PostAsync(ITenantSession s, ReceiveInventory cmd, string operationKey, CallerContext caller,
+    private static async Task<ReceiveResult> PostAsync(ITenantSession s, ReceiveInventory cmd, string operationKey, CallerContext caller, Audit.IAuditSupport audit,
         CancellationToken ct)
     {
         // 1. Lock the document: the order row, then its lines (serializes receipts of one order).
@@ -391,6 +393,27 @@ public sealed class ReceivingService(
                 bucketId, p.BaseQty, receipt.Id, line.Id, caller.Subject, s.Now, caller.CorrelationId));
         }
 
+        // 7b. One putaway task per line with the current top recommendation, or an exception task when no bin fits (DEC-050).
+        var exceptionLines = new List<Guid>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            var ranked = PutawayPlanner.Rank(
+                await PutawayAdvisor.CandidatesAsync(s, cmd.WarehouseId, planned[i].Product, line.LotId, line.BaseQty, ct), line.QualityStatus);
+            var task = DomainGuard.Run(() => WarehouseTask.ForReceiptLine(caller.TenantId, cmd.WarehouseId, line.Id, line.ProductId, line.LotId,
+                line.StagingBinId, line.BaseQty, (ranked.Count > 0 ? ranked[0].BinId : (Guid?)null), caller.Subject, s.Now));
+            s.Db.Add(task);
+            if (task.Type == TaskType.Exception)
+                exceptionLines.Add(line.Id);
+        }
+        if (exceptionLines.Count > 0)
+            await audit.RaiseAlertAsync(s, AlertType.PutawayException, AlertSeverity.Warning, $"putaway-exception:{cmd.WarehouseId:D}", new JsonObject
+            {
+                ["warehouseId"] = cmd.WarehouseId.ToString(),
+                ["receiptId"] = receipt.Id.ToString(),
+                ["receiptLineIds"] = new JsonArray(exceptionLines.Select(id => (JsonNode)id.ToString()).ToArray()),
+            }, ct);
+
         // 8. Purchase order progress.
         var orderBefore = PurchaseOrderDto.From(order, orderLines.Values);
         foreach (var group in planned.GroupBy(p => p.OrderLine.Id))
@@ -445,12 +468,14 @@ public sealed class ReceivingService(
         var lineIds = lines.Select(l => l.Id).ToList();
         var serials = (await s.Db.Set<ReceiptLineSerial>().AsNoTracking().Where(x => lineIds.Contains(x.ReceiptLineId)).ToListAsync(ct))
             .ToLookup(x => x.ReceiptLineId, x => x.SerialId);
+        var remaining = (await s.Db.Set<WarehouseTask>().AsNoTracking().Where(t => t.ReceiptLineId != null && lineIds.Contains(t.ReceiptLineId.Value))
+            .Select(t => new { t.ReceiptLineId, t.RemainingQty }).ToListAsync(ct)).ToLookup(t => t.ReceiptLineId!.Value, t => t.RemainingQty ?? 0m);
         var byReceipt = lines.ToLookup(l => l.ReceiptId);
         return receipts.Select(r => new ReceiptDto(r.Id, r.Version, r.CreatedAt, r.CreatedBy, r.UpdatedAt, r.PurchaseOrderId, r.WarehouseId, r.Status,
             r.ReceivedAt, byReceipt[r.Id].OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(l => new ReceiptLineDto(l.Id, l.PurchaseOrderLineId,
                 l.ProductId, l.LotId, serials[l.Id].ToList(), l.UomId, Quantity.From(l.UomFactorToBase), Quantity.From(l.BaseQty), l.MeasuredTemperatureC,
                 l.StagingBinId, l.QualityStatus, l.InspectionResult, l.QualityReason, l.BucketId,
-                Quantity.From(l.BaseQty))).ToList())).ToList(); // putaway remaining = base quantity until slice 5 (DEC-048)
+                Quantity.From(remaining[l.Id].Sum()))).ToList())).ToList(); // what the line's putaway task still has to move (DEC-050)
     }
 
     private sealed record LotRow(Guid Id, DateOnly? ExpiryDate);

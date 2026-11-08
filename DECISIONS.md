@@ -646,6 +646,31 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Reads:** stock and movement lists are scoped to the warehouses the caller may read (`stock.read`); a movement's
   warehouse is its source or destination bucket's.
 
+## DEC-050 Putaway (M2, INB-005, INB-006, AT-INB-03)
+- **Status:** Adopted
+- **Candidate bins (hard constraints):** active bins of the warehouse whose zone is compatible with the product
+  (DEC-012). Available stock goes to `Storage` bins; Quarantine or Hold stock may go to `Storage` or `Quarantine`
+  bins and keeps its quality (moving never releases it, INB-006). **Capacity:** a bin with a capacity accepts the
+  quantity only if its current load plus the quantity, both in the bin's capacity unit (the product's base unit or
+  an active conversion), fits. If any product already in the bin, or the product being moved, cannot be expressed
+  in that unit, the bin is unsuitable (fail closed).
+- **Ranking (INB-005):** bins already holding the same product and lot first, then lower pick priority, then bin code.
+  Recommendations are computed when read and when confirming, so they reflect current stock.
+- **Tasks:** receiving creates one `Putaway` task per receipt line (source = staging bin, quantity = base quantity,
+  top recommendation stored). With no candidate it creates an `Exception` task for the same line and quantity
+  instead, never an arbitrary destination, and raises one Warning `PutawayException` alert per warehouse.
+  An exception task can still be confirmed later to a suitable bin, with a reason.
+- **Confirmation (INB-006, AT-INB-03):** `Idempotency-Key` plus a permanent operation key
+  `putaway:<subject>:<key>`; lock order task row → source and target buckets (by id) → audit stream. The scanned
+  product (and lot, for lot-tracked products) must match the task (`BARCODE_CONFLICT`); the quantity cannot exceed
+  what remains; an unsuitable target is `422 INCOMPATIBLE_BIN` and leaves task and stock unchanged; a target that is
+  not the current top recommendation needs a reason; blocked buckets refuse (OPS-001). On hand moves from the
+  staging bucket to the target bucket with the same product, lot, serial and quality (keeping the earliest
+  `received_at`), with one `Putaway` movement carrying the reason. The task completes at zero remaining; a
+  receipt becomes `Closed` once all its tasks are complete (DEC-005).
+- **Migration 0009:** `warehouse_task` gains `completed_by` and `resolution`, which the contract's WarehouseTask
+  exposes and 0006 lacked.
+
 ## DEC-024 Audit chain and lock order
 
 ## DEC-024 Audit chain and lock order

@@ -270,6 +270,7 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 | `0006_inbound_ledger` | Lots, serials, stock buckets, purchase orders and lines, receipts, receipt lines and serials, warehouse tasks, the append-only movement ledger, permanent document operation keys; forced RLS, append-only triggers, `ti_app` grants (no DELETE; no UPDATE on append-only tables); no privileges for `ti_control` or `ti_platform` | M2 schema; the movement → reservation foreign key arrives with the M3 reservation table |
 | `0007_purchase_order_draft_lines` | `DELETE` on `ti.purchase_order_line` for `ti_app`, guarded by trigger `purchase_order_line_draft_only` (lines change only while the order is Draft; received quantity stays updatable) | Draft edits replace lines (DEC-047); the privilege is no wider than the rule |
 | `0008_stock_bucket_block` | Append-only `ti.stock_bucket_block` (bucket, alert, expected and stored on hand) with forced RLS; `ti_app` SELECT and INSERT | Reconciliation blocks (OPS-001, DEC-049); a block holds while its alert is open |
+| `0009_warehouse_task_completion` | `warehouse_task.completed_by` and `resolution`, with a CHECK tying `Completed` to both completion columns | The contract's WarehouseTask exposes them (DEC-050) |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

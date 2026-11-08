@@ -61,6 +61,12 @@ internal sealed class StockBucketConfiguration() : TenantEntityConfiguration<Sto
     protected override void ConfigureEntity(EntityTypeBuilder<StockBucket> builder) { }
 }
 
+internal sealed class WarehouseTaskConfiguration() : TenantEntityConfiguration<WarehouseTask>("warehouse_task")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<WarehouseTask> builder) =>
+        builder.HasOne<ReceiptLine>().WithMany().HasForeignKey(t => t.ReceiptLineId).OnDelete(DeleteBehavior.NoAction);
+}
+
 internal sealed class LotConfiguration() : TenantEntityConfiguration<Lot>("lot")
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Lot> builder) { }
