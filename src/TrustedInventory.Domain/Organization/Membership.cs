@@ -31,4 +31,15 @@ public sealed class Membership : TenantEntity
         RevokedBy = actor;
         Touch(now);
     }
+
+    /// <summary>A former member accepts a new invitation: the membership row is reused (unique per tenant/subject).</summary>
+    public void Reactivate(DateTimeOffset now)
+    {
+        if (Active)
+            throw new DomainException("Membership is already active.");
+        Active = true;
+        RevokedAt = null;
+        RevokedBy = null;
+        Touch(now);
+    }
 }

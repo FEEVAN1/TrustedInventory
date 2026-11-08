@@ -9,6 +9,7 @@ using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Infrastructure;
+using TrustedInventory.Infrastructure.Organization;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -23,6 +24,8 @@ builder.Services.AddInfrastructure(config);
 builder.Services.AddApiAuthentication(config);
 builder.Services.AddScoped<HttpCallerAccessor>();
 builder.Services.AddScoped<ICallerAccessor>(sp => sp.GetRequiredService<HttpCallerAccessor>());
+builder.Services.AddTeamInfrastructure(config);
+builder.Services.AddSingleton<TrustedInventory.Application.Administration.IReauthVerifier, JwtReauthVerifier>();
 
 // Rate limit per authenticated principal, else per client address (section 06).
 builder.Services.AddRateLimiter(o =>
@@ -80,13 +83,16 @@ var api = app.MapGroup("/api/v1").RequireAuthorization();
 // Contract policies (x-access, x-entitlement, x-quota) attach by operationId after each endpoint is named.
 ((IEndpointConventionBuilder)api).Finally(OperationPolicyConvention.Apply);
 api.MapIdentityEndpoints();   // GET /me: authenticated, no tenant context
-api.MapPlatformEndpoints();   // /platform/*: platform administrators, no tenant context
+api.MapSaasSignupEndpoints(); // signup, provisioning status, public plans: before any tenant exists
+api.MapInvitationAcceptance(); // POST /invitations/accept: authenticated, not yet a member
+app.MapPlatformEndpoints();   // /platform/v1/*: platform operations console, no tenant context (DEC-037)
 
 var tenant = api.MapGroup("").WithMetadata(TenantScopedMetadata.Instance);
 tenant.MapLocationEndpoints();
 tenant.MapCatalogEndpoints();
 tenant.MapAdministrationEndpoints();
 tenant.MapAuditEndpoints();
+tenant.MapTeamEndpoints();
 
 app.Run();
 

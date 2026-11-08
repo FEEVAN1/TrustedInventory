@@ -7,6 +7,8 @@
   <ItemGroup>
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <!-- Provider-neutral raw SQL (SqlQuery/ExecuteSql) for row locks and control-plane reads. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
 
 </Project>

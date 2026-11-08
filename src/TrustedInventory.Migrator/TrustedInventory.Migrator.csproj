@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -12,6 +12,8 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\db\bootstrap\*.sql" LogicalName="bootstrap/%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\db\migrations\*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+    <!-- SYNTHETIC fixture catalog for the development seed only (DEC-040). -->
+    <EmbeddedResource Include="..\..\docs\entitlement-catalog.json" LogicalName="catalog/entitlement-catalog.json" />
   </ItemGroup>
 
 </Project>

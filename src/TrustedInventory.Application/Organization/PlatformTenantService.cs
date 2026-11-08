@@ -1,164 +1,176 @@
+using System.Text.Json.Serialization;
 using FluentValidation;
-using TrustedInventory.Application.Administration;
 using Microsoft.EntityFrameworkCore;
-using TrustedInventory.Application.Audit;
 using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Persistence;
 using TrustedInventory.Domain.Organization;
-using TrustedInventory.Domain.Security;
+using TrustedInventory.Domain.Saas;
 
 namespace TrustedInventory.Application.Organization;
 
+public sealed record SecuritySuspensionDto(string Reason, DateTimeOffset At, string By);
+
+/// <summary>Tenant schema (section 07, DEC-033): stored lifecycle plus the access mode computed now.</summary>
 public sealed record TenantDto(
-    Guid Id, int Version, DateTimeOffset CreatedAt, string CreatedBy, DateTimeOffset UpdatedAt,
-    string Name, TenantStatus Status, string? SuspendedReason) : IVersioned
+    Guid Id, int Version, DateTimeOffset CreatedAt, string CreatedBy, DateTimeOffset UpdatedAt, string Name, string Slug,
+    TenantLifecycle Lifecycle, string HomeRegion, AccessMode AccessMode, IReadOnlyList<RestrictionReason> RestrictionReasons,
+    SecuritySuspensionDto? SecuritySuspension, DateTimeOffset? ReadyAt, DateTimeOffset? ArchivedAt, DateTimeOffset? DeletionRequestedAt,
+    bool RetentionHold);
+
+/// <summary>PlatformTenant schema: service metadata only (SAS-004, SOP-006).</summary>
+public sealed record PlatformTenantDto(
+    TenantDto Tenant, SubscriptionState? SubscriptionState, string? PlanCode, Guid? ProvisioningJobId, string? ProvisioningStatus) : IVersioned
 {
-    public static TenantDto From(Tenant t, string? suspendedReason) =>
-        new(t.Id, t.Version, t.CreatedAt, t.CreatedBy, t.UpdatedAt, t.Name, t.Status,
-            t.Status == TenantStatus.Suspended ? suspendedReason : null);
-}
+    [JsonIgnore]
+    public int Version => Tenant.Version;
 
-public sealed record CreateTenant(string Name, string InitialAdministratorSubject);
-
-public sealed record TenantStatusChange(string Reason);
-
-public sealed class CreateTenantValidator : AbstractValidator<CreateTenant>
-{
-    public CreateTenantValidator()
+    public static PlatformTenantDto From(PlatformTenantRow r, DateTimeOffset now)
     {
-        RuleFor(x => x.Name).ValidName();
-        RuleFor(x => x.InitialAdministratorSubject).ValidSubject();
+        var state = r.AccessState;
+        var suspension = r.SecuritySuspendedAt is { } at
+            ? new SecuritySuspensionDto(r.SecuritySuspensionReason ?? "", at, r.SecuritySuspendedBy ?? "")
+            : null;
+        var tenant = new TenantDto(r.Id, r.Version, r.CreatedAt, r.CreatedBy, r.UpdatedAt, r.Name, r.Slug, r.Lifecycle, r.HomeRegion,
+            state.Mode(now), state.Reasons(now), suspension, r.ReadyAt, r.ArchivedAt, r.DeletionRequestedAt, r.RetentionHold);
+        return new PlatformTenantDto(tenant, r.SubscriptionState, r.PlanCode, r.ProvisioningJobId, r.ProvisioningStatus);
     }
 }
 
-public sealed class TenantStatusChangeValidator : AbstractValidator<TenantStatusChange>
+public sealed record SecuritySuspensionRequest(string Reason);
+
+public sealed record PlatformTenantFilter(TenantLifecycle? Lifecycle, AccessMode? AccessMode, string? Search);
+
+public sealed class SecuritySuspensionRequestValidator : AbstractValidator<SecuritySuspensionRequest>
 {
-    public TenantStatusChangeValidator() => RuleFor(x => x.Reason).ValidReason();
+    public SecuritySuspensionRequestValidator() => RuleFor(x => x.Reason).ValidReason();
 }
 
 /// <summary>
-/// Tenant provisioning and suspension (TEN-004, section 06). Runs on the ti_platform pool. Provisioning is
-/// atomic: tenant, audit stream, first administrator membership and grant, and their audit events.
+/// Platform operations console (DEC-026, DEC-037): tenant service metadata and reasoned security suspension.
+/// Reads run on the control-plane pool; suspension writes run on ti_platform and are audited in the tenant's own
+/// chain. Tenants are created only by signup; payment can never lift a security suspension (BIL-007).
 /// </summary>
 public sealed class PlatformTenantService(
     IPlatformUnitOfWork uow,
+    IPlatformDirectory directory,
     ICursorCodec cursors,
-    IValidator<CreateTenant> createValidator,
-    IValidator<TenantStatusChange> statusValidator)
+    TimeProvider clock,
+    IValidator<SecuritySuspensionRequest> suspensionValidator)
 {
-    public const string SuspendedEvent = "TenantSuspended";
+    public const string SuspendedEvent = "TenantSecuritySuspended";
+    public const string LiftedEvent = "TenantSecuritySuspensionLifted";
+    private const int ScanBatch = 200;
 
-    public Task<TenantDto> CreateAsync(PlatformCaller caller, CreateTenant cmd, CancellationToken ct)
+    public async Task<PlatformTenantDto> GetAsync(PlatformCaller caller, Guid id, CancellationToken ct)
     {
         caller.RequireAdministrator();
-        createValidator.ValidateOrThrow(cmd);
-
-        return uow.WriteAsync(caller, async (s, c) =>
-        {
-            var tenant = Tenant.Create(cmd.Name, caller.Subject, s.Now);
-            var membership = Membership.Create(tenant.Id, cmd.InitialAdministratorSubject, null, caller.Subject, s.Now);
-            var grant = RoleGrant.Create(tenant.Id, membership, RoleName.TenantAdministrator, null,
-                "Initial tenant administrator", caller.Subject, s.Now);
-            s.Db.AddRange(tenant, membership, grant);
-            await s.Db.SaveChangesAsync(c);
-            await s.CreateAuditStreamAsync(tenant.Id, c);
-
-            var dto = TenantDto.From(tenant, null);
-            s.Audit(tenant.Id, new AuditEntry("TenantCreated", "Tenant", tenant.Id, tenant.Version, null, null, dto));
-            s.Audit(tenant.Id, new AuditEntry("MembershipCreated", "Membership", membership.Id, membership.Version, null, null,
-                MembershipDto.From(membership)));
-            s.Audit(tenant.Id, new AuditEntry("RoleGranted", "RoleGrant", grant.Id, grant.Version, grant.Reason, null,
-                RoleGrantDto.From(grant)));
-            return dto;
-        }, ct);
+        var row = await directory.GetTenantAsync(id, ct) ?? throw AppException.NotFound("Tenant");
+        return PlatformTenantDto.From(row, clock.GetUtcNow());
     }
 
-    public Task<TenantDto> SuspendAsync(PlatformCaller caller, Guid id, int expectedVersion, TenantStatusChange cmd, CancellationToken ct) =>
-        ChangeStatusAsync(caller, id, expectedVersion, cmd, suspend: true, ct);
-
-    public Task<TenantDto> ReactivateAsync(PlatformCaller caller, Guid id, int expectedVersion, TenantStatusChange cmd, CancellationToken ct) =>
-        ChangeStatusAsync(caller, id, expectedVersion, cmd, suspend: false, ct);
-
-    public Task<TenantDto> GetAsync(PlatformCaller caller, Guid id, CancellationToken ct)
-    {
-        caller.RequireAdministrator();
-        return uow.ReadAsync(caller, async (s, c) =>
-        {
-            var tenant = await Load(s, id, c);
-            return TenantDto.From(tenant, await SuspendedReasonAsync(s, tenant, c));
-        }, ct);
-    }
-
-    public Task<Page<TenantDto>> ListAsync(PlatformCaller caller, TenantStatus? status, PageRequest page, CancellationToken ct)
+    public async Task<Page<PlatformTenantDto>> ListAsync(PlatformCaller caller, PlatformTenantFilter filter, PageRequest page, CancellationToken ct)
     {
         caller.RequireAdministrator();
         page.EnsureSupportedSort();
         var limit = page.EffectiveLimit;
-        var filterKey = $"platform-tenants|{status}";
+        var filterKey = $"platform-tenants|{filter.Lifecycle}|{filter.AccessMode}|{filter.Search}";
+        var after = page.Cursor is { } c ? cursors.Decode(c, filterKey) : null;
+        var now = clock.GetUtcNow();
 
-        return uow.ReadAsync(caller, async (s, c) =>
+        // Access mode is computed, not stored, so that filter is applied while scanning in creation order.
+        var items = new List<PlatformTenantDto>();
+        string? next = null;
+        while (true)
         {
-            var query = s.Db.Set<Tenant>().AsNoTracking();
-            if (status is { } st)
-                query = query.Where(t => t.Status == st);
-            if (page.Cursor is { } cursor)
+            var rows = await directory.ListTenantsAsync(filter.Lifecycle, filter.Search, after, ScanBatch, ct);
+            foreach (var row in rows)
             {
-                var p = cursors.Decode(cursor, filterKey);
-                query = query.Where(t => t.CreatedAt < p.CreatedAt || (t.CreatedAt == p.CreatedAt && t.Id.CompareTo(p.Id) < 0));
+                var dto = PlatformTenantDto.From(row, now);
+                if (filter.AccessMode is { } mode && dto.Tenant.AccessMode != mode)
+                {
+                    after = new CursorPosition(row.CreatedAt, row.Id);
+                    continue;
+                }
+                if (items.Count == limit)
+                {
+                    var last = items[^1].Tenant;
+                    next = cursors.Encode(new CursorPosition(last.CreatedAt, last.Id), filterKey);
+                    return new Page<PlatformTenantDto>(items, next);
+                }
+                items.Add(dto);
+                after = new CursorPosition(row.CreatedAt, row.Id);
             }
-            var rows = await query.OrderByDescending(t => t.CreatedAt).ThenByDescending(t => t.Id).Take(limit + 1).ToListAsync(c);
-            string? next = null;
-            if (rows.Count > limit)
-            {
-                rows.RemoveAt(limit);
-                next = cursors.Encode(new CursorPosition(rows[^1].CreatedAt, rows[^1].Id), filterKey);
-            }
-
-            var items = new List<TenantDto>(rows.Count);
-            foreach (var t in rows)
-                items.Add(TenantDto.From(t, await SuspendedReasonAsync(s, t, c)));
-            return new Page<TenantDto>(items, next);
-        }, ct);
+            if (rows.Count < ScanBatch)
+                return new Page<PlatformTenantDto>(items, null);
+        }
     }
 
-    private Task<TenantDto> ChangeStatusAsync(PlatformCaller caller, Guid id, int expectedVersion, TenantStatusChange cmd,
+    public Task<PlatformTenantDto> SuspendAsync(PlatformCaller caller, Guid id, int expectedVersion, SecuritySuspensionRequest cmd,
+        CancellationToken ct) => ChangeAsync(caller, id, expectedVersion, cmd, suspend: true, ct);
+
+    public Task<PlatformTenantDto> LiftAsync(PlatformCaller caller, Guid id, int expectedVersion, SecuritySuspensionRequest cmd,
+        CancellationToken ct) => ChangeAsync(caller, id, expectedVersion, cmd, suspend: false, ct);
+
+    public async Task<Page<ProvisioningJobDto>> ListProvisioningJobsAsync(PlatformCaller caller, string? status, PageRequest page,
+        CancellationToken ct)
+    {
+        caller.RequireAdministrator();
+        page.EnsureSupportedSort();
+        var limit = page.EffectiveLimit;
+        var filterKey = $"provisioning-jobs|{status}";
+        var after = page.Cursor is { } c ? cursors.Decode(c, filterKey) : null;
+        var rows = (await directory.ListProvisioningJobsAsync(status, after, limit + 1, ct)).ToList();
+        string? next = null;
+        if (rows.Count > limit)
+        {
+            rows.RemoveAt(limit);
+            next = cursors.Encode(new CursorPosition(rows[^1].CreatedAt, rows[^1].Id), filterKey);
+        }
+        return new Page<ProvisioningJobDto>(rows, next);
+    }
+
+    /// <summary>Resumes a failed job; the worker reuses existing records, so a retry never duplicates (ONB-002).</summary>
+    public async Task<ProvisioningJobDto> RetryProvisioningJobAsync(PlatformCaller caller, Guid id, CancellationToken ct)
+    {
+        caller.RequireAdministrator();
+        return await directory.RetryProvisioningJobAsync(id, ct) ?? throw AppException.NotFound("Provisioning job");
+    }
+
+    private async Task<PlatformTenantDto> ChangeAsync(PlatformCaller caller, Guid id, int expectedVersion, SecuritySuspensionRequest cmd,
         bool suspend, CancellationToken ct)
     {
         caller.RequireAdministrator();
-        statusValidator.ValidateOrThrow(cmd);
+        suspensionValidator.ValidateOrThrow(cmd);
 
-        return uow.WriteAsync(caller, async (s, c) =>
+        await uow.WriteAsync(caller, async (s, c) =>
         {
-            var tenant = await Load(s, id, c);
+            var tenant = await s.Db.Set<Tenant>().SingleOrDefaultAsync(t => t.Id == id, c) ?? throw AppException.NotFound("Tenant");
             Versioning.EnsureVersion(tenant.Version, expectedVersion);
-            var before = TenantDto.From(tenant, await SuspendedReasonAsync(s, tenant, c));
+            var before = Snapshot(tenant);
             DomainGuard.Run(() =>
             {
                 if (suspend)
-                    tenant.Suspend(s.Now);
+                    tenant.SuspendForSecurity(cmd.Reason, caller.Subject, s.Now);
                 else
-                    tenant.Reactivate(s.Now);
+                    tenant.LiftSecuritySuspension(s.Now);
             });
             await s.Db.SaveChangesAsync(c);
-
-            var after = TenantDto.From(tenant, suspend ? cmd.Reason : null);
-            s.Audit(tenant.Id, new AuditEntry(suspend ? SuspendedEvent : "TenantReactivated", "Tenant", tenant.Id, tenant.Version,
-                cmd.Reason, before, after));
-            return after;
+            s.Audit(tenant.Id, new AuditEntry(suspend ? SuspendedEvent : LiftedEvent, "Tenant", tenant.Id, tenant.Version, cmd.Reason,
+                before, Snapshot(tenant)));
+            return true;
         }, ct);
+
+        return await GetAsync(caller, id, ct);
     }
 
-    private static async Task<Tenant> Load(IPlatformSession s, Guid id, CancellationToken ct) =>
-        await s.Db.Set<Tenant>().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw AppException.NotFound("Tenant");
-
-    /// <summary>The suspension reason lives in the tenant's audit chain, which is its single source of record.</summary>
-    private static async Task<string?> SuspendedReasonAsync(IPlatformSession s, Tenant tenant, CancellationToken ct) =>
-        tenant.Status != TenantStatus.Suspended
-            ? null
-            : await s.Db.Set<StoredAuditEvent>().AsNoTracking()
-                .Where(e => e.TenantId == tenant.Id && e.EventType == SuspendedEvent)
-                .OrderByDescending(e => e.Sequence)
-                .Select(e => e.Reason)
-                .FirstOrDefaultAsync(ct);
+    private static object Snapshot(Tenant t) => new
+    {
+        t.Id,
+        t.Version,
+        Lifecycle = t.Lifecycle.ToString(),
+        SecuritySuspended = t.IsSecuritySuspended,
+        t.SecuritySuspensionReason,
+        t.SecuritySuspendedBy,
+    };
 }

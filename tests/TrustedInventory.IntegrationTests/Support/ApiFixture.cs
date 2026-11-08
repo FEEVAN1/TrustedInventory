@@ -55,7 +55,10 @@ public sealed class ApiFixture : IAsyncLifetime
             web.UseEnvironment("Testing");
             web.UseSetting("ConnectionStrings:App", AppConnection);
             web.UseSetting("ConnectionStrings:Platform", PlatformConnection);
+            web.UseSetting("ConnectionStrings:Control", ControlConnection);
+            web.UseSetting("Platform:BillingSubjects:0", SeedData.PlatformBilling);
             web.UseSetting("Paging:CursorKey", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 1)).ToArray()));
+            web.UseSetting("Invitations:TokenKey", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 101)).ToArray()));
             web.UseSetting("Auth:Authority", TestTokens.Issuer);
             web.UseSetting("Auth:Audience", TestTokens.Audience);
             web.UseSetting("Platform:AdministratorSubjects:0", SeedData.PlatformAdmin);

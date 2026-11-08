@@ -7,6 +7,7 @@ using TrustedInventory.Domain.Alerts;
 using TrustedInventory.Domain.Catalog;
 using TrustedInventory.Domain.Locations;
 using TrustedInventory.Domain.Organization;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
 namespace TrustedInventory.Infrastructure.Persistence;
@@ -58,6 +59,9 @@ public static class PgEnums
         builder.MapEnum<AlertSeverity>("ti.alert_severity", Verbatim);
         builder.MapEnum<AlertStatus>("ti.alert_status", Verbatim);
         builder.MapEnum<ActorType>("ti.actor_type", Verbatim);
+        builder.MapEnum<TenantLifecycle>("ti.tenant_lifecycle", Verbatim);
+        builder.MapEnum<InvitationStatus>("ti.invitation_status", Verbatim);
+        builder.MapEnum<OwnershipTransferStatus>("ti.ownership_transfer_status", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -73,5 +77,8 @@ public static class PgEnums
         o.MapEnum<AlertSeverity>("alert_severity", AppDbContext.Schema, Verbatim);
         o.MapEnum<AlertStatus>("alert_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<ActorType>("actor_type", AppDbContext.Schema, Verbatim);
+        o.MapEnum<TenantLifecycle>("tenant_lifecycle", AppDbContext.Schema, Verbatim);
+        o.MapEnum<InvitationStatus>("invitation_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<OwnershipTransferStatus>("ownership_transfer_status", AppDbContext.Schema, Verbatim);
     }
 }

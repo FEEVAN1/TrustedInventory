@@ -16,9 +16,12 @@ namespace TrustedInventory.IntegrationTests.Foundation;
 [Collection(ApiTestGroup.Name)]
 public sealed partial class ContractConformanceTests(ApiFixture fx)
 {
-    private sealed record Operation(string Id, string Method, string Path, string Permission);
+    /// <param name="Public">The operation declares <c>security: []</c>.</param>
+    private sealed record Operation(string Id, string Method, string Path, string Permission, string Access, bool Public);
 
-    private sealed record Implemented(string Name, string Method, string Path, string? Permission, bool TenantScoped);
+    /// <param name="Path">Contract-relative path (no /api/v1 prefix).</param>
+    /// <param name="Url">Path as served, e.g. /api/v1/... or /platform/v1/... (DEC-037).</param>
+    private sealed record Implemented(string Name, string Method, string Path, string Url, string? Permission, bool TenantScoped);
 
     [Fact]
     [Trait("Requirement", "API-16")]
@@ -50,10 +53,14 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
     [Trait("Requirement", "IAM-001")]
     public async Task Every_tenant_endpoint_denies_a_member_without_the_permission()
     {
+        var contract = LoadContract().ToDictionary(o => o.Id);
         var noRoles = fx.Client(fx.Seed.A.NoRoles, fx.Seed.A.TenantId);
         var failures = new List<string>();
         foreach (var e in ImplementedEndpoints().Where(e => e.TenantScoped))
         {
+            // x-permission: member admits any active member (DEC-041); non-members are covered by the cross-tenant sweep.
+            if (contract.TryGetValue(e.Name, out var op) && op.Permission == "member")
+                continue;
             var response = await noRoles.SendAsync(Request(e));
             if (response.StatusCode != HttpStatusCode.Forbidden)
                 failures.Add($"{e.Name}: {(int)response.StatusCode}");
@@ -85,10 +92,14 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
     [Trait("Requirement", "IAM-002")]
     public async Task Every_api_endpoint_requires_authentication()
     {
+        var contract = LoadContract().ToDictionary(o => o.Id);
         var anonymous = fx.Anonymous();
         var failures = new List<string>();
         foreach (var e in ImplementedEndpoints())
         {
+            // Only operations the contract declares public on both counts (security: [] and x-access: none, DEC-041).
+            if (contract.TryGetValue(e.Name, out var op) && op.Public && op.Access == "none")
+                continue;
             var response = await anonymous.SendAsync(Request(e));
             if (response.StatusCode != HttpStatusCode.Unauthorized)
                 failures.Add($"{e.Name}: {(int)response.StatusCode}");
@@ -98,7 +109,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
 
     private static HttpRequestMessage Request(Implemented e)
     {
-        var url = "/api/v1" + RouteParameter().Replace(e.Path, Guid.NewGuid().ToString());
+        var url = RouteParameter().Replace(e.Url, Guid.NewGuid().ToString());
         var request = new HttpRequestMessage(new HttpMethod(e.Method), url);
         if (e.Method is "POST" or "PATCH")
         {
@@ -119,9 +130,16 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
                 e.Metadata.GetMetadata<IEndpointNameMetadata>()!.EndpointName,
                 e.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Single(),
                 NormalisePath(e.RoutePattern.RawText!),
+                ServedPath(e.RoutePattern.RawText!),
                 e.Metadata.GetMetadata<PermissionMetadata>()?.Permission,
                 e.Metadata.GetMetadata<TenantScopedMetadata>() is not null))
             .ToList();
+
+    private static string ServedPath(string raw)
+    {
+        var path = RouteConstraint().Replace(raw, "{$1}");
+        return path.Length > 1 ? path.TrimEnd('/') : path;
+    }
 
     private static string NormalisePath(string raw)
     {
@@ -150,7 +168,10 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
                 if (method is not ("get" or "post" or "patch" or "put" or "delete") || opNode is not YamlMappingNode op)
                     continue;
                 string Field(string name) => op.Children.TryGetValue(new YamlScalarNode(name), out var v) ? ((YamlScalarNode)v).Value! : "";
-                operations.Add(new Operation(Field("operationId"), method.ToUpperInvariant(), ((YamlScalarNode)pathNode).Value!, Field("x-permission")));
+                var isPublic = op.Children.TryGetValue(new YamlScalarNode("security"), out var security)
+                    && security is YamlSequenceNode { Children.Count: 0 };
+                operations.Add(new Operation(Field("operationId"), method.ToUpperInvariant(), ((YamlScalarNode)pathNode).Value!,
+                    Field("x-permission"), Field("x-access"), isPublic));
             }
         }
         return operations;

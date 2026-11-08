@@ -18,7 +18,7 @@ public static class TestTokens
     public static readonly RsaSecurityKey SigningKey = new(Rsa) { KeyId = "test-key-1" };
 
     public static string Issue(string subject, bool mfa = true, DateTimeOffset? authTime = null, string issuer = Issuer,
-        string audience = Audience, TimeSpan? lifetime = null, SecurityKey? key = null)
+        string audience = Audience, TimeSpan? lifetime = null, SecurityKey? key = null, string? email = null, bool emailVerified = true)
     {
         var now = DateTimeOffset.UtcNow;
         var claims = new List<Claim>
@@ -26,6 +26,9 @@ public static class TestTokens
             new("sub", subject),
             new("auth_time", (authTime ?? now).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
             new("amr", "pwd"),
+            // Synthetic address per subject; signup reads email and email_verified from the token (ONB-001).
+            new("email", email ?? $"{subject}@example.invalid"),
+            new("email_verified", emailVerified ? "true" : "false", ClaimValueTypes.Boolean),
         };
         if (mfa)
             claims.Add(new Claim("amr", "otp"));

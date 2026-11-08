@@ -23,6 +23,13 @@ public sealed class MeTests(ApiFixture fx)
         var tenantWide = permissions.Single(p => (string?)p!["permission"] == "catalog.manage")!;
         Assert.Null(tenantWide["warehouseIds"]);
 
+        // Workspace switcher fields (section 29): computed access, lifecycle, slug and plan.
+        Assert.Equal("Normal", (string?)membership["accessMode"]);
+        Assert.Equal("Ready", (string?)membership["lifecycle"]);
+        Assert.Empty(membership["restrictionReasons"]!.AsArray());
+        Assert.False(string.IsNullOrEmpty((string?)membership["tenantSlug"]));
+        Assert.Equal(TenantProvisioning.TestPlan, (string?)membership["planCode"]);
+
         await (await fx.Anonymous().GetAsync("/api/v1/me")).ExpectProblemAsync(HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
     }
 }

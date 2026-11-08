@@ -3,9 +3,11 @@ using Microsoft.EntityFrameworkCore;
 using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Persistence;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Domain.Locations;
 using TrustedInventory.Domain.Organization;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
 namespace TrustedInventory.Application.Administration;
@@ -64,6 +66,8 @@ public sealed class CreateRoleGrantValidator : AbstractValidator<CreateRoleGrant
             .WithMessage("PlatformAdministrator cannot be granted within a tenant.");
         RuleFor(x => x.Role).NotEqual(RoleName.TelemetryIntegration)
             .WithMessage("TelemetryIntegration belongs to device service principals, not users.");
+        RuleFor(x => x.Role).NotEqual(RoleName.PlatformBilling)
+            .WithMessage("PlatformBilling cannot be granted within a tenant.");
         RuleFor(x => x.WarehouseId).NotEqual(Guid.Empty);
     }
 }
@@ -71,11 +75,14 @@ public sealed class CreateRoleGrantValidator : AbstractValidator<CreateRoleGrant
 /// <summary>
 /// Memberships and role grants (section 05, IAM-001). Deactivating a membership removes access on the next
 /// request because tenant context is resolved from active memberships only. Every change is audited.
+/// Active memberships count as seats (ENT-003). TenantOwner changes only through signup and ownership transfer,
+/// and the last owner is protected (SOD-5); only an owner delegates billing (SOD-6).
 /// </summary>
 public sealed class MembershipService(
     ITenantUnitOfWork uow,
     ICallerAccessor callers,
     ICursorCodec cursors,
+    IQuotaGate quota,
     IValidator<CreateMembership> createValidator,
     IValidator<ReasonRequest> reasonValidator,
     IValidator<CreateRoleGrant> grantValidator)
@@ -91,6 +98,7 @@ public sealed class MembershipService(
             if (await s.Db.Set<Membership>().AnyAsync(m => m.UserSubject == cmd.UserSubject, c))
                 throw AppException.InvalidState("This user already has a membership in the tenant.");
 
+            await quota.ReserveAsync(s, QuotaKey.ActiveSeats, 1, c);
             var membership = Membership.Create(caller.TenantId, cmd.UserSubject, cmd.DisplayName, caller.Subject, s.Now);
             s.Db.Add(membership);
             var dto = MembershipDto.From(membership);
@@ -110,7 +118,10 @@ public sealed class MembershipService(
             var membership = await LoadMembership(s, id, c);
             Versioning.EnsureVersion(membership.Version, expectedVersion);
             var before = MembershipDto.From(membership);
+            if (await IsLastOwnerAsync(s, membership.Id, c))
+                throw AppException.InvalidState("The last owner cannot be removed. Transfer ownership first.");
             DomainGuard.Run(() => membership.Deactivate(caller.Subject, s.Now));
+            await quota.ReleaseAsync(s, QuotaKey.ActiveSeats, 1, c);
 
             var after = MembershipDto.From(membership);
             s.Audit(new AuditEntry("MembershipDeactivated", "Membership", id, membership.Version, cmd.Reason, before, after));
@@ -141,6 +152,7 @@ public sealed class MembershipService(
         var caller = Manager();
         caller.RequireMutable();
         grantValidator.ValidateOrThrow(cmd);
+        RequireRoleAuthority(caller, cmd.Role);
 
         return uow.WriteAsync(async (s, c) =>
         {
@@ -179,6 +191,7 @@ public sealed class MembershipService(
         {
             var grant = await s.Db.Set<RoleGrant>().SingleOrDefaultAsync(g => g.Id == grantId, c)
                 ?? throw AppException.NotFound("Role grant");
+            RequireRoleAuthority(caller, grant.Role);
             Versioning.EnsureVersion(grant.Version, expectedVersion);
             var before = RoleGrantDto.From(grant);
             DomainGuard.Run(() => grant.Revoke(caller.Subject, s.Now));
@@ -200,6 +213,26 @@ public sealed class MembershipService(
                 query = a ? query.Where(g => g.RevokedAt == null) : query.Where(g => g.RevokedAt != null);
             return await query.ToPageAsync(page, $"role-grants|{membershipId}|{active}", cursors, RoleGrantDto.From, c);
         }, ct);
+    }
+
+    /// <summary>SOD-5 and SOD-6: who may grant or revoke a role through these routes.</summary>
+    private static void RequireRoleAuthority(CallerContext caller, RoleName role)
+    {
+        if (role == RoleName.TenantOwner)
+            throw AppException.InvalidState("Ownership changes only through signup or an accepted ownership transfer.");
+        if (role == RoleName.BillingAdministrator && !caller.Has(Permissions.BillingDelegate))
+            throw AppException.Forbidden("Only the workspace owner can delegate billing.");
+    }
+
+    /// <summary>True when this membership holds the only active TenantOwner grant among active memberships.</summary>
+    private static async Task<bool> IsLastOwnerAsync(ITenantSession s, Guid membershipId, CancellationToken ct)
+    {
+        var ownerMemberships = await s.Db.Set<RoleGrant>()
+            .Where(g => g.Role == RoleName.TenantOwner && g.RevokedAt == null)
+            .Join(s.Db.Set<Membership>().Where(m => m.Active), g => g.MembershipId, m => m.Id, (g, m) => m.Id)
+            .Distinct()
+            .ToListAsync(ct);
+        return ownerMemberships.Count == 1 && ownerMemberships[0] == membershipId;
     }
 
     private CallerContext Manager()

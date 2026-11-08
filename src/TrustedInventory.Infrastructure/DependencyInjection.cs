@@ -25,10 +25,14 @@ public static class DependencyInjection
     {
         var appConnection = Required(configuration, "ConnectionStrings:App");
         var platformConnection = Required(configuration, "ConnectionStrings:Platform");
+        var controlConnection = Required(configuration, "ConnectionStrings:Control");
         var cursorKey = Convert.FromBase64String(Required(configuration, "Paging:CursorKey"));
 
         services.AddSingleton(_ => new AppDataSource(BuildDataSource(appConnection)));
         services.AddSingleton(_ => new PlatformDataSource(BuildDataSource(platformConnection)));
+        services.AddSingleton(_ => new ControlDataSource(BuildDataSource(controlConnection)));
+        services.AddSingleton<Application.Organization.IPlatformDirectory, Organization.PlatformDirectory>();
+        services.AddSingleton<Application.Organization.IWorkspaceStatusReader, Organization.WorkspaceStatusReader>();
         services.AddSingleton<ICursorCodec>(new HmacCursorCodec(cursorKey));
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IMembershipDirectory, MembershipDirectory>();
@@ -37,6 +41,7 @@ public static class DependencyInjection
         services.AddSingleton<Application.Saas.IQuotaGate, Saas.QuotaGate>();
         services.AddScoped<Application.Organization.IPlatformUnitOfWork, Organization.PlatformUnitOfWork>();
         services.AddSingleton<Application.Audit.IAuditSupport, Audit.AuditSupport>();
+        Saas.ProvisioningRegistration.AddProvisioning(services, configuration);
 
         services.AddHealthChecks().AddCheck<DatabaseReadyCheck>("database", tags: ["ready"]);
         return services;

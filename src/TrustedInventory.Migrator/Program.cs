@@ -4,7 +4,7 @@ using TrustedInventory.Migrator;
 //   migrate     applies db/migrations          needs TI_MIGRATOR_CONNECTION
 //   bootstrap   development/test cluster setup needs TI_SUPERUSER_CONNECTION, TI_MIGRATOR_PASSWORD,
 //                                                    TI_APP_PASSWORD, TI_PLATFORM_PASSWORD, TI_CONTROL_PASSWORD
-//   seed        SYNTHETIC development data        needs TI_PLATFORM_CONNECTION (never production)
+//   seed        SYNTHETIC development data        needs TI_CONTROL_CONNECTION (never production)
 var command = args.FirstOrDefault();
 try
 {
@@ -24,10 +24,15 @@ try
             }, Console.Out);
             return 0;
         case "seed":
-            await DevSeed.ApplyAsync(Required("TI_PLATFORM_CONNECTION"), Console.Out);
+            await DevSeed.ApplyAsync(Required("TI_CONTROL_CONNECTION"), Console.Out);
+            return 0;
+        case "seed-catalog":
+            // SYNTHETIC fixture plans for development stacks (D09); path defaults to docs/entitlement-catalog.json.
+            await CatalogSeed.ApplyAsync(Required("TI_CONTROL_CONNECTION"),
+                args.ElementAtOrDefault(1) ?? Path.Combine("docs", "entitlement-catalog.json"), Console.Out);
             return 0;
         default:
-            await Console.Error.WriteLineAsync("usage: TrustedInventory.Migrator migrate|bootstrap|seed");
+            await Console.Error.WriteLineAsync("usage: TrustedInventory.Migrator migrate|bootstrap|seed|seed-catalog [catalog.json]");
             return 2;
     }
 }

@@ -48,6 +48,27 @@ public sealed class RoleGrant : TenantEntity
         return grant;
     }
 
+    /// <summary>
+    /// The only path that creates a TenantOwner grant outside signup: an accepted ownership transfer
+    /// (DEC-036, SOD-5). The role-grant route refuses TenantOwner.
+    /// </summary>
+    public static RoleGrant CreateOwner(Guid tenantId, Membership membership, string reason, string actor, DateTimeOffset now)
+    {
+        if (!membership.Active)
+            throw new DomainException("Ownership can only move to an active membership.");
+        var grant = new RoleGrant
+        {
+            MembershipId = membership.Id,
+            GranteeSubject = membership.UserSubject,
+            Role = RoleName.TenantOwner,
+            Reason = reason,
+            GrantedBy = actor,
+            GrantedAt = now,
+        };
+        grant.Stamp(tenantId, actor, now);
+        return grant;
+    }
+
     public void Revoke(string actor, DateTimeOffset now)
     {
         if (!Active)

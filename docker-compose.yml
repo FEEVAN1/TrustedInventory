@@ -34,6 +34,7 @@ services:
       TI_MIGRATOR_PASSWORD: ${TI_MIGRATOR_PASSWORD:?set in .env}
       TI_APP_PASSWORD: ${TI_APP_PASSWORD:?set in .env}
       TI_PLATFORM_PASSWORD: ${TI_PLATFORM_PASSWORD:?set in .env}
+      TI_CONTROL_PASSWORD: ${TI_CONTROL_PASSWORD:?set in .env}
     depends_on:
       db: { condition: service_healthy }
 
@@ -45,12 +46,12 @@ services:
     depends_on:
       db-bootstrap: { condition: service_completed_successfully }
 
-  # SYNTHETIC tenants and memberships for the Keycloak users (development only).
+  # SYNTHETIC fixture catalog, tenants, subscriptions and memberships for the Keycloak users (development only).
   seed:
     image: trustedinventory-migrator:dev
     command: ["seed"]
     environment:
-      TI_PLATFORM_CONNECTION: Host=db;Database=trustedinventory;Username=ti_platform;Password=${TI_PLATFORM_PASSWORD}
+      TI_CONTROL_CONNECTION: Host=db;Database=trustedinventory;Username=ti_control;Password=${TI_CONTROL_PASSWORD}
     depends_on:
       migrator: { condition: service_completed_successfully }
 
@@ -80,11 +81,13 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__App: Host=db;Database=trustedinventory;Username=ti_app;Password=${TI_APP_PASSWORD}
       ConnectionStrings__Platform: Host=db;Database=trustedinventory;Username=ti_platform;Password=${TI_PLATFORM_PASSWORD}
+      ConnectionStrings__Control: Host=db;Database=trustedinventory;Username=ti_control;Password=${TI_CONTROL_PASSWORD}
       Paging__CursorKey: ${TI_CURSOR_KEY:?set in .env}
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api
       Auth__RequireHttpsMetadata: "false"
       Platform__AdministratorSubjects__0: 00000000-0000-4000-8000-000000000001
+      # No synthetic platform-billing user exists yet (S2); the list is empty in development.
       Cors__AllowedOrigins__0: http://localhost:5173
     ports: ["8081:8080"]
     depends_on:

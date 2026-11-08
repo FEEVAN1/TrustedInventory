@@ -7,10 +7,20 @@ namespace TrustedInventory.IntegrationTests.Audit;
 [Collection(ApiTestGroup.Name)]
 public sealed class AuditTrailTests(ApiFixture fx)
 {
-    /// <summary>A fresh tenant with a few audited changes, its administrator also holding Auditor.</summary>
+    /// <summary>The chain of a signed-up tenant after <see cref="AuditedTenantAsync"/>, oldest first.</summary>
+    private static readonly string[] ExpectedChain =
+    [
+        "TenantCreated", "MembershipCreated", "RoleGranted", "RoleGranted", "BillingAccountCreated", "TenantReady", "TrialStarted", // signup
+        "RoleGranted", // Auditor
+        "WarehouseCreated", "WarehouseCreated", "WarehouseCreated",
+    ];
+
+    private const int FirstWarehouseSequence = 9;
+
+    /// <summary>A tenant created through real signup, with a few audited changes, its owner also holding Auditor.</summary>
     private async Task<ProvisionedTenant> AuditedTenantAsync(string label)
     {
-        var tenant = await TenantProvisioning.ProvisionAsync(fx, label);
+        var tenant = await TenantProvisioning.SignUpAsync(fx, label);
         await TenantProvisioning.GrantSelfAsync(fx, tenant, "Auditor");
         var admin = fx.Client(tenant.Admin, tenant.TenantId);
         for (var i = 0; i < 3; i++)
@@ -29,7 +39,8 @@ public sealed class AuditTrailTests(ApiFixture fx)
         var auditor = fx.Client(tenant.Admin, tenant.TenantId);
 
         var all = (await (await auditor.GetAsync("/api/v1/audit/events?limit=200")).ExpectAsync(HttpStatusCode.OK))["items"]!.AsArray();
-        Assert.Equal(7, all.Count); // tenant, membership, grant, auditor grant, 3 warehouses
+        // Provisioning writes into the tenant's own chain from genesis (AUD-001).
+        Assert.Equal(ExpectedChain.Reverse(), all.Select(e => (string)e!["eventType"]!));
         for (var i = 0; i < all.Count - 1; i++)
         {
             Assert.Equal((long)all[i]!["sequence"]! - 1, (long)all[i + 1]!["sequence"]!);
@@ -56,7 +67,7 @@ public sealed class AuditTrailTests(ApiFixture fx)
         var result = await (await fx.Client(tenant.Admin, tenant.TenantId).PostJsonAsync("/api/v1/audit/verify", new { }))
             .ExpectAsync(HttpStatusCode.OK);
         Assert.True((bool)result["verified"]!);
-        Assert.Equal(7, (long)result["eventsChecked"]!);
+        Assert.Equal(ExpectedChain.Length, (long)result["eventsChecked"]!);
         Assert.Null(result["failure"]);
     }
 
@@ -66,7 +77,9 @@ public sealed class AuditTrailTests(ApiFixture fx)
     public async Task An_altered_event_fails_verification_and_opens_one_high_alert()
     {
         var tenant = await AuditedTenantAsync("tamper");
-        await TamperAsync("UPDATE ti.audit_event SET after_state = jsonb_set(after_state, '{name}', '\"Forged\"') WHERE tenant_id = @t AND sequence = 5",
+        // Rename the second warehouse in its creation event.
+        const int forged = FirstWarehouseSequence + 1;
+        await TamperAsync($"UPDATE ti.audit_event SET after_state = jsonb_set(after_state, '{{name}}', '\"Forged\"') WHERE tenant_id = @t AND sequence = {forged}",
             tenant.TenantId);
 
         var client = fx.Client(tenant.Admin, tenant.TenantId);
@@ -75,7 +88,7 @@ public sealed class AuditTrailTests(ApiFixture fx)
             var result = await (await client.PostJsonAsync("/api/v1/audit/verify", new { })).ExpectAsync(HttpStatusCode.OK);
             Assert.False((bool)result["verified"]!);
             Assert.Equal("HashMismatch", (string?)result["failure"]);
-            Assert.Equal(5, (long)result["firstFailureSequence"]!);
+            Assert.Equal(forged, (long)result["firstFailureSequence"]!);
         }
 
         var alerts = await TenantProvisioning.ScalarAsSuperuserAsync(fx,
@@ -84,7 +97,7 @@ public sealed class AuditTrailTests(ApiFixture fx)
         Assert.Equal(1L, alerts);
 
         // Verifying only the untouched prefix still succeeds.
-        var prefix = await (await client.PostJsonAsync("/api/v1/audit/verify", new { fromSequence = 1, toSequence = 4 })).ExpectAsync(HttpStatusCode.OK);
+        var prefix = await (await client.PostJsonAsync("/api/v1/audit/verify", new { fromSequence = 1, toSequence = forged - 1 })).ExpectAsync(HttpStatusCode.OK);
         Assert.True((bool)prefix["verified"]!);
     }
 

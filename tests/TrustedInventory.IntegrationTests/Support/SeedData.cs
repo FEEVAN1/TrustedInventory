@@ -9,9 +9,13 @@ namespace TrustedInventory.IntegrationTests.Support;
 public sealed class SeedData
 {
     public const string PlatformAdmin = "user-platform-admin";
+    public const string PlatformBilling = "user-platform-billing";
 
     public required TenantSeed A { get; init; }
     public required TenantSeed B { get; init; }
+
+    /// <summary>Published, public plan with every feature and generous limits; signups in tests use it.</summary>
+    public required Guid UnlimitedPlanId { get; init; }
 
     public static async Task<SeedData> CreateAsync(string superuserConnection)
     {
@@ -22,7 +26,7 @@ public sealed class SeedData
         var b = await TenantSeed.CreateAsync(conn, "b");
         await SaasSeed.ActiveSubscriptionAsync(conn, a.TenantId, plan);
         await SaasSeed.ActiveSubscriptionAsync(conn, b.TenantId, plan);
-        return new SeedData { A = a, B = b };
+        return new SeedData { A = a, B = b, UnlimitedPlanId = plan };
     }
 }
 
