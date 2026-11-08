@@ -519,6 +519,22 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   never from the body. Tests pin identical responses for registered and unregistered addresses.
 - Per-address limits for anonymous traffic stay with the global limiter; signup always needs a verified identity.
 
+## DEC-045 Warehouse and SKU quotas enforced in S1 (milestone deviation)
+- **Status:** Adopted (owner instruction, 8 Nov 2026)
+- **Conflict:** `createWarehouse` and `createProduct` declare `x-quota` (`active_warehouses`, `active_skus`) and
+  are implemented, but their services never reserved it, so a tenant at its plan limit could keep creating.
+  SAS-005 (S1) forbids any endpoint bypassing an applicable gate; resource usage counting is ENT-003, which
+  the milestone table places in S2, and AGT-001 says not to build later-milestone features.
+- **Resolution:** the control wins. Every *implemented* operation that declares `x-quota` reserves it in S1:
+  create reserves before domain validation (SAS-005 order) and retire releases, both in the command
+  transaction through the existing `IQuotaGate` (ENT-003 mechanics, unchanged). A conformance test fails when
+  an implemented `x-quota` operation has no quota evidence, so a new endpoint cannot ship without it.
+- **Still S2:** devices and attachment bytes (their endpoints do not exist yet), the daily counter
+  reconciliation job and `EntitlementMismatch` alert, downgrades and upgrade flows (ENT-005, ENT-006).
+- Retire releases after the domain transition and before the change is flushed, so a counter seeded lazily
+  from active records counts the retiring record once and then releases it. The counter lock follows the
+  document row (lock order, migration-design §11.5).
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

@@ -3,8 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Persistence;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Domain.Locations;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
 namespace TrustedInventory.Application.Locations;
@@ -44,11 +46,15 @@ public sealed class UpdateWarehouseValidator : AbstractValidator<UpdateWarehouse
     }
 }
 
-/// <summary>Warehouses (section 07). Creating one also creates its system zone and Transit bin (DEC-010).</summary>
+/// <summary>
+/// Warehouses (section 07). Creating one also creates its system zone and Transit bin (DEC-010). Active
+/// warehouses count against the plan's active_warehouses quota (x-quota, DEC-045).
+/// </summary>
 public sealed class WarehouseService(
     ITenantUnitOfWork uow,
     ICallerAccessor callers,
     ICursorCodec cursors,
+    IQuotaGate quota,
     IValidator<CreateWarehouse> createValidator,
     IValidator<UpdateWarehouse> updateValidator)
 {
@@ -61,6 +67,8 @@ public sealed class WarehouseService(
 
         return uow.WriteAsync(async (s, c) =>
         {
+            // SAS-005 order: reserve the quota, then domain validation; a rejection rolls the reservation back.
+            await quota.ReserveAsync(s, QuotaKey.ActiveWarehouses, 1, c);
             if (await s.Db.Set<Warehouse>().AnyAsync(w => w.Code == cmd.Code, c))
                 throw AppException.Validation("code", "A warehouse with this code already exists.");
 
@@ -110,6 +118,8 @@ public sealed class WarehouseService(
             Versioning.EnsureVersion(warehouse.Version, expectedVersion);
             var before = WarehouseDto.From(warehouse);
             DomainGuard.Run(() => warehouse.Retire(s.Now));
+            // Before the flush: a counter seeded now still counts this warehouse once, then releases it (DEC-045).
+            await quota.ReleaseAsync(s, QuotaKey.ActiveWarehouses, 1, c);
 
             var after = WarehouseDto.From(warehouse);
             s.Audit(new AuditEntry("WarehouseRetired", "Warehouse", id, warehouse.Version, null, before, after));

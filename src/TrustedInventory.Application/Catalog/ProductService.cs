@@ -3,8 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Persistence;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Domain.Catalog;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
 namespace TrustedInventory.Application.Catalog;
@@ -70,12 +72,13 @@ public sealed class UpdateProductValidator : AbstractValidator<UpdateProduct>
 /// <summary>
 /// Products (section 07). Handling profile, tracking mode, base unit and precision are fixed at creation.
 /// A product may reference only an active storage profile, which always carries limits and an excursion
-/// policy (CFG-002).
+/// policy (CFG-002). Active products count against the plan's active_skus quota (x-quota, DEC-045).
 /// </summary>
 public sealed class ProductService(
     ITenantUnitOfWork uow,
     ICallerAccessor callers,
     ICursorCodec cursors,
+    IQuotaGate quota,
     IValidator<CreateProduct> createValidator,
     IValidator<UpdateProduct> updateValidator)
 {
@@ -88,6 +91,8 @@ public sealed class ProductService(
 
         return uow.WriteAsync(async (s, c) =>
         {
+            // SAS-005 order: reserve the quota, then domain validation; a rejection rolls the reservation back.
+            await quota.ReserveAsync(s, QuotaKey.ActiveSkus, 1, c);
             if (await s.Db.Set<Product>().AnyAsync(p => p.Sku == cmd.Sku, c))
                 throw AppException.Validation("sku", "A product with this SKU already exists.");
             if (!await s.Db.Set<Unit>().AnyAsync(u => u.Id == cmd.BaseUomId && u.Active, c))
@@ -147,6 +152,8 @@ public sealed class ProductService(
             var before = ProductDto.From(product);
             // M2 adds: a product with stock on hand cannot be retired.
             DomainGuard.Run(() => product.Retire(s.Now));
+            // Before the flush: a counter seeded now still counts this product once, then releases it (DEC-045).
+            await quota.ReleaseAsync(s, QuotaKey.ActiveSkus, 1, c);
 
             var after = ProductDto.From(product);
             s.Audit(new AuditEntry("ProductRetired", "Product", id, product.Version, null, before, after));
