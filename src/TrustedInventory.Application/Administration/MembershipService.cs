@@ -95,10 +95,11 @@ public sealed class MembershipService(
 
         return uow.WriteAsync(async (s, c) =>
         {
+            // SAS-005 order: reserve the quota, then domain validation; a rejection rolls the reservation back.
+            // No document row is locked first, so the counter lock respects the lock order (migration-design §11.5).
+            await quota.ReserveAsync(s, QuotaKey.ActiveSeats, 1, c);
             if (await s.Db.Set<Membership>().AnyAsync(m => m.UserSubject == cmd.UserSubject, c))
                 throw AppException.InvalidState("This user already has a membership in the tenant.");
-
-            await quota.ReserveAsync(s, QuotaKey.ActiveSeats, 1, c);
             var membership = Membership.Create(caller.TenantId, cmd.UserSubject, cmd.DisplayName, caller.Subject, s.Now);
             s.Db.Add(membership);
             var dto = MembershipDto.From(membership);
