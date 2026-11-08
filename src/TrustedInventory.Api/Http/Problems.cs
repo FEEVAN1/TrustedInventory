@@ -30,7 +30,8 @@ public static partial class Problems
         {
             case AppException app:
                 if (app.Code == ErrorCode.RateLimited)
-                    http.Response.Headers.RetryAfter = "60";
+                    http.Response.Headers.RetryAfter = Math.Max(1, (long)Math.Ceiling((app.RetryAfter ?? TimeSpan.FromSeconds(60)).TotalSeconds))
+                        .ToString(System.Globalization.CultureInfo.InvariantCulture);
                 if (!http.Response.HasStarted)
                 {
                     http.Response.StatusCode = app.Status;

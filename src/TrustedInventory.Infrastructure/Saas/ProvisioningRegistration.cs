@@ -17,14 +17,24 @@ public static class ProvisioningRegistration
         if (!System.Text.RegularExpressions.Regex.IsMatch(region, "^[a-z0-9][a-z0-9-]{1,31}$"))
             throw new InvalidOperationException("Saas:HomeRegion must be a lowercase region code.");
 
-        var trialDays = int.TryParse(config["Saas:TrialDays"], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var d) && d is > 0 and <= 90 ? d : 14;
-        services.AddSingleton(new SaasOptions(trialDays, region));
+        var trialDays = Bounded(config, "Saas:TrialDays", 1, 90, 14);
+        services.AddSingleton(new SaasOptions(trialDays, region)
+        {
+            // Proposed abuse limits until the owner approves them (DEC-044).
+            SignupsPerIdentityPerDay = Bounded(config, "Saas:Abuse:SignupsPerIdentityPerDay", 1, 1000, 3),
+            InvitationsPerTenantPerHour = Bounded(config, "Saas:Abuse:InvitationsPerTenantPerHour", 1, 10000, 30),
+        });
         services.AddSingleton<IProvisioningFaults, NoProvisioningFaults>();
         services.AddSingleton<IProvisioningEngine, ProvisioningEngine>();
         services.AddSingleton<IPlanCatalog, PlanCatalog>();
         services.AddSingleton<ProvisioningSweepJob>();
         return services;
     }
+
+    /// <summary>An integer setting within bounds, else the default. A malformed value falls back rather than disabling a limit.</summary>
+    private static int Bounded(IConfiguration config, string key, int min, int max, int fallback) =>
+        int.TryParse(config[key], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var v)
+            && v >= min && v <= max ? v : fallback;
 }
 
 /// <summary>Resumes provisioning jobs left part-way (ONB-002): due retries and lapsed leases.</summary>

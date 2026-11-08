@@ -500,6 +500,25 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - Background work is never entitlement-gated: a tenant whose plan lacks a feature still gets outbox
   delivery, cleanup and checkpoints (AT-SAS-01 runs two plans on one pooled connection).
 
+## DEC-044 Signup and invitation abuse limits (S1)
+- **Status:** Adopted for development; limit values proposed until the owner approves them (with D09/D10)
+- **Context:** ONB-007 requires abuse limits on signup and invitation creation. The only limit was the global
+  per-principal request limiter (600/minute), which would allow hundreds of workspaces per identity. A stricter
+  request limiter cannot tell a retry from a new signup, and AT-ONB-01 retries one signup ten times.
+- **Decision:** limits count *created records* in the database, so idempotent replays never count:
+  new provisioning jobs per identity per rolling 24 hours (`Saas:Abuse:SignupsPerIdentityPerDay`, default 3) and
+  new invitations per tenant per rolling hour (`Saas:Abuse:InvitationsPerTenantPerHour`, default 30). Revoked and
+  expired invitations still count; creation is the abused action. Over the limit: 429 `RATE_LIMITED` with
+  `Retry-After` set to the seconds until the oldest counted record leaves the window.
+- **Concurrency:** each check takes a transaction-scoped advisory lock (`signup:<subject>` on the control pool,
+  `invite:<tenant>` in the tenant transaction) before counting, so a parallel burst cannot pass the count
+  together. Advisory locks are taken first in their transaction and touch no table, so the table lock order in
+  docs/migration-design.md (STK-005) is unaffected.
+- **Email enumeration:** invitation creation never looks up identities or other tenants; the only conflict it
+  reports is a pending invitation in the caller's own tenant. Signup takes the email from the verified token,
+  never from the body. Tests pin identical responses for registered and unregistered addresses.
+- Per-address limits for anonymous traffic stay with the global limiter; signup always needs a verified identity.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

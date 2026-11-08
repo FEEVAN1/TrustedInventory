@@ -55,7 +55,14 @@ public class AppException(ErrorCode code, string detail, IReadOnlyList<FieldErro
 
     /// <summary>Optional contract fields added to the error body: quota, feature, recovery, blockers (DEC-041).</summary>
     public System.Text.Json.Nodes.JsonObject? Extensions { get; init; }
+
+    /// <summary>For RATE_LIMITED: how long until a retry can succeed (sent as Retry-After).</summary>
+    public TimeSpan? RetryAfter { get; init; }
+
     public int Status => StatusOf(Code);
+
+    public static AppException RateLimited(string detail, TimeSpan retryAfter) =>
+        new(ErrorCode.RateLimited, detail) { RetryAfter = retryAfter };
 
     public static int StatusOf(ErrorCode code) => code switch
     {

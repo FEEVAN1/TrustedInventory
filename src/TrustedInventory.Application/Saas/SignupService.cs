@@ -125,5 +125,15 @@ public sealed class PlanCatalogService(IPlanCatalog catalog, ICursorCodec cursor
     }
 }
 
-/// <summary>SaaS defaults in force until the owner approves commercial terms (D09, D10, DEC-040).</summary>
-public sealed record SaasOptions(int TrialDays, string HomeRegion);
+/// <summary>SaaS defaults in force until the owner approves commercial terms (D09, D10, DEC-040, DEC-044).</summary>
+public sealed record SaasOptions(int TrialDays, string HomeRegion)
+{
+    /// <summary>New workspaces one identity may create per rolling 24 hours (ONB-007).</summary>
+    public int SignupsPerIdentityPerDay { get; init; } = 3;
+
+    /// <summary>New invitations one tenant may create per rolling hour (ONB-007).</summary>
+    public int InvitationsPerTenantPerHour { get; init; } = 30;
+
+    public static readonly TimeSpan SignupWindow = TimeSpan.FromHours(24);
+    public static readonly TimeSpan InvitationWindow = TimeSpan.FromHours(1);
+}

@@ -7926,7 +7926,7 @@ paths:
       tags:
         - Signup
       summary: Sign up a business workspace
-      description: Requires an authenticated, email-verified identity with MFA (ONB-001, DEC-037). Starts an idempotent provisioning job; repeated calls with the same key return the same job (AT-ONB-01). Repeated trials by the same identity or business are flagged for abuse review, not silently granted (ONB-003).
+      description: Requires an authenticated, email-verified identity with MFA (ONB-001, DEC-037). Starts an idempotent provisioning job; repeated calls with the same key return the same job (AT-ONB-01). Repeated trials by the same identity or business are flagged for abuse review, not silently granted (ONB-003). New workspaces per identity are limited per rolling 24 hours; replays of a key never count; over the limit returns 429 RATE_LIMITED with Retry-After (ONB-007, DEC-044).
       x-permission: authenticated
       x-access: identity
       x-requirements:
@@ -8886,7 +8886,7 @@ paths:
       tags:
         - Administration
       summary: Invite a user
-      description: Random single-use token, hashed at rest, valid 72 hours, bound to tenant, email and roles; delivered by email through the outbox. Pending invitations do not use seats. Abuse limits apply (ONB-005, ONB-007).
+      description: Random single-use token, hashed at rest, valid 72 hours, bound to tenant, email and roles; delivered by email through the outbox. Pending invitations do not use seats. New invitations per tenant are limited per rolling hour; over the limit returns 429 RATE_LIMITED with Retry-After (ONB-005, ONB-007, DEC-044). The response never reveals whether the address is registered or invited elsewhere.
       x-permission: tenant.members.manage
       x-access: team-admin
       x-requirements:

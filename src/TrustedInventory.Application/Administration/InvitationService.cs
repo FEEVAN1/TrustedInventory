@@ -73,6 +73,7 @@ public sealed class InvitationService(
     ITenantAccessReader accessReader,
     IQuotaGate quota,
     TimeProvider clock,
+    SaasOptions saas,
     IValidator<CreateInvitation> createValidator,
     IValidator<ReasonRequest> reasonValidator,
     IValidator<AcceptInvitation> acceptValidator)
@@ -92,6 +93,7 @@ public sealed class InvitationService(
 
         return uow.WriteAsync(async (s, c) =>
         {
+            await EnforceInvitationLimitAsync(s, caller.TenantId, c);
             foreach (var wid in cmd.Roles.Where(r => r.WarehouseId is not null).Select(r => r.WarehouseId!.Value).Distinct())
                 if (!await s.Db.Set<Warehouse>().AnyAsync(w => w.Id == wid && w.Active, c))
                     throw AppException.Validation("roles", "Unknown or retired warehouse.");
@@ -111,6 +113,23 @@ public sealed class InvitationService(
             s.Publish("InvitationCreated", new { invitationId = id, tenantId = caller.TenantId, email, expiresAt = invitation.ExpiresAt });
             return dto;
         }, ct);
+    }
+
+    /// <summary>
+    /// New invitations per tenant per rolling hour (ONB-007, DEC-044). The advisory lock is the first lock in the
+    /// transaction, so concurrent invites by one tenant cannot pass the count together. Revoked and expired
+    /// invitations still count: creation is the abused action. Nothing about other tenants or identities is read.
+    /// </summary>
+    private async Task EnforceInvitationLimitAsync(ITenantSession s, Guid tenantId, CancellationToken ct)
+    {
+        await s.Db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"invite:" + tenantId.ToString("D")}, 0))", ct);
+        var since = s.Now - SaasOptions.InvitationWindow;
+        var created = await s.Db.Set<Invitation>().AsNoTracking()
+            .Where(i => i.CreatedAt > since).OrderBy(i => i.CreatedAt).Select(i => i.CreatedAt)
+            .Take(saas.InvitationsPerTenantPerHour).ToListAsync(ct);
+        if (created.Count >= saas.InvitationsPerTenantPerHour)
+            throw AppException.RateLimited("Too many new invitations for this workspace. Retry later.",
+                created[0] + SaasOptions.InvitationWindow - s.Now);
     }
 
     public Task<Page<InvitationDto>> ListAsync(InvitationStatus? status, PageRequest page, CancellationToken ct)

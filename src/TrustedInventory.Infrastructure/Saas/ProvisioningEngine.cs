@@ -37,6 +37,10 @@ public sealed class ProvisioningEngine(ControlDataSource control, TimeProvider c
             await using var conn = await control.Source.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
 
+            // Serialize this identity's signups before the key lookup, so a concurrent retry of the same key waits
+            // and then replays, and a burst of new keys cannot pass the abuse count together (DEC-044).
+            await ExecAsync(conn, tx, "SELECT pg_advisory_xact_lock(hashtextextended('signup:' || @s, 0))", ct, ("s", signup.OwnerSubject));
+
             if (await FindByKeyAsync(conn, tx, signup.SignupKey, ct) is { } existing)
             {
                 if (!existing.Digest.AsSpan().SequenceEqual(signup.RequestDigest))
@@ -45,6 +49,8 @@ public sealed class ProvisioningEngine(ControlDataSource control, TimeProvider c
                 return existing.View;
             }
 
+            // Only new jobs count: replays returned above (ONB-007).
+            await EnforceSignupLimitAsync(conn, tx, signup.OwnerSubject, ct);
             await EnsurePlanAsync(conn, tx, signup.PlanVersionId, ct);
             if (await SlugInUseAsync(conn, tx, signup.Slug, ct))
                 throw AppException.Validation("requestedSlug", "This workspace address is already taken.");
@@ -417,6 +423,27 @@ public sealed class ProvisioningEngine(ControlDataSource control, TimeProvider c
             r.GetFieldValue<DateTimeOffset>(8));
         return new Job(view, r.GetFieldValue<string[]>(10).Select(Enum.Parse<ProvisioningStep>).ToHashSet(), (byte[])r[11],
             r.IsDBNull(12) ? null : r.GetString(12), new JsonObject(), false);
+    }
+
+    /// <summary>New provisioning jobs per identity per rolling window (DEC-044). Caller holds the identity's lock.</summary>
+    private async Task EnforceSignupLimitAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string subject, CancellationToken ct)
+    {
+        var now = Now();
+        await using var cmd = new NpgsqlCommand("""
+            SELECT created_at FROM cp.provisioning_job
+            WHERE requested_by_subject = @s AND created_at > @since
+            ORDER BY created_at LIMIT @limit
+            """, conn, tx);
+        cmd.Parameters.AddWithValue("s", subject);
+        cmd.Parameters.AddWithValue("since", now - SaasOptions.SignupWindow);
+        cmd.Parameters.AddWithValue("limit", options.SignupsPerIdentityPerDay);
+        var created = new List<DateTimeOffset>();
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct))
+                created.Add(reader.GetFieldValue<DateTimeOffset>(0));
+        if (created.Count >= options.SignupsPerIdentityPerDay)
+            throw AppException.RateLimited("Too many new workspaces for this identity. Retry later.",
+                created[0] + SaasOptions.SignupWindow - now);
     }
 
     private DateTimeOffset Now()
