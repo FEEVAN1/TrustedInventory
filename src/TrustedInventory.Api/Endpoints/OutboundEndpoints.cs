@@ -36,6 +36,23 @@ public static class OutboundEndpoints
         orders.MapPost("/{id:guid}/cancel", async (HttpContext http, OutboundOrderService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
                 Conventions.Outcome(http, await svc.CancelAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
             .WithName("cancelOutboundOrder").RequirePermission(Permissions.OrdersCreate);
+
+        // Allocation (OUT-002, STK-005, STK-006, DEC-053).
+        orders.MapPost("/{id:guid}/allocate", async (HttpContext http, AllocationService svc, Guid id, AllocateRequest? body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.AllocateAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body?.AllowPartial ?? false,
+                    forceFefo: false, ct)))
+            .WithName("allocateOutboundOrder").RequirePermission(Permissions.OrdersAllocate);
+        orders.MapPost("/allocate-fefo", async (HttpContext http, AllocationService svc, AllocateFefoRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.AllocateAsync(Conventions.IdempotencyKey(http), body.OrderId, expectedVersion: null,
+                    body.AllowPartial ?? false, forceFefo: true, ct)))
+            .WithName("allocateOutboundOrderFefo").RequirePermission(Permissions.OrdersAllocate);
+        orders.MapPost("/{id:guid}/deallocate", async (HttpContext http, AllocationService svc, Guid id, DeallocateRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.DeallocateAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("deallocateOutboundOrder").RequirePermission(Permissions.OrdersAllocate);
+        tenant.MapGet("/reservations", (AllocationService svc, [AsParameters] ListQuery q, [FromQuery] Guid? orderId, [FromQuery] Guid? warehouseId,
+                [FromQuery] ReservationState? state, CancellationToken ct) =>
+                svc.ListReservationsAsync(new ReservationFilter(orderId, warehouseId, state), q.ToPage(), ct))
+            .WithName("listReservations").RequirePermission(Permissions.StockRead);
         return tenant;
     }
 }

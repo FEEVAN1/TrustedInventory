@@ -101,6 +101,10 @@ public sealed class OutboundOrder : TenantEntity
         }
     }
 
+    /// <summary>Allocation applies to confirmed orders that are not finished (STK-006).</summary>
+    public bool IsAllocatable => Status is OutboundOrderStatus.Confirmed or OutboundOrderStatus.PartAllocated or OutboundOrderStatus.Allocated
+        or OutboundOrderStatus.PartPicked or OutboundOrderStatus.Picked or OutboundOrderStatus.PartDispatched;
+
     public static OutboundOrderStatus Derive(IReadOnlyCollection<LineProgress> lines) =>
         lines.Count > 0 && lines.All(l => l.Dispatched == l.Requested) ? OutboundOrderStatus.Dispatched
         : lines.Any(l => l.Dispatched > 0) ? OutboundOrderStatus.PartDispatched
@@ -140,6 +144,17 @@ public sealed class OutboundOrderLine : TenantEntity
         return line;
     }
 
+    public decimal Unallocated => RequestedBaseQty - AllocatedBaseQty;
+
+    /// <summary>Allocates part of the unreserved remainder (STK-006).</summary>
+    public void Allocate(decimal qty, DateTimeOffset now)
+    {
+        if (qty <= 0 || qty > Unallocated)
+            throw new DomainException("Allocation cannot exceed the unreserved remainder of the line.");
+        AllocatedBaseQty += qty;
+        Touch(now);
+    }
+
     /// <summary>Releases unpicked allocation (cancellation, deallocation, expiry).</summary>
     public void ReleaseAllocation(decimal qty, DateTimeOffset now)
     {
@@ -162,6 +177,22 @@ public sealed class Reservation : TenantEntity
     public ReservationState State { get; private set; }
     public DateTimeOffset? ExpiresAt { get; private set; }
     public Guid? ParentReservationId { get; private set; }
+
+    /// <summary>A new Active commitment on a bucket; unpicked reservations expire (STK-008).</summary>
+    public static Reservation Create(Guid tenantId, Guid orderLineId, Guid productId, Guid bucketId, decimal qty, DateTimeOffset expiresAt,
+        string actor, DateTimeOffset now)
+    {
+        if (qty <= 0)
+            throw new DomainException("A reservation quantity must be positive.");
+        if (expiresAt <= now)
+            throw new DomainException("A reservation must expire in the future.");
+        var reservation = new Reservation
+        {
+            OrderLineId = orderLineId, ProductId = productId, BucketId = bucketId, Qty = qty, State = ReservationState.Active, ExpiresAt = expiresAt,
+        };
+        reservation.Stamp(tenantId, actor, now);
+        return reservation;
+    }
 
     /// <summary>Active → Released (cancellation, deallocation). The caller returns the quantity to the bucket.</summary>
     public void Release(DateTimeOffset now)

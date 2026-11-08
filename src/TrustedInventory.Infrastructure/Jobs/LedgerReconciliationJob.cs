@@ -33,22 +33,27 @@ public sealed partial class LedgerReconciliationJob(TenantJobRunner runner, IAud
     private async Task<int> ReconcileAsync(Application.Persistence.ITenantSession s, CancellationToken ct)
     {
         var (conn, tx) = TenantJobRunner.Raw(s);
-        var mismatches = new List<(Guid Bucket, decimal Expected, decimal Stored)>();
+        var mismatches = new List<(Guid Bucket, decimal Expected, decimal Stored, decimal ExpectedReserved, decimal StoredReserved)>();
+        // On hand from the movement ledger; reserved from live (Active or Picked) reservations (DEC-053).
         await using (var cmd = new NpgsqlCommand("""
             WITH ledger AS (
               SELECT bucket_id, sum(qty) AS expected FROM (
                 SELECT destination_bucket_id AS bucket_id, base_qty AS qty FROM ti.stock_movement WHERE destination_bucket_id IS NOT NULL
                 UNION ALL
                 SELECT source_bucket_id, -base_qty FROM ti.stock_movement WHERE source_bucket_id IS NOT NULL
-              ) x GROUP BY bucket_id)
-            SELECT b.id, coalesce(l.expected, 0), b.on_hand_qty
-            FROM ti.stock_bucket b LEFT JOIN ledger l ON l.bucket_id = b.id
-            WHERE coalesce(l.expected, 0) <> b.on_hand_qty
+              ) x GROUP BY bucket_id),
+            commitments AS (
+              SELECT bucket_id, sum(qty) AS reserved FROM ti.reservation WHERE state IN ('Active', 'Picked') GROUP BY bucket_id)
+            SELECT b.id, coalesce(l.expected, 0), b.on_hand_qty, coalesce(c.reserved, 0), b.reserved_qty
+            FROM ti.stock_bucket b
+            LEFT JOIN ledger l ON l.bucket_id = b.id
+            LEFT JOIN commitments c ON c.bucket_id = b.id
+            WHERE coalesce(l.expected, 0) <> b.on_hand_qty OR coalesce(c.reserved, 0) <> b.reserved_qty
             ORDER BY b.id
             """, conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct))
             while (await reader.ReadAsync(ct))
-                mismatches.Add((reader.GetGuid(0), reader.GetDecimal(1), reader.GetDecimal(2)));
+                mismatches.Add((reader.GetGuid(0), reader.GetDecimal(1), reader.GetDecimal(2), reader.GetDecimal(3), reader.GetDecimal(4)));
         if (mismatches.Count == 0)
             return 0;
 
@@ -61,6 +66,8 @@ public sealed partial class LedgerReconciliationJob(TenantJobRunner runner, IAud
                 ["bucketId"] = m.Bucket.ToString(),
                 ["expectedOnHand"] = m.Expected.ToString(CultureInfo.InvariantCulture),
                 ["storedOnHand"] = m.Stored.ToString(CultureInfo.InvariantCulture),
+                ["expectedReserved"] = m.ExpectedReserved.ToString(CultureInfo.InvariantCulture),
+                ["storedReserved"] = m.StoredReserved.ToString(CultureInfo.InvariantCulture),
             }).ToArray()),
         };
         if (!await support.RaiseAlertAsync(s, AlertType.ReconciliationMismatch, AlertSeverity.High, DedupeKey, details, ct))
@@ -76,17 +83,20 @@ public sealed partial class LedgerReconciliationJob(TenantJobRunner runner, IAud
             await refresh.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var (bucket, expected, stored) in mismatches)
+        foreach (var (bucket, expected, stored, expectedReserved, storedReserved) in mismatches)
         {
             await using var block = new NpgsqlCommand("""
-                INSERT INTO ti.stock_bucket_block (tenant_id, bucket_id, alert_id, expected_qty, stored_qty, created_at, created_by)
-                SELECT a.tenant_id, @bucket, a.id, @expected, @stored, @now, @actor
+                INSERT INTO ti.stock_bucket_block (tenant_id, bucket_id, alert_id, expected_qty, stored_qty, expected_reserved_qty,
+                                                   stored_reserved_qty, created_at, created_by)
+                SELECT a.tenant_id, @bucket, a.id, @expected, @stored, @expectedReserved, @storedReserved, @now, @actor
                 FROM ti.alert a WHERE a.dedupe_key = @key AND a.status <> 'Closed'
                 ON CONFLICT DO NOTHING
                 """, conn, tx);
             block.Parameters.AddWithValue("bucket", bucket);
             block.Parameters.AddWithValue("expected", expected);
             block.Parameters.AddWithValue("stored", stored);
+            block.Parameters.AddWithValue("expectedReserved", expectedReserved);
+            block.Parameters.AddWithValue("storedReserved", storedReserved);
             block.Parameters.AddWithValue("now", s.Now);
             block.Parameters.AddWithValue("actor", TenantJobRunner.Subject);
             block.Parameters.AddWithValue("key", DedupeKey);

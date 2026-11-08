@@ -710,6 +710,35 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   therefore releases even on buckets blocked under OPS-001 (DEC-049), which would otherwise trap the commitment.
   Commands that change on hand (pick, dispatch) stay blocked.
 
+## DEC-053 Allocation (M3, OUT-002, STK-005, STK-006, STK-008, AT-OUT-01, AT-STK-01)
+- **Status:** Adopted
+- **What is allocated:** the unreserved remainder of every line (requested − allocated) of an order in a confirmed status;
+  never a Draft, Cancelled, Dispatched or Closed order (STK-006).
+- **Rotation:** the product's rotation rule (FEFO, FIFO, LIFO); medical products always FEFO; `/orders/allocate-fefo`
+  forces FEFO for every line (DEC-006).
+- **Eligible buckets (OUT-002, migration-design §5):** the order's warehouse and product; quality `Available`; an
+  active `Storage` bin in a zone compatible with the product (DEC-012, compatible zones computed first and passed to
+  the query); not blocked (OPS-001); something unreserved. With an expiry: `expiry_date > effective dispatch date`
+  and `expiry_date − effective dispatch date ≥ min_remaining_shelf_life_days`, where the effective dispatch date is
+  the later of the planned date and today in the warehouse's time zone. Buckets without an expiry have no shelf-life
+  limit.
+- **Locking (STK-005):** order row → its lines (`line_number`) → for each line its candidate buckets `FOR UPDATE` in
+  rule order (FEFO `expiry, received_at, lot_id, id`; FIFO `received_at, id`; LIFO `received_at DESC, id`), then
+  revalidate `on_hand − reserved` on the locked rows → audit stream. Deadlocks and serialization failures retry at most
+  three times with jitter, then `409 RETRYABLE_CONFLICT` (existing unit of work).
+- **All-or-nothing (default) versus partial (STK-006):** any shortage in all-or-nothing mode fails with
+  `409 INSUFFICIENT_STOCK`, listing the shortages, and creates nothing (AT-OUT-01). Partial mode commits what is
+  available and returns exact shortages.
+- **Reservations (STK-008):** `Active` with `expires_at = now + 24 h`; the bucket's `reserved_qty` and the line's
+  allocated quantity grow in the same transaction; the order's status is recalculated.
+- **Blocks:** an open audit-chain failure refuses allocation (`STOCK_BLOCKED`, DEC-049); blocked buckets are simply
+  not candidates.
+- **Deallocation:** a safety operation that releases Active reservations of the named lines (or all) with a reason;
+  picked stock needs unpick first. Same release path as cancellation (DEC-052).
+- **Reconciliation (completes DEC-049):** each bucket's `reserved_qty` must equal the sum of its `Active` and `Picked`
+  reservations; a difference is a mismatch like an on-hand one. Migration 0011 adds `expected_reserved_qty` and
+  `stored_reserved_qty` to `stock_bucket_block` and requires on hand **or** reserved to differ.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which
