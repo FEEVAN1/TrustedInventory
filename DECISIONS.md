@@ -314,6 +314,7 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - Jobs enumerate tenant ids through `ti_platform`, then work inside a per-tenant `ti_app` transaction as
   `system:worker` with no permissions (TEN-004). Outbox delivery and idempotency cleanup run for Active
   tenants; audit checkpoints include suspended tenants. Creating a checkpoint is not itself audited.
+  (Tenant selection superseded by DEC-043.)
 - Outbox: leased with `FOR UPDATE SKIP LOCKED`, exponential backoff (5 s base, 1 h cap), dead letter and
   one High `OutboxDeadLetter` alert after the 10th failure (NFR-JOBS). The development sink and the
   checkpoint retention store are **simulated** and labelled as such (AGT-004).
@@ -476,6 +477,28 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   window, two secrets during rotation; `Billing:Provider` and `Billing:LiveCheckoutEnabled=false`; inbox
   processing gives up after 10 attempts and quarantines. Fixture plans in `docs/entitlement-catalog.json`
   use the ISO test currency XTS.
+
+## DEC-043 Worker jobs follow the state matrix's background-work table (S1)
+- **Status:** Adopted (supersedes the tenant selection in DEC-031)
+- **Conflict:** DEC-031 (M1) runs outbox delivery for `Active` tenants only and idempotency cleanup and
+  audit checkpoints for every tenant, selected by the v2.0 `ti.tenant.status` column. The v3.0 table
+  "Background work by mode" in `docs/saas-state-matrix.md` runs all three in every mode except `Deleted`
+  (checkpoints there: deletion evidence only). The M1 worker therefore skipped outbox delivery for
+  security-suspended tenants and kept working on deleted tenants. It also read `status`, which the pending
+  0005 contract migration drops, so every job would fail after M2 (SAS-005, AT-SAS-01).
+- **Resolution:** the v3.0 matrix wins. `Domain.Saas.BackgroundWork` holds the table as code next to
+  `AccessMatrix`, and a unit test walks every cell. `TenantJobRunner` reads `lifecycle` and the security
+  suspension through `ti_platform` and asks the table whether a job runs; it never reads `status`.
+- **Why lifecycle is enough:** no row in the table differs between Normal, BillingRestricted and
+  SecuritySuspended, so the worker never needs billing state (`ti_platform` has no `cp` access, SAS-004).
+  Closed and Deleted come from lifecycle alone (`TenantAccessState.Mode`). A future job whose row depends on
+  billing state must read the control plane first.
+- **Not weakened:** tenant isolation is unchanged (per-tenant `ti_app` transaction, `system:worker` with no
+  permissions, TEN-004). Delivering already-committed events during a security suspension changes no tenant
+  data. Deleted tenants' deletion-evidence checkpoint arrives with the deletion flow in S3; until then
+  Deleted tenants get no background work at all.
+- Background work is never entitlement-gated: a tenant whose plan lacks a feature still gets outbox
+  delivery, cleanup and checkpoints (AT-SAS-01 runs two plans on one pooled connection).
 
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted

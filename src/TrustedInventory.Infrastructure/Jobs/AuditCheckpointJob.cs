@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using TrustedInventory.Application.Audit;
 using TrustedInventory.Application.Jobs;
+using TrustedInventory.Domain.Saas;
 
 namespace TrustedInventory.Infrastructure.Jobs;
 
@@ -18,8 +19,8 @@ public sealed partial class AuditCheckpointJob(
 {
     public async Task RunOnceAsync(CancellationToken ct)
     {
-        // Suspended tenants keep their audit evidence protected, so all tenants are checkpointed.
-        foreach (var (tenantId, status) in await runner.TenantsAsync(activeOnly: false, ct))
+        // Every mode but Deleted, suspended and closed tenants included: their audit evidence stays protected (DEC-043).
+        foreach (var (tenantId, status) in await runner.TenantsAsync(BackgroundJob.AuditCheckpoint, ct))
         {
             var created = await runner.UnitOfWorkFor(tenantId, status).WriteAsync((s, c) => CheckpointAsync(s, tenantId, c), ct);
             if (created)

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using TrustedInventory.Application.Jobs;
+using TrustedInventory.Domain.Saas;
 
 namespace TrustedInventory.Infrastructure.Jobs;
 
@@ -12,7 +13,7 @@ public sealed partial class IdempotencyCleanupJob(TenantJobRunner runner, ILogge
 {
     public async Task RunOnceAsync(CancellationToken ct)
     {
-        foreach (var (tenantId, status) in await runner.TenantsAsync(activeOnly: false, ct))
+        foreach (var (tenantId, status) in await runner.TenantsAsync(BackgroundJob.IdempotencyCleanup, ct))
         {
             var deleted = await runner.UnitOfWorkFor(tenantId, status).WriteAsync(async (s, c) =>
             {

@@ -1,6 +1,7 @@
 using Npgsql;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Domain.Organization;
+using TrustedInventory.Domain.Saas;
 using TrustedInventory.Infrastructure.Persistence;
 
 namespace TrustedInventory.Infrastructure.Jobs;
@@ -14,15 +15,25 @@ public sealed class TenantJobRunner(PlatformDataSource platform, AppDataSource a
 {
     public const string Subject = "system:worker";
 
-    public async Task<IReadOnlyList<(Guid Id, TenantStatus Status)>> TenantsAsync(bool activeOnly, CancellationToken ct)
+    /// <summary>
+    /// Tenants the job runs for, by the state matrix's background-work table (DEC-043). Reads lifecycle and the
+    /// security suspension, never the v2.0 status column (dropped by the 0005 contract migration). The returned
+    /// status only feeds the legacy CallerContext.RequireMutable check.
+    /// </summary>
+    public async Task<IReadOnlyList<(Guid Id, TenantStatus Status)>> TenantsAsync(BackgroundJob job, CancellationToken ct)
     {
         await using var cmd = platform.Source.CreateCommand(
-            "SELECT id, status FROM ti.tenant WHERE NOT @active OR status = 'Active' ORDER BY id");
-        cmd.Parameters.AddWithValue("active", activeOnly);
+            "SELECT id, lifecycle::text, security_suspended_at IS NOT NULL FROM ti.tenant ORDER BY id");
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var tenants = new List<(Guid, TenantStatus)>();
         while (await reader.ReadAsync(ct))
-            tenants.Add((reader.GetGuid(0), reader.GetFieldValue<TenantStatus>(1)));
+        {
+            // A missing or unknown lifecycle fails closed: the tenant gets no background work.
+            if (reader.IsDBNull(1) || !Enum.TryParse<TenantLifecycle>(reader.GetString(1), out var lifecycle)
+                || !BackgroundWork.RunsFor(job, lifecycle))
+                continue;
+            tenants.Add((reader.GetGuid(0), reader.GetBoolean(2) ? TenantStatus.Suspended : TenantStatus.Active));
+        }
         return tenants;
     }
 

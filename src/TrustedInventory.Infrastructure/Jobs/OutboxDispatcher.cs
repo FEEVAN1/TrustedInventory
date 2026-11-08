@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using TrustedInventory.Application.Jobs;
+using TrustedInventory.Domain.Saas;
 
 namespace TrustedInventory.Infrastructure.Jobs;
 
@@ -17,7 +18,7 @@ public sealed partial class OutboxDispatcher(
 {
     public async Task RunOnceAsync(CancellationToken ct)
     {
-        foreach (var (tenantId, status) in await runner.TenantsAsync(activeOnly: true, ct))
+        foreach (var (tenantId, status) in await runner.TenantsAsync(BackgroundJob.OutboxDelivery, ct))
         {
             var uow = runner.UnitOfWorkFor(tenantId, status);
             var leased = await uow.WriteAsync((s, c) => LeaseAsync(s, tenantId, c), ct);
