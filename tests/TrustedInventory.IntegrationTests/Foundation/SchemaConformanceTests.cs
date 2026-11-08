@@ -53,7 +53,8 @@ public sealed class SchemaConformanceTests(ApiFixture fx)
         Assert.Equal(0, await CountAsync("""
             SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
             WHERE c.relname IN ('warehouse','product','bin','lot','serial','stock_bucket','stock_movement','receipt','receipt_line',
-                                'purchase_order','purchase_order_line','warehouse_task','document_operation','receipt_line_serial')
+                                'purchase_order','purchase_order_line','warehouse_task','document_operation','receipt_line_serial',
+                                'outbound_order','outbound_order_line','reservation','pick','pick_confirmation','shipment','shipment_line')
               AND p.polroles && ARRAY(SELECT oid FROM pg_roles WHERE rolname IN ('ti_platform','ti_owner','ti_control'))
             """));
     }
@@ -67,7 +68,9 @@ public sealed class SchemaConformanceTests(ApiFixture fx)
             "partner", "storage_profile", "configuration_version", "alert", "outbox_event", "idempotency_record",
             // M2 inbound ledger (0006)
             "lot", "serial", "stock_bucket", "purchase_order", "purchase_order_line", "receipt", "receipt_line",
-            "receipt_line_serial", "warehouse_task", "stock_movement", "document_operation" };
+            "receipt_line_serial", "warehouse_task", "stock_movement", "document_operation",
+            // M3 outbound (0010)
+            "outbound_order", "outbound_order_line", "reservation", "pick", "pick_confirmation", "shipment", "shipment_line" };
         var leaks = await QueryAsync($"""
             SELECT r || ' on ' || t FROM unnest(ARRAY['ti_control','ti_platform']) r,
                  unnest(ARRAY['{string.Join("','", inventory)}']) t

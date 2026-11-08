@@ -247,10 +247,10 @@ Putaway, rework and exception tasks (DEC-011). Putaway tasks require `receipt_li
 ## 5. Outbound
 
 ### outbound_order
-`planned_dispatch_date date`, `reference` unique per tenant, FKs to customer and warehouse. The aggregate status is derived from the lines (section 13).
+`planned_dispatch_date date`, `reference` unique per tenant, FKs to customer and warehouse. The aggregate status is derived from the lines (section 13). Created by 0010 (DEC-051): `Cancelled` exactly when `cancel_reason` is set; `confirmed_at` and `confirmed_by` set together.
 
 ### outbound_order_line
-`requested_base_qty > 0` and `min_remaining_shelf_life_days ≥ 0`, plus maintained counters with `picked ≤ allocated ≤ requested` and `dispatched ≤ picked`.
+`requested_base_qty > 0` and `min_remaining_shelf_life_days ≥ 0`, plus maintained counters with `picked ≤ allocated ≤ requested` and `dispatched ≤ picked`. Trigger `outbound_order_line_draft_only` (0010) refuses inserts, deletes and changes to product, requested quantity, shelf life or line number unless the order is `Draft`; counters stay updatable. `ti_app` holds DELETE only for replacing draft lines (DEC-051).
 
 ### reservation
 A stock commitment segment (section 13).

@@ -271,6 +271,7 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 | `0007_purchase_order_draft_lines` | `DELETE` on `ti.purchase_order_line` for `ti_app`, guarded by trigger `purchase_order_line_draft_only` (lines change only while the order is Draft; received quantity stays updatable) | Draft edits replace lines (DEC-047); the privilege is no wider than the rule |
 | `0008_stock_bucket_block` | Append-only `ti.stock_bucket_block` (bucket, alert, expected and stored on hand) with forced RLS; `ti_app` SELECT and INSERT | Reconciliation blocks (OPS-001, DEC-049); a block holds while its alert is open |
 | `0009_warehouse_task_completion` | `warehouse_task.completed_by` and `resolution`, with a CHECK tying `Completed` to both completion columns | The contract's WarehouseTask exposes them (DEC-050) |
+| `0010_outbound` | Outbound orders and lines, reservations, picks, pick confirmations, shipments and lines (M0 draft); movement → reservation foreign key deferred from 0006; Draft-only trigger on order lines with `ti_app` DELETE for draft replacement; append-only pick confirmations and shipments; forced RLS and grants | M3 schema (DEC-051) |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

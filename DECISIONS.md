@@ -671,6 +671,23 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Migration 0009:** `warehouse_task` gains `completed_by` and `resolution`, which the contract's WarehouseTask
   exposes and 0006 lacked.
 
+## DEC-051 Outbound schema (M3, migration 0010)
+- **Status:** Adopted
+- **Source:** the M0-validated draft (`db/design/schema-draft.sql`): `outbound_order`, `outbound_order_line`,
+  `reservation` (with parent segments for partial picks), `pick`, `pick_confirmation`, `shipment`, `shipment_line`.
+  The movement → reservation foreign key deferred by 0006 is added here.
+- **Draft lines:** `updateOutboundOrder` replaces all lines while Draft, as for purchase orders (DEC-047): `ti_app`
+  gets DELETE on `outbound_order_line`, guarded by a trigger that allows line inserts, deletes and changes to
+  ordered fields (product, requested quantity, shelf life, line number) only while the order is Draft. Allocation,
+  pick and dispatch counters stay updatable in any status.
+- **Append-only:** `pick_confirmation` and `shipment` (immutable records, OUT-004, ShipmentStatus has one value).
+  `shipment_line` stays updatable only for `returned_qty` (EXC-005, M4).
+- **Grants:** `ti_app` SELECT/INSERT/UPDATE on the mutable tables, SELECT/INSERT on append-only ones, no DELETE
+  except draft order lines; nothing for `ti_control` or `ti_platform` (SAS-004).
+- **Additions to the draft (stricter only):** an order is `Cancelled` exactly when it has a cancel reason;
+  `confirmed_at` and `confirmed_by` are set together; `pick_confirmation.movement_id` and `shipment_line.movement_id`
+  reference the ledger entry they record.
+
 ## DEC-024 Audit chain and lock order
 
 ## DEC-024 Audit chain and lock order
