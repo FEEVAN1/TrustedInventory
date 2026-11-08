@@ -217,6 +217,29 @@ public sealed class StockMovement
         };
     }
 
+    /// <summary>
+    /// Pick (storage → staging) or unpick (staging → storage) of reserved stock (OUT-004, section 13): both buckets, same
+    /// product, lot, serial and quality, and always the reservation segment that moved (STK-002).
+    /// </summary>
+    public static StockMovement Outbound(MovementType type, Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId,
+        Guid sourceBucketId, Guid destinationBucketId, decimal baseQty, Guid orderId, Guid orderLineId, Guid reservationId, string? reason, string actor,
+        DateTimeOffset now, string? correlationId)
+    {
+        if (type is not (MovementType.Pick or MovementType.Unpick))
+            throw new DomainException("Only pick and unpick move reserved stock between bins.");
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        if (sourceBucketId == destinationBucketId)
+            throw new DomainException("A pick or unpick must move stock to a different bucket.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = type, OperationKey = operationKey, ProductId = productId, LotId = lotId, SerialId = serialId,
+            SourceBucketId = sourceBucketId, DestinationBucketId = destinationBucketId, BaseQty = baseQty, DocumentType = DocumentType.OutboundOrder,
+            DocumentId = orderId, DocumentLineId = orderLineId, ReservationId = reservationId, Reason = reason, ActorSubject = actor, OccurredAt = now,
+            RecordedAt = now, CorrelationId = correlationId,
+        };
+    }
+
     /// <summary>Goods entering stock from outside (no source bucket).</summary>
     public static StockMovement Receipt(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid destinationBucketId,
         decimal baseQty, Guid receiptId, Guid receiptLineId, string actor, DateTimeOffset now, string? correlationId)

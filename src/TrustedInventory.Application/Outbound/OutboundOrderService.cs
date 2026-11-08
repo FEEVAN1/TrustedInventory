@@ -310,24 +310,40 @@ internal static class ReservationRelease
     public static async Task<List<Guid>> ReleaseActiveAsync(ITenantSession s, IReadOnlyCollection<Guid> lineIds, IReadOnlyDictionary<Guid, OutboundOrderLine> lines,
         CancellationToken ct)
     {
+        // Lock order (DEC-054): picks → live reservations → buckets, all by id.
         var ids = lineIds.ToArray();
-        var reservationIds = await s.Db.Database.SqlQuery<Guid>($"""
-            SELECT id AS "Value" FROM ti.reservation WHERE order_line_id = ANY({ids}) AND state = 'Active' ORDER BY id FOR UPDATE
+        await s.Db.Database.SqlQuery<Guid>($"""
+            SELECT p.id AS "Value" FROM ti.pick p JOIN ti.reservation r ON r.tenant_id = p.tenant_id AND r.id = p.reservation_id
+            WHERE r.order_line_id = ANY({ids}) AND r.state = 'Active' ORDER BY p.id FOR UPDATE OF p
             """).ToListAsync(ct);
-        if (reservationIds.Count == 0)
+        var liveIds = await s.Db.Database.SqlQuery<Guid>($"""
+            SELECT id AS "Value" FROM ti.reservation WHERE order_line_id = ANY({ids}) AND state IN ('Active','Picked') ORDER BY id FOR UPDATE
+            """).ToListAsync(ct);
+        var live = await s.Db.Set<Reservation>().Where(r => liveIds.Contains(r.Id)).ToListAsync(ct);
+        var reservations = live.Where(r => r.State == ReservationState.Active).OrderBy(r => r.Id).ToList();
+        if (reservations.Count == 0)
             return [];
-        var reservations = await s.Db.Set<Reservation>().Where(r => reservationIds.Contains(r.Id)).ToListAsync(ct);
+        var activeIds = reservations.Select(r => r.Id).ToList();
+        var picks = await s.Db.Set<Pick>().Where(p => activeIds.Contains(p.ReservationId)).ToDictionaryAsync(p => p.ReservationId, ct);
         var bucketIds = reservations.Select(r => r.BucketId).Distinct().Order().ToArray();
         await s.Db.Database.SqlQuery<Guid>($"SELECT id AS \"Value\" FROM ti.stock_bucket WHERE id = ANY({bucketIds}) ORDER BY id FOR UPDATE").ToListAsync(ct);
-        foreach (var reservation in reservations.OrderBy(r => r.Id))
+        foreach (var reservation in reservations)
         {
+            var released = reservation.Qty;
             await s.Db.Database.ExecuteSqlAsync($"""
-                UPDATE ti.stock_bucket SET reserved_qty = reserved_qty - {reservation.Qty}, updated_at = {s.Now}, version = version + 1
+                UPDATE ti.stock_bucket SET reserved_qty = reserved_qty - {released}, updated_at = {s.Now}, version = version + 1
                 WHERE id = {reservation.BucketId}
                 """, ct);
-            reservation.Release(s.Now);
-            lines[reservation.OrderLineId].ReleaseAllocation(reservation.Qty, s.Now);
+            // A part-picked task keeps what was picked: the picked child folds into the own segment (DEC-054).
+            var child = live.SingleOrDefault(r => r.ParentReservationId == reservation.Id && r.State == ReservationState.Picked);
+            if (child is not null)
+                reservation.ReleaseKeepingPicked(child, s.Now);
+            else
+                reservation.Release(s.Now);
+            if (picks.TryGetValue(reservation.Id, out var pick) && pick.IsOpen)
+                pick.CloseRemainder(s.Now);
+            lines[reservation.OrderLineId].ReleaseAllocation(released, s.Now);
         }
-        return reservations.Select(r => r.Id).ToList();
+        return activeIds;
     }
 }

@@ -114,6 +114,8 @@ public sealed class AllocationService(
                         continue;
                     var reservation = Reservation.Create(caller.TenantId, line.Id, product.Id, candidate.Id, take, expiresAt, caller.Subject, s.Now);
                     s.Db.Add(reservation);
+                    s.Db.Add(Pick.Create(caller.TenantId, reservation.Id, order.WarehouseId, candidate.BinId, product.Id, candidate.LotId, take,
+                        caller.Subject, s.Now)); // OUT-003, DEC-054
                     await s.Db.Database.ExecuteSqlAsync($"""
                         UPDATE ti.stock_bucket SET reserved_qty = reserved_qty + {take}, updated_at = {s.Now}, version = version + 1 WHERE id = {candidate.Id}
                         """, c);

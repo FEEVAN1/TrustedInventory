@@ -91,6 +91,12 @@ internal sealed class ReservationConfiguration() : TenantEntityConfiguration<Dom
         builder.HasOne<Domain.Outbound.OutboundOrderLine>().WithMany().HasForeignKey(r => r.OrderLineId).OnDelete(DeleteBehavior.NoAction);
 }
 
+internal sealed class PickConfiguration() : TenantEntityConfiguration<Domain.Outbound.Pick>("pick")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Outbound.Pick> builder) =>
+        builder.HasOne<Domain.Outbound.Reservation>().WithMany().HasForeignKey(p => p.ReservationId).OnDelete(DeleteBehavior.NoAction);
+}
+
 internal sealed class LotConfiguration() : TenantEntityConfiguration<Lot>("lot")
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Lot> builder) { }

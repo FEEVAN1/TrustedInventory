@@ -262,13 +262,13 @@ A stock commitment segment (section 13).
 | qty | pos_qty | N | |
 | state | reservation_state | N | |
 | expires_at | timestamptz | Y | Set **exactly when** Active. Picked never expires (STK-008). |
-| parent_reservation_id | uuid | Y | Segment split on partial pick |
+| parent_reservation_id | uuid | Y | The pick's own segment, on a Picked child split off by a partial pick (DEC-054) |
 | Std | | | |
 
 Indexes: live `(tenant_id, bucket_id) WHERE state IN (Active, Picked)`; expiry worker `(tenant_id, expires_at) WHERE state = Active`.
 
 ### pick
-A directed pick task, one per Active reservation segment (OUT-003). It holds `task_qty` and `picked_qty ≤ task_qty`, plus source bin, product, lot, assignee and `status` (task_status).
+A directed pick task created by allocation, one per new Active reservation, its *own* segment (OUT-003, DEC-054). It holds `task_qty` and `picked_qty ≤ task_qty`, plus source bin, product, lot, assignee and `status` (task_status). Invariant: `task_qty = picked_qty + qty of the own segment while it is Active`. A pick has at most one Picked segment: a partial pick splits a Picked child (parent = own segment) onto the staging bucket and later partial picks grow it; picking the rest moves the own segment to staging and folds the child in (child `Released`, quantity kept as history). Unpick returns stock into the own segment; releasing a part-picked task keeps the picked part and completes the task with `task_qty = picked_qty`.
 
 ### pick_confirmation (append-only)
 One row per scan-validated confirmation (OUT-004). Stores `picked_qty`, the resulting Picked reservation segment, staging bin, the raw `scanned` identifiers (jsonb, including serials) and the movement.

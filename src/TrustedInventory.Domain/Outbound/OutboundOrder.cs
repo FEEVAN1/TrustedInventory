@@ -155,6 +155,24 @@ public sealed class OutboundOrderLine : TenantEntity
         Touch(now);
     }
 
+    /// <summary>Records picked quantity (OUT-004); it never exceeds what is allocated.</summary>
+    public void Pick(decimal qty, DateTimeOffset now)
+    {
+        if (qty <= 0 || PickedBaseQty + qty > AllocatedBaseQty)
+            throw new DomainException("Picked quantity cannot exceed the allocated quantity of the line.");
+        PickedBaseQty += qty;
+        Touch(now);
+    }
+
+    /// <summary>Returns picked quantity to allocated-but-unpicked (unpick, section 13).</summary>
+    public void Unpick(decimal qty, DateTimeOffset now)
+    {
+        if (qty <= 0 || qty > PickedBaseQty - DispatchedBaseQty)
+            throw new DomainException("Only picked, undispatched quantity can be unpicked.");
+        PickedBaseQty -= qty;
+        Touch(now);
+    }
+
     /// <summary>Releases unpicked allocation (cancellation, deallocation, expiry).</summary>
     public void ReleaseAllocation(decimal qty, DateTimeOffset now)
     {
@@ -194,6 +212,90 @@ public sealed class Reservation : TenantEntity
         return reservation;
     }
 
+    /// <summary>The Picked child split off a pick's own segment on the staging bucket (DEC-054).</summary>
+    public static Reservation CreatePicked(Guid tenantId, Guid orderLineId, Guid productId, Guid stagingBucketId, decimal qty, Guid parentId,
+        string actor, DateTimeOffset now)
+    {
+        if (qty <= 0)
+            throw new DomainException("A reservation quantity must be positive.");
+        var reservation = new Reservation
+        {
+            OrderLineId = orderLineId, ProductId = productId, BucketId = stagingBucketId, Qty = qty, State = ReservationState.Picked,
+            ParentReservationId = parentId,
+        };
+        reservation.Stamp(tenantId, actor, now);
+        return reservation;
+    }
+
+    /// <summary>Moves part of the quantity out of this live segment; the segment never becomes empty.</summary>
+    public void Shrink(decimal qty, DateTimeOffset now)
+    {
+        if (State is not (ReservationState.Active or ReservationState.Picked) || qty <= 0 || qty >= Qty)
+            throw new DomainException("A segment can only give up part of its quantity.");
+        Qty -= qty;
+        Touch(now);
+    }
+
+    /// <summary>Adds quantity to this live segment on the same bucket.</summary>
+    public void Grow(decimal qty, DateTimeOffset now)
+    {
+        if (State is not (ReservationState.Active or ReservationState.Picked) || qty <= 0)
+            throw new DomainException("Only a live segment can grow by a positive quantity.");
+        Qty += qty;
+        Touch(now);
+    }
+
+    /// <summary>Active → Picked on the staging bucket, absorbing a folded child's quantity (DEC-054). Picked never expires.</summary>
+    public void MoveToStaging(Guid stagingBucketId, decimal absorbedQty, DateTimeOffset now)
+    {
+        if (State != ReservationState.Active || absorbedQty < 0)
+            throw new DomainException("Only an active reservation can be picked.");
+        State = ReservationState.Picked;
+        BucketId = stagingBucketId;
+        Qty += absorbedQty;
+        ExpiresAt = null;
+        Touch(now);
+    }
+
+    /// <summary>Picked → Active on a storage bucket with the returned quantity (unpick, section 13).</summary>
+    public void ReturnToActive(Guid bucketId, decimal qty, DateTimeOffset expiresAt, DateTimeOffset now)
+    {
+        if (State != ReservationState.Picked || qty <= 0 || qty > Qty)
+            throw new DomainException("Only picked quantity can be returned.");
+        if (expiresAt <= now)
+            throw new DomainException("A reservation must expire in the future.");
+        State = ReservationState.Active;
+        BucketId = bucketId;
+        Qty = qty;
+        ExpiresAt = expiresAt;
+        Touch(now);
+    }
+
+    /// <summary>Picked → Released when a child folds into its parent or is emptied; the quantity stays as history.</summary>
+    public void Fold(DateTimeOffset now)
+    {
+        if (State != ReservationState.Picked || ParentReservationId is null)
+            throw new DomainException("Only a picked child segment can fold into its parent.");
+        State = ReservationState.Released;
+        Touch(now);
+    }
+
+    /// <summary>
+    /// Releases the Active remainder of a part-picked own segment: it takes over its picked child on the staging bucket
+    /// (Active → Picked, quantity = the child's) and the child folds in (DEC-054). The caller returns the remainder to the bucket.
+    /// </summary>
+    public void ReleaseKeepingPicked(Reservation child, DateTimeOffset now)
+    {
+        if (State != ReservationState.Active || child.State != ReservationState.Picked || child.ParentReservationId != Id)
+            throw new DomainException("Only an active segment with a picked child can keep what was picked.");
+        State = ReservationState.Picked;
+        BucketId = child.BucketId;
+        Qty = child.Qty;
+        ExpiresAt = null;
+        Touch(now);
+        child.Fold(now);
+    }
+
     /// <summary>Active → Released (cancellation, deallocation). The caller returns the quantity to the bucket.</summary>
     public void Release(DateTimeOffset now)
     {
@@ -201,6 +303,81 @@ public sealed class Reservation : TenantEntity
             throw new DomainException("Only an active reservation can be released.");
         State = ReservationState.Released;
         ExpiresAt = null;
+        Touch(now);
+    }
+}
+
+/// <summary>
+/// A reservation-level pick task (OUT-003, DEC-054): <c>TaskQty = PickedQty + qty of its own segment while Active</c>.
+/// </summary>
+public sealed class Pick : TenantEntity
+{
+    private Pick() { }
+
+    public Guid ReservationId { get; private set; }
+    public Guid WarehouseId { get; private set; }
+    public Guid SourceBinId { get; private set; }
+    public Guid ProductId { get; private set; }
+    public Guid? LotId { get; private set; }
+    public decimal TaskQty { get; private set; }
+    public decimal PickedQty { get; private set; }
+    public string? AssigneeSubject { get; private set; }
+    public Inbound.TaskStatus Status { get; private set; }
+
+    public decimal RemainingQty => TaskQty - PickedQty;
+
+    public bool IsOpen => Status is Inbound.TaskStatus.Open or Inbound.TaskStatus.InProgress;
+
+    public static Pick Create(Guid tenantId, Guid reservationId, Guid warehouseId, Guid sourceBinId, Guid productId, Guid? lotId, decimal qty,
+        string actor, DateTimeOffset now)
+    {
+        if (qty <= 0)
+            throw new DomainException("A pick quantity must be positive.");
+        var pick = new Pick
+        {
+            ReservationId = reservationId, WarehouseId = warehouseId, SourceBinId = sourceBinId, ProductId = productId, LotId = lotId, TaskQty = qty,
+            Status = Inbound.TaskStatus.Open,
+        };
+        pick.Stamp(tenantId, actor, now);
+        return pick;
+    }
+
+    public void Confirm(decimal qty, DateTimeOffset now)
+    {
+        if (!IsOpen)
+            throw new DomainException("This pick task is closed.");
+        if (qty <= 0 || qty > RemainingQty)
+            throw new DomainException("A pick cannot exceed the remaining quantity.");
+        PickedQty += qty;
+        Status = RemainingQty == 0 ? Inbound.TaskStatus.Completed : Inbound.TaskStatus.InProgress;
+        Touch(now);
+    }
+
+    /// <summary>Returned stock becomes pickable again from <paramref name="sourceBinId"/> (section 13).</summary>
+    public void Unpick(decimal qty, Guid sourceBinId, DateTimeOffset now)
+    {
+        if (Status == Inbound.TaskStatus.Cancelled || qty <= 0 || qty > PickedQty)
+            throw new DomainException("Only picked quantity can be returned.");
+        PickedQty -= qty;
+        SourceBinId = sourceBinId;
+        Status = PickedQty == 0 ? Inbound.TaskStatus.Open : Inbound.TaskStatus.InProgress;
+        Touch(now);
+    }
+
+    /// <summary>The own segment's Active remainder was released: keep what was picked, or cancel an untouched task.</summary>
+    public void CloseRemainder(DateTimeOffset now)
+    {
+        if (!IsOpen)
+            throw new DomainException("This pick task is closed.");
+        if (PickedQty > 0)
+        {
+            TaskQty = PickedQty;
+            Status = Inbound.TaskStatus.Completed;
+        }
+        else
+        {
+            Status = Inbound.TaskStatus.Cancelled;
+        }
         Touch(now);
     }
 }

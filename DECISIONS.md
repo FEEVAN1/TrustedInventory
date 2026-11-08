@@ -735,9 +735,43 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   not candidates.
 - **Deallocation:** a safety operation that releases Active reservations of the named lines (or all) with a reason;
   picked stock needs unpick first. Same release path as cancellation (DEC-052).
+- **Pick tasks:** allocation creates one pick task per new Active reservation (OUT-003, DEC-054); releasing a
+  reservation cancels its open pick.
 - **Reconciliation (completes DEC-049):** each bucket's `reserved_qty` must equal the sum of its `Active` and `Picked`
   reservations; a difference is a mismatch like an on-hand one. Migration 0011 adds `expected_reserved_qty` and
   `stored_reserved_qty` to `stock_bucket_block` and requires on hand **or** reserved to differ.
+
+## DEC-054 Picking and unpick (M3, OUT-003, OUT-004, section 13)
+- **Status:** Adopted
+- **Tasks (OUT-003):** allocation creates one pick per new Active reservation (the pick's *own* segment), showing the
+  exact bin, product, lot, expiry and quantity. Invariant: `task_qty = picked_qty + qty of the own segment while it is
+  Active`; `remaining = task_qty − picked_qty`. The contract's pick `state` is the own segment's state.
+- **At most one picked segment per pick.** A partial pick splits a `Picked` child off the own segment (parent = own
+  segment) on the staging bucket; later partial picks grow that child; picking everything that remains moves the own
+  segment itself to staging as `Picked` and folds the child into it (the child ends `Released`, quantity kept as
+  history). All confirmations of one pick use the same staging bin. This keeps unpick to one segment and one movement,
+  as the contract's `UnpickResult` requires.
+- **Confirmation (OUT-004):** `Idempotency-Key`, If-Match on the pick and a permanent operation key
+  `pick:<subject>:<key>`. The scanned bin, product and lot (when the bucket has one) must match the task: 422
+  `VALIDATION_FAILED` naming the field, nothing changed. Another lot is never substituted, medical or not. Serial-tracked
+  picks list exactly the serial of the reserved bucket. The quantity is positive, within the product's precision and no
+  more than remains. The staging bin is an active `Staging` bin of the warehouse compatible with the product (DEC-012).
+  The own segment must be Active and unexpired, the source bucket still `Available` and its lot not expired in the
+  warehouse time zone, and neither bucket blocked (`409 STOCK_BLOCKED`).
+- **Stock and reservation move together:** lock order order row → order lines → pick → reservations → source and
+  staging buckets (by id) → audit, so every pick command on an order is serialized with allocation and release. Source
+  `on_hand` and `reserved` both drop by the quantity; the staging bucket (same product, lot, serial and quality) gains
+  both, so warehouse stock never changes at pick time. One `Pick` movement names the picked segment; a
+  `pick_confirmation` row records the scans. The line's picked quantity grows and the order status is recalculated.
+- **Unpick (safety, section 13):** quantity, an active `Storage` target bin compatible with the product, and a reason.
+  The quantity comes back into the own segment so the pick can be redone: while the own segment is still Active (part
+  picked) the target must be its bin and the quantity joins it (the child shrinks, or ends `Released` when emptied);
+  when the own segment is Picked it becomes Active again on the target bucket with the returned quantity (24 h expiry)
+  and any rest stays on staging as a new Picked child. The pick's source bin follows the own segment. One `Unpick`
+  movement naming the own segment; the line's picked quantity drops.
+- **Release of a part-picked pick:** deallocation or cancellation releases only the Active remainder; the picked child
+  folds into the own segment (Picked, on staging) and the task closes as `Completed` with `task_qty = picked_qty`. A pick
+  with nothing picked is `Cancelled`. Reservation expiry (slice 5) follows the same rule.
 
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted

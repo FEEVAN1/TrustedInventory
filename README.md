@@ -4,13 +4,14 @@ Multi-tenant warehouse and inventory management for general goods and pharmaceut
 Built to `TrustedInventory_Implementation_Specification_updated.pdf` (v3.0 SaaS, 7 November 2026); v2.0 is
 kept for traceability of DEC-001 to DEC-031.
 
-**Status: M2 (inbound ledger) gate met; M3 next.** Sign-in with OIDC and MFA, tenants and memberships,
+**Status: M2 (inbound ledger) gate met; M3 (outbound) in progress.** Sign-in with OIDC and MFA, tenants and memberships,
 roles and permissions, row-level tenant isolation, warehouses/zones/bins, the product catalog, configuration
 versions, the hash-chained audit trail, idempotency and the outbox worker (M1); self-service signup with a
 resumable provisioning job, invitations and ownership transfer, the access-mode pipeline, entitlement and quota
 gates, abuse limits and the setup checklist API (S1); and purchase orders, GS1 receiving into quarantine or
 staging, the append-only stock ledger with eligibility and scheduled reconciliation, and scan-confirmed
-putaway (M2) are implemented. **No outbound yet**: reservations, allocation, picking and dispatch arrive in M3.
+putaway (M2) are implemented. Of M3, outbound orders, FEFO/FIFO/LIFO allocation into reservations, and
+scan-confirmed picking with unpick are implemented; **dispatch and reservation expiry are not yet**.
 **No billing yet**: checkout, the provider simulator and webhooks arrive in S2. Passing builds and tests are not evidence that product requirements are met; see
 `docs/requirement-test-matrix.csv`.
 

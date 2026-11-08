@@ -53,6 +53,22 @@ public static class OutboundEndpoints
                 [FromQuery] ReservationState? state, CancellationToken ct) =>
                 svc.ListReservationsAsync(new ReservationFilter(orderId, warehouseId, state), q.ToPage(), ct))
             .WithName("listReservations").RequirePermission(Permissions.StockRead);
+
+        // Picking (OUT-003, OUT-004, DEC-054).
+        var picks = tenant.MapGroup("/picks");
+        picks.MapGet("", (PickingService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] Guid? orderId,
+                [FromQuery] ReservationState? state, CancellationToken ct) =>
+                svc.ListAsync(new PickFilter(warehouseId, orderId, state), q.ToPage(), ct))
+            .WithName("listPicks").RequirePermission(Permissions.PicksConfirm);
+        picks.MapGet("/{id:guid}", async (HttpContext http, PickingService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getPick").RequirePermission(Permissions.PicksConfirm);
+        picks.MapPost("/{id:guid}/confirm", async (HttpContext http, PickingService svc, Guid id, ConfirmPick body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.ConfirmAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("confirmPick").RequirePermission(Permissions.PicksConfirm);
+        picks.MapPost("/{id:guid}/unpick", async (HttpContext http, PickingService svc, Guid id, UnpickRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.UnpickAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("unpick").RequirePermission(Permissions.PicksConfirm);
         return tenant;
     }
 }
