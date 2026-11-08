@@ -16,6 +16,8 @@ public sealed record WorkerOptions
     public TimeSpan OutboxRetryMax { get; init; } = TimeSpan.FromHours(1);
     public TimeSpan IdempotencyCleanupInterval { get; init; } = TimeSpan.FromHours(1);
     public TimeSpan CheckpointInterval { get; init; } = TimeSpan.FromHours(1);
+    /// <summary>Ledger reconciliation (STK-004, DEC-049).</summary>
+    public TimeSpan ReconciliationInterval { get; init; } = TimeSpan.FromHours(1);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -31,6 +33,7 @@ public sealed record WorkerOptions
             OutboxRetryMax = Seconds(config, "Worker:OutboxRetryMaxSeconds", d.OutboxRetryMax),
             IdempotencyCleanupInterval = Seconds(config, "Worker:IdempotencyCleanupIntervalSeconds", d.IdempotencyCleanupInterval),
             CheckpointInterval = Seconds(config, "Worker:CheckpointIntervalSeconds", d.CheckpointInterval),
+            ReconciliationInterval = Seconds(config, "Worker:ReconciliationIntervalSeconds", d.ReconciliationInterval),
         };
     }
 

@@ -305,9 +305,13 @@ internal static class IdempotencyStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    /// <summary>Business rejections are stable for a given payload; transient and precondition failures are not stored.</summary>
+    /// <summary>
+    /// Business rejections are stable for a given payload; transient and precondition failures are not stored. A stock
+    /// block (OPS-001) is transient: once the alert is closed, a retry with the same key must be able to post.
+    /// </summary>
     public static bool IsDeterministicRejection(AppException ex) =>
         ex.Status is >= 400 and < 500
         && ex.Code is not (ErrorCode.RetryableConflict or ErrorCode.VersionConflict or ErrorCode.PreconditionRequired
-            or ErrorCode.IdempotencyMismatch or ErrorCode.RateLimited or ErrorCode.Forbidden or ErrorCode.Unauthenticated);
+            or ErrorCode.IdempotencyMismatch or ErrorCode.RateLimited or ErrorCode.Forbidden or ErrorCode.Unauthenticated
+            or ErrorCode.StockBlocked);
 }

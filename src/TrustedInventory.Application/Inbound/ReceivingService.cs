@@ -370,6 +370,8 @@ public sealed class ReceivingService(
                 """).ToListAsync(ct);
             bucketIds[key] = ids.Single();
         }
+        // OPS-001: a blocked bucket (or an open audit-chain failure) refuses the whole receipt; the upserts roll back.
+        await StockBlocks.EnsureNotBlockedAsync(s, bucketIds.Values.ToList(), ct);
 
         // 7. Receipt, lines, serial links and one Receipt movement per line.
         var receipt = Receipt.Post(caller.TenantId, order.Id, cmd.WarehouseId, caller.Subject, s.Now);

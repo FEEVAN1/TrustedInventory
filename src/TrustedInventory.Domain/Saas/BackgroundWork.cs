@@ -7,6 +7,8 @@ public enum BackgroundJob
     IdempotencyCleanup,
     /// <summary>Row "Ledger reconciliation, audit verification and checkpoints".</summary>
     AuditCheckpoint,
+    /// <summary>Same row: recomputes bucket projections from the movement ledger (STK-004, DEC-049).</summary>
+    LedgerReconciliation,
 }
 
 /// <summary>
@@ -18,7 +20,8 @@ public static class BackgroundWork
     public static bool Runs(BackgroundJob job, AccessMode mode) => job switch
     {
         // Deleted: no work. Checkpoints keep deletion evidence only, which arrives with the deletion flow (S3).
-        BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup or BackgroundJob.AuditCheckpoint => mode != AccessMode.Deleted,
+        BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup or BackgroundJob.AuditCheckpoint
+            or BackgroundJob.LedgerReconciliation => mode != AccessMode.Deleted,
         _ => false,
     };
 

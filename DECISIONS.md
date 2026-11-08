@@ -621,6 +621,33 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Putaway tasks** are created by this same command from slice 5 (INB-005); until then `putawayRemainingQuantity`
   equals the line's base quantity and receipts stay `Posted`.
 
+## DEC-049 Stock projection, eligibility, reconciliation and blocking (M2, STK-001, STK-004, OPS-001)
+- **Status:** Adopted
+- **Eligibility (STK-001):** a bucket is allocatable (`onHand − reserved`) only when every check passes; otherwise
+  allocatable is 0 and `ineligibilityReasons` names each failure: quality not `Available` (`Quarantine`, `Hold`,
+  `Recalled`, `Damaged`); lot expired before today in the warehouse time zone (`Expired`); bin zone incompatible
+  with the product (`StorageIncompatible`, DEC-012); bin retired (`BinInactive`); Transit bin (`TransitLocation`);
+  Staging or Quarantine bin, i.e. not yet put away (`AwaitingPutaway`, matching migration-design §5, which takes
+  allocation candidates only from Storage bins); blocked under OPS-001 (`Blocked`). `StaleTelemetry`,
+  `OpenExcursion` and `CountLocked` are computed once telemetry (M5) and counts (M4) exist.
+- **Contract change:** `IneligibilityReason` gains `AwaitingPutaway` and `Blocked`; the contract had no value for
+  either, although STK-001 requires "not blocked" and §5 requires Storage bins.
+- **Reconciliation (STK-004):** a worker job (`BackgroundJob.LedgerReconciliation`, row "Ledger reconciliation …"
+  of the background-work table: every mode except Deleted) recomputes each bucket's on hand from the ledger
+  (destination quantities minus source quantities) and compares it with the stored projection. It never writes a
+  balance. Reserved quantities are reconciled against reservations once reservations exist (M3).
+- **Mismatch (OPS-001):** one High `ReconciliationMismatch` alert per tenant (dedupe `ledger-reconciliation`),
+  whose details list each bucket with expected and stored quantities, and one row in the new append-only
+  `ti.stock_bucket_block` (migration 0008) per mismatched bucket. A block holds while its alert is not Closed;
+  closing the alert is the audited operator procedure, and the rows remain as evidence.
+- **Blocking (OPS-001):** a stock command that would change a blocked bucket fails with `409 STOCK_BLOCKED` and
+  posts nothing. An open `AuditChainFailure` blocks **every** stock mutation of the tenant: once the audit trail
+  is broken, no stock change can be trusted to be recorded. **Needs owner:** this is deliberately strict.
+- **Reads:** stock and movement lists are scoped to the warehouses the caller may read (`stock.read`); a movement's
+  warehouse is its source or destination bucket's.
+
+## DEC-024 Audit chain and lock order
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

@@ -182,6 +182,8 @@ public sealed class StockMovement
     public DocumentType DocumentType { get; private set; }
     public Guid DocumentId { get; private set; }
     public Guid? DocumentLineId { get; private set; }
+    public Guid? ReservationId { get; private set; }
+    public Guid? ReversalOfId { get; private set; }
     public string? Reason { get; private set; }
     public string ActorSubject { get; private set; } = "";
     public DateTimeOffset OccurredAt { get; private set; }

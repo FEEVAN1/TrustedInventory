@@ -12,6 +12,7 @@ public class BackgroundWorkTests
         [BackgroundJob.OutboxDelivery] = "YYYYYN",
         [BackgroundJob.IdempotencyCleanup] = "YYYYYN",
         [BackgroundJob.AuditCheckpoint] = "YYYYYN", // Deleted: deletion evidence only, arrives with S3
+        [BackgroundJob.LedgerReconciliation] = "YYYYYN", // same document row as checkpoints
     };
 
     private static readonly AccessMode[] Columns =

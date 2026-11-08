@@ -52,6 +52,25 @@ public static class InboundEndpoints
         receipts.MapGet("/{id:guid}", async (HttpContext http, ReceivingService svc, Guid id, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.GetAsync(id, ct)))
             .WithName("getReceipt").RequirePermission(Permissions.StockRead);
+
+        // Stock projection and ledger (STK-001, STK-004, DEC-049).
+        var stock = tenant.MapGroup("/stock");
+        stock.MapGet("", (StockService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] Guid? productId,
+                [FromQuery] Guid? lotId, [FromQuery] Guid? binId, [FromQuery] QualityStatus? qualityStatus, [FromQuery] bool? eligibleOnly,
+                [FromQuery] bool? includeEmpty, CancellationToken ct) =>
+                svc.ListAsync(new StockFilter(warehouseId, productId, lotId, binId, qualityStatus, eligibleOnly ?? false, includeEmpty ?? false),
+                    q.ToPage(), ct))
+            .WithName("listStock").RequirePermission(Permissions.StockRead);
+        stock.MapGet("/{id:guid}", async (HttpContext http, StockService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getStockBucket").RequirePermission(Permissions.StockRead);
+        stock.MapGet("/movements", (StockService svc, [AsParameters] ListQuery q, [FromQuery] DocumentType? documentType, [FromQuery] Guid? documentId,
+                [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, [FromQuery] Guid? productId, [FromQuery] Guid? lotId,
+                [FromQuery] Guid? warehouseId, [FromQuery] MovementType? type, CancellationToken ct) =>
+                svc.ListMovementsAsync(new MovementFilter(documentType, documentId, from, to, productId, lotId, warehouseId, type), q.ToPage(), ct))
+            .WithName("listStockMovements").RequirePermission(Permissions.StockRead);
+        stock.MapGet("/movements/{id:guid}", (StockService svc, Guid id, CancellationToken ct) => svc.GetMovementAsync(id, ct))
+            .WithName("getStockMovement").RequirePermission(Permissions.StockRead);
         return tenant;
     }
 }

@@ -56,6 +56,16 @@ internal sealed class SerialConfiguration : IEntityTypeConfiguration<Serial>
     }
 }
 
+internal sealed class StockBucketConfiguration() : TenantEntityConfiguration<StockBucket>("stock_bucket")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<StockBucket> builder) { }
+}
+
+internal sealed class LotConfiguration() : TenantEntityConfiguration<Lot>("lot")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Lot> builder) { }
+}
+
 internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement>
 {
     public void Configure(EntityTypeBuilder<StockMovement> builder)

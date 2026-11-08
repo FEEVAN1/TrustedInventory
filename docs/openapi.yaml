@@ -12407,6 +12407,8 @@ components:
         - CountLocked
         - BinInactive
         - TransitLocation
+        - AwaitingPutaway
+        - Blocked
     InspectReturnRequest:
       type: object
       properties:

@@ -39,7 +39,7 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | AttachmentScanStatus | `Pending`, `Clean`, `Rejected` | |
 | ApprovalAction | `Post`, `Release`, `Close`, `Correct`, `Dispose` | What the consuming command will do |
 | InspectionResult | `Passed`, `Failed` | Receive item (DEC-021) |
-| IneligibilityReason | `Quarantine`, `Hold`, `Recalled`, `Damaged`, `Expired`, `StorageIncompatible`, `StaleTelemetry`, `OpenExcursion`, `CountLocked`, `BinInactive`, `TransitLocation` | Why a bucket's allocatable quantity is zero (STK-001) |
+| IneligibilityReason | `Quarantine`, `Hold`, `Recalled`, `Damaged`, `Expired`, `StorageIncompatible`, `StaleTelemetry`, `OpenExcursion`, `CountLocked`, `BinInactive`, `TransitLocation`, `AwaitingPutaway`, `Blocked` | Why a bucket's allocatable quantity is zero (STK-001) |
 | DocumentType | `Receipt`, `PutawayTask`, `BinTransfer`, `OutboundOrder`, `Shipment`, `Transfer`, `Count`, `Adjustment`, `Return`, `Recall`, `QualityDecision`, `Excursion`, `ExpiryCorrection` | Movement document reference |
 | TransitDispositionType | `Lost`, `Damaged` | STK-003 |
 | QualityDispositionType | `Damaged`, `SupplierReturn`, `Disposal` | |
