@@ -2843,7 +2843,7 @@ paths:
           required: false
           schema:
             type: string
-            maxLength: 100
+            maxLength: 50
       responses:
         "200":
           description: Completed.
@@ -11516,9 +11516,7 @@ components:
         warehouseId:
           $ref: "#/components/schemas/Uuid"
         reference:
-          type: string
-          minLength: 1
-          maxLength: 100
+          $ref: "#/components/schemas/Code"
         lines:
           type: array
           items:
@@ -13997,9 +13995,7 @@ components:
         warehouseId:
           $ref: "#/components/schemas/Uuid"
         reference:
-          type: string
-          minLength: 1
-          maxLength: 100
+          $ref: "#/components/schemas/Code"
         status:
           $ref: "#/components/schemas/PurchaseOrderStatus"
         approvedAt:
@@ -16991,9 +16987,7 @@ components:
       type: object
       properties:
         reference:
-          type: string
-          minLength: 1
-          maxLength: 100
+          $ref: "#/components/schemas/Code"
         lines:
           type: array
           items:

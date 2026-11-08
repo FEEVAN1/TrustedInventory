@@ -5,6 +5,7 @@ using Npgsql.NameTranslation;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Domain.Alerts;
 using TrustedInventory.Domain.Catalog;
+using TrustedInventory.Domain.Inbound;
 using TrustedInventory.Domain.Locations;
 using TrustedInventory.Domain.Organization;
 using TrustedInventory.Domain.Saas;
@@ -63,6 +64,7 @@ public static class PgEnums
         builder.MapEnum<TenantLifecycle>("ti.tenant_lifecycle", Verbatim);
         builder.MapEnum<InvitationStatus>("ti.invitation_status", Verbatim);
         builder.MapEnum<OwnershipTransferStatus>("ti.ownership_transfer_status", Verbatim);
+        builder.MapEnum<PurchaseOrderStatus>("ti.purchase_order_status", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -80,5 +82,6 @@ public static class PgEnums
         o.MapEnum<TenantLifecycle>("tenant_lifecycle", AppDbContext.Schema, Verbatim);
         o.MapEnum<InvitationStatus>("invitation_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<OwnershipTransferStatus>("ownership_transfer_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<PurchaseOrderStatus>("purchase_order_status", AppDbContext.Schema, Verbatim);
     }
 }

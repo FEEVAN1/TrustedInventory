@@ -554,6 +554,30 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   browser evidence for ONB-004 is recorded as missing until then.
 - No onboarding step creates stock (nothing in S1 can); M2 tests must keep that true.
 
+## DEC-047 Purchase order workflow (M2, INB-001)
+- **Status:** Adopted
+- **Reference:** the contract allowed 100 characters, the column (`ti.code_text`) 64. The reference now uses the
+  contract `Code` schema (1–50 characters, letters, digits and `. _ / -`), the same rule as other business codes,
+  unique per tenant.
+- **Draft edits replace lines.** `updatePurchaseOrder` replaces all lines while Draft, which needs DELETE on
+  `ti.purchase_order_line`; 0006 granted none. Migration 0007 grants DELETE to `ti_app` and adds a trigger
+  that allows inserting or deleting a line, or changing its ordered fields (product, unit, factor, quantities,
+  line number), only while the order is Draft. `received_base_qty` stays updatable for receiving. Approved
+  orders are therefore frozen in the database as well as in the service (AGT-003: the new privilege is
+  narrower than the rule it serves).
+- **States:** Draft → Approved (`purchase-orders.approve`). Draft, or Approved with nothing received → Cancelled
+  (reason recorded in the audit event). Approved or PartReceived → ShortClosed (reason stored). Receiving moves
+  Approved → PartReceived → Received (slice 3). Received, ShortClosed and Cancelled are final.
+- **Lines:** each names an active product and either its base unit (factor 1) or a unit with an active
+  conversion for that product; the factor is frozen on the line. The base quantity must respect the product's
+  base precision, and serial-tracked products order whole units (STK-PRECISION). The supplier must be an
+  active partner of type Supplier or Both; the warehouse must be active.
+- **Scope:** `purchase-orders.*` and `stock.read` are warehouse-scoped. Writes need the permission for the
+  order's warehouse; lists show only orders in warehouses the caller may read; an order outside the caller's
+  scope answers 403, as for zones.
+- **Not decided here:** whether the approver must differ from the creator. The spec asks only for manager
+  approval; separation of duties for approvals is SOD-1 (M4 signing).
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

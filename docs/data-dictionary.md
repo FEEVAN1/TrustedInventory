@@ -224,10 +224,10 @@ A permanent command-level key, such as `dispatch:{orderId}:{dispatchReference}`,
 ## 4. Inbound
 
 ### purchase_order
-`status` is a purchase_order_status. `reference` is unique per tenant. `short_close_reason` is required exactly when the status is `ShortClosed` (INB-001). FKs go to supplier partner and warehouse.
+`status` is a purchase_order_status. `reference` is unique per tenant and follows the API `Code` rule (1–50 characters, DEC-047). `short_close_reason` is required exactly when the status is `ShortClosed` (INB-001). FKs go to supplier partner and warehouse. A cancellation reason lives in the `PurchaseOrderCancelled` audit event.
 
 ### purchase_order_line
-Conversion snapshot (`uom_id`, `uom_factor_to_base`, `ordered_uom_qty`), `ordered_base_qty > 0` and `received_base_qty ≤ ordered_base_qty`. The last is the zero over-receipt tolerance (INB-001, D08). If the owner later allows a tolerance, this CHECK becomes an application rule.
+Conversion snapshot (`uom_id`, `uom_factor_to_base`, `ordered_uom_qty`), `ordered_base_qty > 0` and `received_base_qty ≤ ordered_base_qty`. The last is the zero over-receipt tolerance (INB-001, D08). If the owner later allows a tolerance, this CHECK becomes an application rule. Trigger `purchase_order_line_draft_only` (0007) refuses inserts, deletes and changes to ordered fields unless the order is `Draft`; `received_base_qty` stays updatable. `ti_app` holds DELETE only for replacing draft lines (DEC-047).
 
 ### receipt
 Posted atomically by one command (DEC-005). FK `(tenant_id, warehouse_id, purchase_order_id) → purchase_order`, so a receipt cannot land in a different warehouse from its order.

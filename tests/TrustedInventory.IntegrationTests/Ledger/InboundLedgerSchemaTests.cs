@@ -24,12 +24,13 @@ public sealed class InboundLedgerSchemaTests(ApiFixture fx)
         var bucket = await BucketAsync(w, w.General, w.Bin1, onHand: 10);
         var movement = await MovementAsync(w, "Receipt", w.General, source: null, destination: bucket, qty: 10);
 
-        // The runtime role was never granted UPDATE or DELETE on append-only tables, nor DELETE on any ledger table.
+        // The runtime role was never granted UPDATE or DELETE on append-only tables, nor DELETE on any ledger table. The one
+        // DELETE it holds, on draft purchase order lines, is guarded by the 0007 trigger (DEC-047).
         var granted = await ListAsync("""
             SELECT t || ':' || p FROM unnest(ARRAY['stock_movement','document_operation','receipt_line','receipt_line_serial']) t,
                  unnest(ARRAY['UPDATE','DELETE','TRUNCATE']) p WHERE has_table_privilege('ti_app', 'ti.' || t, p)
             UNION ALL
-            SELECT t || ':DELETE' FROM unnest(ARRAY['lot','serial','stock_bucket','purchase_order','purchase_order_line','receipt','warehouse_task']) t
+            SELECT t || ':DELETE' FROM unnest(ARRAY['lot','serial','stock_bucket','purchase_order','receipt','warehouse_task']) t
             WHERE has_table_privilege('ti_app', 'ti.' || t, 'DELETE')
             """);
         Assert.Empty(granted);
@@ -81,6 +82,32 @@ public sealed class InboundLedgerSchemaTests(ApiFixture fx)
         // A lot cannot claim a handling profile its product does not have.
         await ExpectAsync(PostgresErrorCodes.ForeignKeyViolation, LotSql, ("t", w.Tenant), ("p", w.General), ("h", "Medical"), ("n", "GEN-2"),
             ("e", new DateOnly(2030, 1, 1)));
+    }
+
+    [Fact]
+    [Trait("Requirement", "INB-001")]
+    public async Task Purchase_order_lines_change_only_while_the_order_is_draft()
+    {
+        var w = await WorldAsync("ledger-draft");
+        var (po, line) = await PurchaseOrderAsync(w, w.General, ordered: 10);
+        var other = await PurchaseOrderAsync(w, w.General, ordered: 3);
+
+        // Draft: lines may be edited and deleted (the runtime role holds DELETE for this, DEC-047).
+        await Exec("UPDATE ti.purchase_order_line SET ordered_uom_qty = 12, ordered_base_qty = 12 WHERE id = @l", ("l", line));
+        await Exec("DELETE FROM ti.purchase_order_line WHERE id = @l", ("l", other.Line));
+        Assert.Equal(true, await Scalar("SELECT has_table_privilege('ti_app', 'ti.purchase_order_line', 'DELETE')"));
+
+        // Approved: ordered fields, deletes and new lines are refused; receiving progress still records.
+        await Exec("UPDATE ti.purchase_order SET status = 'Approved', approved_by = 'test', approved_at = now() WHERE id = @po", ("po", po));
+        await ExpectAsync(CheckViolation, "UPDATE ti.purchase_order_line SET ordered_uom_qty = 20, ordered_base_qty = 20 WHERE id = @l", ("l", line));
+        await ExpectAsync(CheckViolation, "UPDATE ti.purchase_order_line SET product_id = @p WHERE id = @l", ("l", line), ("p", w.Serialized));
+        await ExpectAsync(CheckViolation, "DELETE FROM ti.purchase_order_line WHERE id = @l", ("l", line));
+        await ExpectAsync(CheckViolation, """
+            INSERT INTO ti.purchase_order_line (tenant_id, purchase_order_id, line_number, product_id, uom_id, uom_factor_to_base,
+                                                ordered_uom_qty, ordered_base_qty, created_by)
+            VALUES (@t, @po, 2, @p, @u, 1, 1, 1, 'test')
+            """, ("t", w.Tenant), ("po", po), ("p", w.General), ("u", w.Unit));
+        await Exec("UPDATE ti.purchase_order_line SET received_base_qty = 5, updated_at = now(), version = version + 1 WHERE id = @l", ("l", line));
     }
 
     [Fact]
