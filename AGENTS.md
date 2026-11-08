@@ -31,13 +31,13 @@ SaaS access, billing and lifecycle rules apply to every module.
 |-----------|--------|-----------|
 | M0 contracts | **Gate met** (6 Nov 2026); owner decisions in DECISIONS.md still open | No unresolved stock or isolation contract conflict |
 | M1 foundation | **Gate met** (7 Nov 2026): 30 unit + 53 integration tests on PostgreSQL 16 | Isolation and authorization suites pass on real PostgreSQL |
-| M2 inbound ledger | Not started | Receiving retries, precision, serial uniqueness, reconciliation pass |
+| M2 inbound ledger | Not started (next) | Receiving retries, precision, serial uniqueness, reconciliation pass |
 | M3 outbound | Not started | Concurrency and stock arithmetic scenarios pass |
 | M4 general operations | Not started | Stock conservation, independent approvals, end-to-end general flow pass |
 | M5 medical | Not started | Medical blocking, historical traceability, audit evidence pass |
 | M6 release readiness | Not started | Owner reviews evidence and approves production policies |
 | v3.0 contract pass | **Gate met** (7 Nov 2026): contract lints clean, SaaS schema draft passes 59 checks | SaaS contracts, state matrix, control-plane design; no unresolved isolation or stock conflict |
-| S1 provisioning | Not started (next) | AT-ONB and AT-SAS pass |
+| S1 provisioning | **Gate met** (8 Nov 2026, owner sign-off): AT-ONB-01, AT-ONB-02, AT-SAS-01 pass; 133 unit + 103 integration tests on PostgreSQL 16. Partial carry-overs: ONB-004 (sample data M2, screen with first UI), LFC-001 (S2), SOD-6 (S3), SOD-7 (S3/M4) | AT-ONB and AT-SAS pass |
 | S2 commercial control | Not started | AT-BIL and AT-ENT pass in provider sandbox; no live charging |
 | S3 lifecycle and service | Not started | AT-LFC and AT-SOP pass; owner approves commercial defaults |
 

@@ -1,13 +1,17 @@
 # TrustedInventory
 
 Multi-tenant warehouse and inventory management for general goods and pharmaceutical operations.
-Built to `TrustedInventory_Implementation_Specification.pdf` (v2.0 proposed baseline, 5 November 2026).
+Built to `TrustedInventory_Implementation_Specification_updated.pdf` (v3.0 SaaS, 7 November 2026); v2.0 is
+kept for traceability of DEC-001 to DEC-031.
 
-**Status: M1 (foundation).** Sign-in with OIDC and MFA, tenants and memberships, roles and permissions,
-row-level tenant isolation, warehouses/zones/bins, the product catalog, configuration versions, the
-hash-chained audit trail, idempotency and the outbox worker are implemented. **No stock moves yet**:
-purchase orders, receiving and the stock ledger arrive in M2. Passing builds and tests are not evidence
-that product requirements are met; see `docs/requirement-test-matrix.csv`.
+**Status: S1 (SaaS provisioning) gate met; M2 next.** Sign-in with OIDC and MFA, tenants and memberships,
+roles and permissions, row-level tenant isolation, warehouses/zones/bins, the product catalog, configuration
+versions, the hash-chained audit trail, idempotency and the outbox worker (M1), plus self-service signup with
+a resumable provisioning job, invitations and ownership transfer, the access-mode pipeline, entitlement and
+quota gates, abuse limits and the setup checklist API (S1) are implemented. **No stock moves yet**: purchase
+orders, receiving and the stock ledger arrive in M2. **No billing yet**: checkout, the provider simulator and
+webhooks arrive in S2. Passing builds and tests are not evidence that product requirements are met; see
+`docs/requirement-test-matrix.csv`.
 
 ## Layout
 
