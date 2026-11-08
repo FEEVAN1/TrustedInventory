@@ -50,6 +50,24 @@ public static class Conventions
         return Results.Created(location, resource);
     }
 
+    /// <summary>Stock commands must not run twice (STK-007): a UUID Idempotency-Key header is required.</summary>
+    public static Guid IdempotencyKey(HttpContext http) =>
+        http.Request.Headers["Idempotency-Key"] is { Count: 1 } values && Guid.TryParse(values[0], out var key)
+            ? key
+            : throw new AppException(ErrorCode.IdempotencyKeyRequired, "A UUID Idempotency-Key header is required.");
+
+    /// <summary>
+    /// Writes a stored or fresh command outcome (STK-007): the original status and body on every replay, a problem
+    /// body for rejections, and the resource version from the body as the ETag.
+    /// </summary>
+    public static IResult Outcome(HttpContext http, Application.Persistence.CommandOutcome outcome)
+    {
+        if (outcome.Status < 400 && outcome.Body?["version"] is { } version)
+            SetETag(http, (int)version);
+        return Results.Content(outcome.Body?.ToJsonString() ?? "null",
+            outcome.Status >= 400 ? "application/problem+json" : "application/json", System.Text.Encoding.UTF8, outcome.Status);
+    }
+
     /// <summary>204 for retirement, still returning the resulting version as the ETag (DEC-019).</summary>
     public static IResult Retired(HttpContext http, IVersioned resource)
     {

@@ -72,6 +72,17 @@ public sealed class PurchaseOrder : TenantEntity
         Touch(now);
     }
 
+    public bool IsReceivable => Status is PurchaseOrderStatus.Approved or PurchaseOrderStatus.PartReceived;
+
+    /// <summary>After a receipt: Received when every line is complete, otherwise PartReceived (INB-001).</summary>
+    public void RecordReceipt(bool everyLineComplete, DateTimeOffset now)
+    {
+        if (!IsReceivable)
+            throw new DomainException("Only an approved or partly received purchase order can receive goods.");
+        Status = everyLineComplete ? PurchaseOrderStatus.Received : PurchaseOrderStatus.PartReceived;
+        Touch(now);
+    }
+
     public void ShortClose(string reason, DateTimeOffset now)
     {
         if (Status is not (PurchaseOrderStatus.Approved or PurchaseOrderStatus.PartReceived))
@@ -97,6 +108,17 @@ public sealed class PurchaseOrderLine : TenantEntity
     public decimal ReceivedBaseQty { get; private set; }
 
     public decimal OutstandingBaseQty => OrderedBaseQty - ReceivedBaseQty;
+
+    public bool IsComplete => ReceivedBaseQty == OrderedBaseQty;
+
+    /// <summary>Adds received base quantity. Zero over-receipt tolerance (INB-001, D08); the service reports 422 first.</summary>
+    public void RecordReceipt(decimal baseQty, DateTimeOffset now)
+    {
+        if (baseQty <= 0 || baseQty > OutstandingBaseQty)
+            throw new DomainException("A receipt cannot exceed the outstanding quantity.");
+        ReceivedBaseQty += baseQty;
+        Touch(now);
+    }
 
     public static PurchaseOrderLine Create(Guid tenantId, Guid purchaseOrderId, int lineNumber, Guid productId, Guid uomId,
         decimal factorToBase, decimal orderedUomQty, decimal orderedBaseQty, string actor, DateTimeOffset now)

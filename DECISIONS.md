@@ -578,6 +578,49 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Not decided here:** whether the approver must differ from the creator. The spec asks only for manager
   approval; separation of duties for approvals is SOD-1 (M4 signing).
 
+## DEC-048 Receiving (M2, INB-002 to INB-004, AT-INB-01/02)
+- **Status:** Adopted
+- **GS1 (INB-002):** a Domain parser reads the raw element string, either with FNC1 group separators (ASCII 29)
+  or in bracketed human-readable form, and supports AIs 01 (GTIN, 14 digits), 17 (expiry, YYMMDD; day 00 is the
+  last day of the month; GS1 century window), 10 (lot) and 21 (serial), both up to 20 characters. Values stay
+  strings, so leading zeros survive. Any other AI, a bad check digit or a malformed string is
+  `UNKNOWN_BARCODE`. The GTIN must map to exactly one active product barcode of the tenant.
+- **Scan versus entered (INB-003):** when `scannedBarcode` is sent, the mapped product, lot, expiry and serial must
+  equal what was entered; a scanned value fills an omitted one. Any disagreement is `BARCODE_CONFLICT` naming
+  the field.
+- **Medical evidence (INB-003):** medical lines need lot, expiry, supplier reference and, when the product's
+  storage profile requires monitoring, the arrival temperature; otherwise `MISSING_MEDICAL_EVIDENCE`.
+- **Initial quality (INB-004):** medical stock starts `Quarantine`; general stock `Available`, or `Hold` when
+  inspection failed. An arrival that is expired (expiry before today in the warehouse time zone, via the injected
+  clock) or outside the product profile's temperature range is accepted only with `exceptionReason`, and lands
+  in `Quarantine` (medical) or `Hold` (general); it is never Available. A failed inspection also needs the reason
+  (Hold requires one in the schema). Each line that lands in Quarantine writes one `StockQuarantined` audit event
+  (AT-INB-01).
+- **Order and lines (INB-001, AT-INB-02):** the order must be `Approved` or `PartReceived` and in the request's
+  warehouse; each item names a line of that order and its product; the item's unit is the product base unit or an
+  active conversion; base quantity respects product precision. If any line's received plus requested base
+  quantity would exceed its ordered quantity, the whole request fails with `422 OVER_RECEIPT` and posts nothing
+  (zero tolerance, D08). Lines become received, and the order `PartReceived` or `Received`.
+- **Tracking:** lot-tracked products need a lot number; serial-tracked products need exactly one serial per base
+  unit; quantity-tracked products take neither. **Serial lines:** a serial unit has its own bucket (quantity 0 or
+  1, 0006) and a receipt line references one bucket, so a serial-tracked item is received in the product's base
+  unit and posted as one receipt line per serial (each line's `serialIds` holds that one serial). A larger unit
+  would make one serial a fraction of it. A lot is found or created per product and number; an existing lot
+  with a different expiry is a `BARCODE_CONFLICT` on `expirationDate`. Any serial number already known for the
+  product is `DUPLICATE_SERIAL`.
+- **Target bin:** an active `Staging` or `Quarantine` bin of the warehouse whose zone is compatible with the product
+  (DEC-012); otherwise `INCOMPATIBLE_BIN`.
+- **Posting (ARC-003, STK-004):** one transaction locks the purchase order row and its lines, then upserts stock
+  buckets in natural-key order (`INSERT … ON CONFLICT … DO UPDATE` adds to `on_hand_qty`; serial units get one
+  bucket each), then writes receipt, lines, serial links, one `Receipt` movement per line (per serial for serial
+  lines), the audit events, the outbox `GoodsReceived` event and the idempotency record. The audit stream stays the
+  last lock (migration-design §5).
+- **Never twice (STK-007, AT-STK-02):** `Idempotency-Key` is required. Besides the 7-day idempotency record, the
+  command writes a permanent `document_operation` row `receive:<subject>:<key>`; a retry after the record has
+  expired finds it and returns the original receipt instead of posting again.
+- **Putaway tasks** are created by this same command from slice 5 (INB-005); until then `putawayRemainingQuantity`
+  equals the line's base quantity and receipts stay `Posted`.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

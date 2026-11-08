@@ -65,6 +65,11 @@ public static class PgEnums
         builder.MapEnum<InvitationStatus>("ti.invitation_status", Verbatim);
         builder.MapEnum<OwnershipTransferStatus>("ti.ownership_transfer_status", Verbatim);
         builder.MapEnum<PurchaseOrderStatus>("ti.purchase_order_status", Verbatim);
+        builder.MapEnum<QualityStatus>("ti.quality_status", Verbatim);
+        builder.MapEnum<InspectionResult>("ti.inspection_result", Verbatim);
+        builder.MapEnum<ReceiptStatus>("ti.receipt_status", Verbatim);
+        builder.MapEnum<MovementType>("ti.movement_type", Verbatim);
+        builder.MapEnum<DocumentType>("ti.document_type", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -83,5 +88,10 @@ public static class PgEnums
         o.MapEnum<InvitationStatus>("invitation_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<OwnershipTransferStatus>("ownership_transfer_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<PurchaseOrderStatus>("purchase_order_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<QualityStatus>("quality_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<InspectionResult>("inspection_result", AppDbContext.Schema, Verbatim);
+        o.MapEnum<ReceiptStatus>("receipt_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<MovementType>("movement_type", AppDbContext.Schema, Verbatim);
+        o.MapEnum<DocumentType>("document_type", AppDbContext.Schema, Verbatim);
     }
 }

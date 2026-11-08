@@ -39,6 +39,19 @@ public static class InboundEndpoints
         orders.MapPost("/{id:guid}/cancel", async (HttpContext http, PurchaseOrderService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.CancelAsync(id, Conventions.IfMatch(http), body, ct)))
             .WithName("cancelPurchaseOrder").RequirePermission(Permissions.PurchaseOrdersApprove);
+
+        // Receiving (INB-002 to INB-004, DEC-048): one idempotent stock command.
+        tenant.MapPost("/inventory/receive", async (HttpContext http, ReceivingService svc, ReceiveInventory body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.ReceiveAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("receiveInventory").RequirePermission(Permissions.ReceiptsPost);
+        var receipts = tenant.MapGroup("/receipts");
+        receipts.MapGet("", (ReceivingService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] Guid? purchaseOrderId,
+                [FromQuery] ReceiptStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new ReceiptFilter(warehouseId, purchaseOrderId, status), q.ToPage(), ct))
+            .WithName("listReceipts").RequirePermission(Permissions.StockRead);
+        receipts.MapGet("/{id:guid}", async (HttpContext http, ReceivingService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getReceipt").RequirePermission(Permissions.StockRead);
         return tenant;
     }
 }

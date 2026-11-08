@@ -16,6 +16,56 @@ internal sealed class PurchaseOrderConfiguration() : TenantEntityConfiguration<P
     }
 }
 
+internal sealed class ReceiptConfiguration() : TenantEntityConfiguration<Receipt>("receipt")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Receipt> builder) =>
+        builder.HasOne<PurchaseOrder>().WithMany().HasForeignKey(r => r.PurchaseOrderId).OnDelete(DeleteBehavior.NoAction);
+}
+
+/// <summary>Append-only rows without version columns: inserted once, never updated (0006 triggers).</summary>
+internal sealed class ReceiptLineConfiguration : IEntityTypeConfiguration<ReceiptLine>
+{
+    public void Configure(EntityTypeBuilder<ReceiptLine> builder)
+    {
+        builder.ToTable("receipt_line");
+        builder.HasKey(l => l.Id);
+        builder.Property(l => l.Id).ValueGeneratedNever();
+        builder.HasOne<Receipt>().WithMany().HasForeignKey(l => l.ReceiptId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class ReceiptLineSerialConfiguration : IEntityTypeConfiguration<ReceiptLineSerial>
+{
+    public void Configure(EntityTypeBuilder<ReceiptLineSerial> builder)
+    {
+        builder.ToTable("receipt_line_serial");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.Id).ValueGeneratedNever();
+        builder.HasOne<ReceiptLine>().WithMany().HasForeignKey(s => s.ReceiptLineId).OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<Serial>().WithMany().HasForeignKey(s => s.SerialId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class SerialConfiguration : IEntityTypeConfiguration<Serial>
+{
+    public void Configure(EntityTypeBuilder<Serial> builder)
+    {
+        builder.ToTable("serial");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.Id).ValueGeneratedNever();
+    }
+}
+
+internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement>
+{
+    public void Configure(EntityTypeBuilder<StockMovement> builder)
+    {
+        builder.ToTable("stock_movement");
+        builder.HasKey(m => m.Id);
+        builder.Property(m => m.Id).ValueGeneratedNever();
+    }
+}
+
 internal sealed class PurchaseOrderLineConfiguration() : TenantEntityConfiguration<PurchaseOrderLine>("purchase_order_line")
 {
     protected override void ConfigureEntity(EntityTypeBuilder<PurchaseOrderLine> builder)
