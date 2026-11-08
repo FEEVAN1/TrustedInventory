@@ -101,6 +101,7 @@ public static class OperationPolicies
         ["getRecall"] = new("read", "core_inventory", null),
         ["getReceipt"] = new("read", "core_inventory", null),
         ["getReturn"] = new("read", "core_inventory", null),
+        ["getSetupChecklist"] = new("read", null, null),
         ["getShipment"] = new("read", "core_inventory", null),
         ["getStockBucket"] = new("read", "core_inventory", null),
         ["getStockMovement"] = new("read", "core_inventory", null),

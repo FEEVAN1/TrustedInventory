@@ -8104,6 +8104,38 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /saas/setup-checklist:
+    get:
+      operationId: getSetupChecklist
+      tags:
+        - Signup
+      summary: Get the workspace setup checklist
+      description: Any active member may read setup progress once the workspace is Ready (ONB-004, DEC-046). Every item is computed from current records on each read; reading changes nothing and onboarding never creates stock. Sample data arrives in M2.
+      x-permission: member
+      x-access: read
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupChecklist"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /saas/checkout/preview:
     post:
       operationId: previewCheckout
@@ -11902,6 +11934,62 @@ components:
       required:
         - url
         - expiresAt
+    SetupItemKey:
+      type: string
+      enum:
+        - business-profile
+        - warehouse-timezone
+        - zones-bins
+        - products-units
+        - team-invitations
+        - import
+      description: Setup checklist items in display order (ONB-004, DEC-046).
+    SetupItemStatus:
+      type: string
+      enum:
+        - Done
+        - Pending
+        - Unavailable
+      description: Unavailable means the capability does not exist yet (import).
+    SetupItem:
+      type: object
+      properties:
+        key:
+          $ref: "#/components/schemas/SetupItemKey"
+        status:
+          $ref: "#/components/schemas/SetupItemStatus"
+        required:
+          type: boolean
+      required:
+        - key
+        - status
+        - required
+      additionalProperties: false
+    SetupChecklist:
+      type: object
+      description: Computed setup progress (ONB-004). Limits and usage are in Entitlements.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SetupItem"
+        requiredCompleted:
+          type: integer
+          minimum: 0
+        requiredTotal:
+          type: integer
+          minimum: 0
+        trialEnd:
+          description: End of the trial while Trialing, so the screen can show trial days; otherwise null.
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+      required:
+        - items
+        - requiredCompleted
+        - requiredTotal
+        - trialEnd
+      additionalProperties: false
     Entitlements:
       type: object
       description: Current entitlement snapshot (ENT-002). Feature and limit decisions only; no billing details.

@@ -45,6 +45,9 @@ public static class TeamEndpoints
 
         tenant.MapGet("/saas/entitlements", (EntitlementService svc, CancellationToken ct) => svc.GetAsync(ct))
             .WithName("getEntitlements").RequirePermission(Permissions.Member);
+        // Setup progress for any member once Ready (ONB-004, DEC-046).
+        tenant.MapGet("/saas/setup-checklist", (SetupChecklistService svc, CancellationToken ct) => svc.GetAsync(ct))
+            .WithName("getSetupChecklist").RequirePermission(Permissions.Member);
         return tenant;
     }
 

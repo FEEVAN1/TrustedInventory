@@ -535,6 +535,25 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   from active records counts the retiring record once and then releases it. The counter lock follows the
   document row (lock order, migration-design §11.5).
 
+## DEC-046 Setup checklist in S1; sample data deferred to M2 (ONB-004)
+- **Status:** Adopted (owner decisions, 8 Nov 2026)
+- **Checklist:** `GET /saas/setup-checklist` (`getSetupChecklist`), `x-permission: member`, `x-access: read`, so it
+  is available once the workspace is Ready and while billing-restricted, never during provisioning. Every item
+  is computed from records on each read; nothing is stored and reading writes nothing:
+  `business-profile` (billing account with legal name and country), `warehouse-timezone` (an active
+  warehouse; time zone is mandatory), `zones-bins` (an active non-system zone holding an active non-Transit
+  bin), `products-units` (an active unit and an active product), `team-invitations` (an invitation was sent,
+  or a second active member exists), and `import` (optional, `Unavailable` until an import exists). The
+  response carries `trialEnd` so the onboarding screen can show trial days; limits and usage stay in
+  `getEntitlements`.
+- **Sample data deferred to M2:** ONB-004 requires sample data to be isolated from production quantities, and
+  quantities first exist in M2. Building it now would add a migration (colliding with the pending 0005/0006
+  numbering) for master data only, and M2 would have to redesign it for stock. M2 adds opt-in, labelled,
+  removable sample data whose quantities never mix with production ones. ONB-004 stays Partial until then.
+- **UI deferred:** the web app is a scaffold; the checklist screen arrives with the first real screens, and
+  browser evidence for ONB-004 is recorded as missing until then.
+- No onboarding step creates stock (nothing in S1 can); M2 tests must keep that true.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

@@ -60,6 +60,8 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | SubscriptionChangeState | `Pending`, `Scheduled`, `Blocked`, `Applied`, `Cancelled` | ENT-005, ENT-006 |
 | BillingInterval | `Month`, `Year` | |
 | CheckoutStatus | `Open`, `Completed`, `Expired` | A return URL never completes it (BIL-002) |
+| SetupItemKey | `business-profile`, `warehouse-timezone`, `zones-bins`, `products-units`, `team-invitations`, `import` | Setup checklist, display order (ONB-004, DEC-046) |
+| SetupItemStatus | `Done`, `Pending`, `Unavailable` | Computed per read; `Unavailable` until the capability exists |
 | InvoiceStatus | `Draft`, `Open`, `Paid`, `Void`, `Uncollectible` | BIL-006 |
 | PaymentStatus | `Pending`, `Succeeded`, `Failed`, `Refunded` | BIL-006 |
 | ProvisioningStatus | `Pending`, `Provisioning`, `Ready`, `Failed` | ONB-007 |
