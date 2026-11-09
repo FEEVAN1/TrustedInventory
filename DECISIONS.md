@@ -773,6 +773,40 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   folds into the own segment (Picked, on staging) and the task closes as `Completed` with `task_qty = picked_qty`. A pick
   with nothing picked is `Cancelled`. Reservation expiry (slice 5) follows the same rule.
 
+## DEC-055 Dispatch, post-pick blocks, rework and reservation expiry (M3, OUT-005, OUT-006, STK-008)
+- **Status:** Adopted
+- **Dispatch (OUT-005):** `POST /orders/{id}/dispatch` with `Idempotency-Key`, If-Match on the order and a permanent
+  operation key `dispatch:<subject>:<key>`. Each named pick (of this order) ships its staged segment whole: the own
+  segment once Picked, otherwise its picked child. By default every line must be fully picked and every staged segment
+  of the order named (409 `INVALID_STATE` otherwise); `allowPartial: true` ships the named picks and leaves the order
+  `PartDispatched`. A reference already used on the order is refused (409 `INVALID_STATE`), backing the unique key.
+- **Rechecks in the deduction transaction:** lock order row → lines → picks → segments → staging buckets (by id) →
+  audit. Each segment must still be `Picked` on a line of this order (reservation ownership), its bucket `Available`,
+  not blocked by an open reconciliation alert, its lot not expired, and no audit-chain failure open. Expiry blocks on
+  the expiry day itself in the warehouse time zone (`expiry_date > today`), matching allocation and the AT-MED-01 rule;
+  picking now uses the same rule. Recall, excursion and telemetry-staleness holds arrive with M5 and plug into the same
+  recheck.
+- **Effect (STK-002, AT-STK-03):** one shipment, one shipment line and one `Dispatch` movement per segment (document
+  Shipment, line = shipment line, reservation = the segment). The staging bucket loses on hand and reserved together;
+  the segment becomes `Consumed`; the line's dispatched quantity grows and the order status is recalculated. Shipments
+  are append-only, so the API reports `version` 1 and `updatedAt = createdAt`.
+- **Post-pick block (OUT-006, AT-OUT-02 hold variant):** when any named segment fails a recheck the dispatch posts
+  nothing and returns 409 `STOCK_BLOCKED` listing `affectedPicks` (pick and cause) and `reworkTaskIds`. The rework
+  tasks (`warehouse_task` type `Rework`, related to the pick, at the staging bin) are written in a **separate**
+  transaction after the dispatch rolls back, one open task per pick; the rejection itself is never stored as an
+  idempotent answer. An unpick of the pick works the task down; a later successful dispatch of the pick completes it.
+- **Contract alignment:** `shipment.dispatch_reference` becomes `identifier_text` (1–100, trimmed) in migration 0012
+  because the contract allows 100 characters and `code_text` stopped at 64.
+- **Reservation expiry worker (STK-008):** a scheduled job (`ReservationExpiry`, all modes except Deleted per the state
+  matrix) finds orders with Active reservations past `expires_at`, then per order, each in its own transaction so one
+  order that cannot be released (for example a corrupted bucket awaiting reconciliation) is logged and retried without
+  stopping other orders or tenants, takes the same locks as release
+  (order row → lines → picks → reservations → buckets), re-reads, and expires only still-Active, still-due segments:
+  reserved returns to the bucket, the segment ends `Expired`, the line's allocation drops, the pick closes its
+  remainder. A part-picked task keeps its picked part as with deallocation (DEC-054). Picked segments never expire,
+  and dispatch consumes only Picked segments while expiry touches only Active ones, both under the order lock, so the
+  two can never consume the same commitment.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

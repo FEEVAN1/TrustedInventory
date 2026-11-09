@@ -9,6 +9,8 @@ public enum BackgroundJob
     AuditCheckpoint,
     /// <summary>Same row: recomputes bucket projections from the movement ledger (STK-004, DEC-049).</summary>
     LedgerReconciliation,
+    /// <summary>Row "Reservation expiry (releases stock, never consumes it)" (STK-008, DEC-055).</summary>
+    ReservationExpiry,
 }
 
 /// <summary>
@@ -21,7 +23,7 @@ public static class BackgroundWork
     {
         // Deleted: no work. Checkpoints keep deletion evidence only, which arrives with the deletion flow (S3).
         BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup or BackgroundJob.AuditCheckpoint
-            or BackgroundJob.LedgerReconciliation => mode != AccessMode.Deleted,
+            or BackgroundJob.LedgerReconciliation or BackgroundJob.ReservationExpiry => mode != AccessMode.Deleted,
         _ => false,
     };
 

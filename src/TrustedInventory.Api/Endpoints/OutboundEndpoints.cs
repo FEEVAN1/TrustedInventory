@@ -69,6 +69,19 @@ public static class OutboundEndpoints
         picks.MapPost("/{id:guid}/unpick", async (HttpContext http, PickingService svc, Guid id, UnpickRequest body, CancellationToken ct) =>
                 Conventions.Outcome(http, await svc.UnpickAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
             .WithName("unpick").RequirePermission(Permissions.PicksConfirm);
+
+        // Dispatch (OUT-005, OUT-006, DEC-055).
+        orders.MapPost("/{id:guid}/dispatch", async (HttpContext http, DispatchService svc, Guid id, DispatchRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.DispatchAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("dispatchOutboundOrder").RequirePermission(Permissions.DispatchPost);
+        var shipments = tenant.MapGroup("/shipments");
+        shipments.MapGet("", (DispatchService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] Guid? orderId,
+                [FromQuery] Guid? customerId, [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, CancellationToken ct) =>
+                svc.ListAsync(new ShipmentFilter(warehouseId, orderId, customerId, from, to), q.ToPage(), ct))
+            .WithName("listShipments").RequirePermission(Permissions.StockRead);
+        shipments.MapGet("/{id:guid}", async (HttpContext http, DispatchService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getShipment").RequirePermission(Permissions.StockRead);
         return tenant;
     }
 }

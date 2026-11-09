@@ -18,6 +18,8 @@ public sealed record WorkerOptions
     public TimeSpan CheckpointInterval { get; init; } = TimeSpan.FromHours(1);
     /// <summary>Ledger reconciliation (STK-004, DEC-049).</summary>
     public TimeSpan ReconciliationInterval { get; init; } = TimeSpan.FromHours(1);
+    /// <summary>Reservation expiry (STK-008, DEC-055).</summary>
+    public TimeSpan ReservationExpiryInterval { get; init; } = TimeSpan.FromMinutes(1);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -34,6 +36,7 @@ public sealed record WorkerOptions
             IdempotencyCleanupInterval = Seconds(config, "Worker:IdempotencyCleanupIntervalSeconds", d.IdempotencyCleanupInterval),
             CheckpointInterval = Seconds(config, "Worker:CheckpointIntervalSeconds", d.CheckpointInterval),
             ReconciliationInterval = Seconds(config, "Worker:ReconciliationIntervalSeconds", d.ReconciliationInterval),
+            ReservationExpiryInterval = Seconds(config, "Worker:ReservationExpiryIntervalSeconds", d.ReservationExpiryInterval),
         };
     }
 

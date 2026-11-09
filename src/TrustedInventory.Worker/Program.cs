@@ -16,6 +16,7 @@ builder.Services.AddHostedService(sp => new ScheduledJob<OutboxDispatcher>(sp, s
 builder.Services.AddHostedService(sp => new ScheduledJob<IdempotencyCleanupJob>(sp, sp.GetRequiredService<WorkerOptions>().IdempotencyCleanupInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<AuditCheckpointJob>(sp, sp.GetRequiredService<WorkerOptions>().CheckpointInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<LedgerReconciliationJob>(sp, sp.GetRequiredService<WorkerOptions>().ReconciliationInterval));
+builder.Services.AddHostedService(sp => new ScheduledJob<ReservationExpiryJob>(sp, sp.GetRequiredService<WorkerOptions>().ReservationExpiryInterval));
 // Resumes signups whose inline provisioning stopped part-way (ONB-002).
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Saas.ProvisioningSweepJob>(sp,
     builder.Configuration.GetValue("Worker:ProvisioningInterval", TimeSpan.FromSeconds(30))));

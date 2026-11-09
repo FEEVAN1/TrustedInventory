@@ -56,6 +56,15 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 5. Treat as a security incident: rows cannot be changed by the application role, so a mismatch means
    privileged database access. Repair only through an audited operator procedure; never rewrite history.
 
+### Reservation expiry and dispatch blocks (draft, M3)
+- The worker's `ReservationExpiry` job (every `Worker:ReservationExpiryIntervalSeconds`, default 60) releases
+  unpicked reservations 24 h after allocation (STK-008, DEC-055). Picked stock never expires; part-picked tasks
+  keep their picked part. Expired orders drop back to `Confirmed` or `PartAllocated` and can be allocated again.
+- A dispatch that returns `409 STOCK_BLOCKED` with `affectedPicks` posted nothing. Each affected pick has one open
+  `Rework` task at its staging bin. Either clear the cause (quality hold released, alert closed) and dispatch
+  again, or unpick the staged stock to a compatible storage bin with a reason; both complete the task.
+- An expired lot cannot ship from its expiry day on (warehouse time zone): unpick it and deallocate the line.
+
 ### Stuck outbox (draft)
 - **Symptoms:** rising outbox age, or `OutboxDeadLetter` alerts.
 - Leases expire on their own: a crashed worker's batch is picked up by another after `lease_expires_at`.

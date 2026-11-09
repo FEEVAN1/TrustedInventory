@@ -97,6 +97,26 @@ internal sealed class PickConfiguration() : TenantEntityConfiguration<Domain.Out
         builder.HasOne<Domain.Outbound.Reservation>().WithMany().HasForeignKey(p => p.ReservationId).OnDelete(DeleteBehavior.NoAction);
 }
 
+/// <summary>Append-only (0010 trigger): no version or update columns, so those inherited members are not mapped (DEC-055).</summary>
+internal sealed class ShipmentConfiguration() : TenantEntityConfiguration<Domain.Outbound.Shipment>("shipment")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Outbound.Shipment> builder)
+    {
+        builder.Ignore(x => x.Version);
+        builder.Ignore(x => x.UpdatedAt);
+        builder.HasOne<Domain.Outbound.OutboundOrder>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+internal sealed class ShipmentLineConfiguration() : TenantEntityConfiguration<Domain.Outbound.ShipmentLine>("shipment_line")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Outbound.ShipmentLine> builder)
+    {
+        builder.HasOne<Domain.Outbound.Shipment>().WithMany().HasForeignKey(x => x.ShipmentId).OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<StockMovement>().WithMany().HasForeignKey(x => x.MovementId).OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
 internal sealed class LotConfiguration() : TenantEntityConfiguration<Lot>("lot")
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Lot> builder) { }

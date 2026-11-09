@@ -173,6 +173,15 @@ public sealed class OutboundOrderLine : TenantEntity
         Touch(now);
     }
 
+    /// <summary>Records dispatched quantity (OUT-005); only picked quantity ships.</summary>
+    public void Dispatch(decimal qty, DateTimeOffset now)
+    {
+        if (qty <= 0 || DispatchedBaseQty + qty > PickedBaseQty)
+            throw new DomainException("Dispatched quantity cannot exceed the picked quantity of the line.");
+        DispatchedBaseQty += qty;
+        Touch(now);
+    }
+
     /// <summary>Releases unpicked allocation (cancellation, deallocation, expiry).</summary>
     public void ReleaseAllocation(decimal qty, DateTimeOffset now)
     {
@@ -296,6 +305,25 @@ public sealed class Reservation : TenantEntity
         child.Fold(now);
     }
 
+    /// <summary>Picked → Consumed by dispatch (OUT-005). Only a picked segment can be consumed (STK-008).</summary>
+    public void Consume(DateTimeOffset now)
+    {
+        if (State != ReservationState.Picked)
+            throw new DomainException("Only a picked reservation can be dispatched.");
+        State = ReservationState.Consumed;
+        Touch(now);
+    }
+
+    /// <summary>Active → Expired by the expiry worker (STK-008). The caller returns the quantity to the bucket.</summary>
+    public void Expire(DateTimeOffset now)
+    {
+        if (State != ReservationState.Active || ExpiresAt > now)
+            throw new DomainException("Only an active reservation past its expiry can expire.");
+        State = ReservationState.Expired;
+        ExpiresAt = null;
+        Touch(now);
+    }
+
     /// <summary>Active → Released (cancellation, deallocation). The caller returns the quantity to the bucket.</summary>
     public void Release(DateTimeOffset now)
     {
@@ -379,5 +407,57 @@ public sealed class Pick : TenantEntity
             Status = Inbound.TaskStatus.Cancelled;
         }
         Touch(now);
+    }
+}
+
+/// <summary>
+/// A dispatch of picked stock (OUT-005, DEC-055). Append-only: the row is never updated, so the contract's version is
+/// always 1 and its update time is the creation time.
+/// </summary>
+public sealed class Shipment : TenantEntity
+{
+    private Shipment() { }
+
+    public Guid OrderId { get; private set; }
+    public Guid WarehouseId { get; private set; }
+    public string DispatchReference { get; private set; } = "";
+    public DateTimeOffset DispatchedAt { get; private set; }
+
+    public static Shipment Create(Guid tenantId, Guid orderId, Guid warehouseId, string dispatchReference, string actor, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(dispatchReference))
+            throw new DomainException("A dispatch reference is required.");
+        var shipment = new Shipment { OrderId = orderId, WarehouseId = warehouseId, DispatchReference = dispatchReference, DispatchedAt = now };
+        shipment.Stamp(tenantId, actor, now);
+        return shipment;
+    }
+}
+
+/// <summary>One dispatched reservation segment: product, lot, serial and quantity, plus returns against it (EXC-005).</summary>
+public sealed class ShipmentLine : TenantEntity
+{
+    private ShipmentLine() { }
+
+    public Guid ShipmentId { get; private set; }
+    public Guid OrderLineId { get; private set; }
+    public Guid ProductId { get; private set; }
+    public Guid? LotId { get; private set; }
+    public Guid? SerialId { get; private set; }
+    public decimal BaseQty { get; private set; }
+    public decimal ReturnedQty { get; private set; }
+    public Guid MovementId { get; private set; }
+
+    public static ShipmentLine Create(Guid id, Guid tenantId, Guid shipmentId, Guid orderLineId, Guid productId, Guid? lotId, Guid? serialId, decimal qty,
+        Guid movementId, string actor, DateTimeOffset now)
+    {
+        if (qty <= 0)
+            throw new DomainException("A shipment line quantity must be positive.");
+        var line = new ShipmentLine
+        {
+            Id = id, ShipmentId = shipmentId, OrderLineId = orderLineId, ProductId = productId, LotId = lotId, SerialId = serialId, BaseQty = qty,
+            MovementId = movementId,
+        };
+        line.Stamp(tenantId, actor, now);
+        return line;
     }
 }

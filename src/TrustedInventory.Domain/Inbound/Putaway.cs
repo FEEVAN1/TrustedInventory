@@ -37,8 +37,28 @@ public sealed class WarehouseTask : TenantEntity
     public DateTimeOffset? CompletedAt { get; private set; }
     public string? CompletedBy { get; private set; }
     public string? Resolution { get; private set; }
+    public string? RelatedType { get; private set; }
+    public Guid? RelatedId { get; private set; }
 
     public bool IsOpen => Status is TaskStatus.Open or TaskStatus.InProgress;
+
+    /// <summary>
+    /// A rework task for picked stock that became blocked before dispatch (OUT-006, DEC-055): unpick or segregate the
+    /// staged quantity of the pick.
+    /// </summary>
+    public static WarehouseTask ForRework(Guid tenantId, Guid warehouseId, Guid pickId, Guid productId, Guid? lotId, Guid stagingBinId, decimal quantity,
+        string reason, string actor, DateTimeOffset now)
+    {
+        if (quantity <= 0)
+            throw new DomainException("A task quantity must be positive.");
+        var task = new WarehouseTask
+        {
+            WarehouseId = warehouseId, Type = TaskType.Rework, Status = TaskStatus.Open, ProductId = productId, LotId = lotId, SourceBinId = stagingBinId,
+            TaskQty = quantity, RemainingQty = quantity, Reason = reason, RelatedType = "Pick", RelatedId = pickId,
+        };
+        task.Stamp(tenantId, actor, now);
+        return task;
+    }
 
     /// <summary>A putaway task for a receipt line (INB-005), or an exception task when no bin is suitable.</summary>
     public static WarehouseTask ForReceiptLine(Guid tenantId, Guid warehouseId, Guid receiptLineId, Guid productId, Guid? lotId, Guid stagingBinId,
@@ -77,7 +97,7 @@ public sealed class WarehouseTask : TenantEntity
             Status = TaskStatus.Completed;
             CompletedAt = now;
             CompletedBy = actor;
-            if (Type == TaskType.Exception)
+            if (Type is TaskType.Exception or TaskType.Rework)
                 Resolution = reason;
         }
         else

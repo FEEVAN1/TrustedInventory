@@ -242,7 +242,7 @@ Records the frozen conversion, `base_qty > 0`, `measured_temperature_c`, `stagin
 One row per bucket per `ReconciliationMismatch` alert (0008, OPS-001, DEC-049): `bucket_id`, `alert_id`, the on hand recomputed from the ledger (`expected_qty`) and the stored projection (`stored_qty`, always different). A bucket is blocked while any of its alerts is not `Closed`; stock commands then fail with `409 STOCK_BLOCKED`. Rows are never updated or deleted; closing the alert is the operator procedure and the rows remain as evidence. An open `AuditChainFailure` alert blocks every stock mutation of the tenant without rows here. Since 0011 a row also records the reserved quantity expected from live (`Active` or `Picked`) reservations and the stored `reserved_qty`; at least one of the two measures differs (DEC-053).
 
 ### warehouse_task
-Putaway, rework and exception tasks (DEC-011). Putaway tasks require `receipt_line_id` and `task_qty`, and `remaining_qty ≤ task_qty`. Bin FKs check the warehouse. Receiving creates one task per receipt line: `Putaway` with `recommended_bin_id` set to the top recommendation, or `Exception` (with `reason`) when no bin is suitable (DEC-050). 0009 adds `completed_by` and `resolution`; a task is `Completed` exactly when `completed_at` and `completed_by` are set, and an exception's resolution is the reason given when it was confirmed.
+Putaway, rework and exception tasks (DEC-011). Putaway tasks require `receipt_line_id` and `task_qty`, and `remaining_qty ≤ task_qty`. Bin FKs check the warehouse. Receiving creates one task per receipt line: `Putaway` with `recommended_bin_id` set to the top recommendation, or `Exception` (with `reason`) when no bin is suitable (DEC-050). 0009 adds `completed_by` and `resolution`; a task is `Completed` exactly when `completed_at` and `completed_by` are set, and an exception's resolution is the reason given when it was confirmed. A `Rework` task (OUT-006, DEC-055) has `related_type = 'Pick'` and `related_id` = the pick whose staged stock became blocked before dispatch, `source_bin_id` = the staging bin and `task_qty` = the staged quantity; at most one is open per pick. Unpicking works it down and a later successful dispatch completes it.
 
 ## 5. Outbound
 
@@ -274,7 +274,7 @@ A directed pick task created by allocation, one per new Active reservation, its 
 One row per scan-validated confirmation (OUT-004). Stores `picked_qty`, the resulting Picked reservation segment, staging bin, the raw `scanned` identifiers (jsonb, including serials) and the movement.
 
 ### shipment / shipment_line
-Created by dispatch. `UNIQUE (tenant_id, order_id, dispatch_reference)`. A line records product, lot, serial and `base_qty`, plus a `returned_qty ≤ base_qty` counter. That counter enforces EXC-005 and AT-EXC-03 in the database.
+Created by dispatch (OUT-005, DEC-055): one shipment per dispatch and one line per dispatched reservation segment, each with its `Dispatch` movement (document Shipment, line = shipment line, reservation = the segment). `UNIQUE (tenant_id, order_id, dispatch_reference)`; since 0012 `dispatch_reference` is `identifier_text` (1–100, trimmed) to match the contract. `shipment` is append-only and has no version column, so the API reports version 1 and `updatedAt = createdAt`. A line records product, lot, serial and `base_qty`, plus a `returned_qty ≤ base_qty` counter. That counter enforces EXC-005 and AT-EXC-03 in the database.
 
 ## 6. Transfers, counts, adjustments, returns, recalls
 

@@ -302,13 +302,13 @@ public sealed class OutboundOrderService(
 }
 
 /// <summary>
-/// Returns active reservations to their buckets (cancellation now; deallocation and expiry later). Locks the reservations
+/// Returns active reservations to their buckets (cancellation, deallocation and, with <c>expiredOnly</c>, expiry: STK-008). Locks the reservations
 /// and then their buckets in id order (migration-design §5) and decreases bucket reserved quantity; on hand is untouched.
 /// </summary>
 internal static class ReservationRelease
 {
     public static async Task<List<Guid>> ReleaseActiveAsync(ITenantSession s, IReadOnlyCollection<Guid> lineIds, IReadOnlyDictionary<Guid, OutboundOrderLine> lines,
-        CancellationToken ct)
+        CancellationToken ct, bool expiredOnly = false)
     {
         // Lock order (DEC-054): picks → live reservations → buckets, all by id.
         var ids = lineIds.ToArray();
@@ -320,7 +320,7 @@ internal static class ReservationRelease
             SELECT id AS "Value" FROM ti.reservation WHERE order_line_id = ANY({ids}) AND state IN ('Active','Picked') ORDER BY id FOR UPDATE
             """).ToListAsync(ct);
         var live = await s.Db.Set<Reservation>().Where(r => liveIds.Contains(r.Id)).ToListAsync(ct);
-        var reservations = live.Where(r => r.State == ReservationState.Active).OrderBy(r => r.Id).ToList();
+        var reservations = live.Where(r => r.State == ReservationState.Active && (!expiredOnly || r.ExpiresAt <= s.Now)).OrderBy(r => r.Id).ToList();
         if (reservations.Count == 0)
             return [];
         var activeIds = reservations.Select(r => r.Id).ToList();
@@ -338,6 +338,8 @@ internal static class ReservationRelease
             var child = live.SingleOrDefault(r => r.ParentReservationId == reservation.Id && r.State == ReservationState.Picked);
             if (child is not null)
                 reservation.ReleaseKeepingPicked(child, s.Now);
+            else if (expiredOnly)
+                reservation.Expire(s.Now);
             else
                 reservation.Release(s.Now);
             if (picks.TryGetValue(reservation.Id, out var pick) && pick.IsOpen)

@@ -23,6 +23,7 @@ public static class WorkerRegistration
         services.AddSingleton<IdempotencyCleanupJob>();
         services.AddSingleton<AuditCheckpointJob>();
         services.AddSingleton<LedgerReconciliationJob>();
+        services.AddSingleton<ReservationExpiryJob>();
         return services;
     }
 }

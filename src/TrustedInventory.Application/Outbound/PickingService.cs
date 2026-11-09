@@ -163,7 +163,7 @@ public sealed class PickingService(
                 throw AppException.Validation("stagingBinId", "Stage the rest of this task in the same bin as its first part.");
             if (source.Quality != nameof(QualityStatus.Available))
                 throw AppException.InvalidState("The reserved stock is no longer available (quality status changed).");
-            if (lot?.ExpiryDate is { } expiry && ReceivingRules.IsExpired(expiry, await WarehouseTodayAsync(s, pick.WarehouseId, c)))
+            if (!ReceivingRules.IsShippable(lot?.ExpiryDate, await WarehouseTodayAsync(s, pick.WarehouseId, c)))
                 throw AppException.InvalidState("The reserved lot has expired and cannot be picked.");
 
             // 3. Buckets in id order, then the stock and reservation move together (STK-002).
@@ -293,6 +293,19 @@ public sealed class PickingService(
             var before = await DtoAsync(s, pick, c);
             DomainGuard.Run(() => pick.Unpick(quantity, cmd.TargetBinId, s.Now));
             DomainGuard.Run(() => line.Unpick(quantity, s.Now));
+            // Unpicking works down the pick's open rework tasks (OUT-006, DEC-055).
+            var left = quantity;
+            foreach (var task in await s.Db.Set<WarehouseTask>()
+                         .Where(t => t.Type == TaskType.Rework && t.RelatedType == "Pick" && t.RelatedId == pick.Id
+                             && (t.Status == Domain.Inbound.TaskStatus.Open || t.Status == Domain.Inbound.TaskStatus.InProgress))
+                         .OrderBy(t => t.CreatedAt).ToListAsync(c))
+            {
+                var share = Math.Min(left, task.RemainingQty ?? 0);
+                if (share <= 0)
+                    break;
+                DomainGuard.Run(() => task.Confirm(share, caller.Subject, cmd.Reason, s.Now));
+                left -= share;
+            }
             await RecalculateAsync(s, order, c);
             await s.Db.SaveChangesAsync(c);
 

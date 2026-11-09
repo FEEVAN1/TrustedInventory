@@ -55,6 +55,9 @@ public static class ReceivingRules
 
     public static bool IsExpired(DateOnly? expiry, DateOnly warehouseToday) => expiry is { } e && e < warehouseToday;
 
+    /// <summary>Allocation, picking and dispatch block a lot from its expiry day on, in the warehouse time zone (STK-001, AT-MED-01 rule, DEC-055).</summary>
+    public static bool IsShippable(DateOnly? expiry, DateOnly warehouseToday) => expiry is not { } e || e > warehouseToday;
+
     public static bool IsOutOfRange(decimal? measuredC, decimal? profileMinC, decimal? profileMaxC) =>
         measuredC is { } t && profileMinC is { } min && profileMaxC is { } max && (t < min || t > max);
 }
@@ -199,6 +202,21 @@ public sealed class StockMovement
     public DateTimeOffset OccurredAt { get; private set; }
     public DateTimeOffset RecordedAt { get; private set; }
     public string? CorrelationId { get; private set; }
+
+    /// <summary>Picked stock leaving the tenant's stock from its staging bucket (OUT-005, DEC-055).</summary>
+    public static StockMovement Dispatch(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid stagingBucketId,
+        decimal baseQty, Guid shipmentId, Guid shipmentLineId, Guid reservationId, string actor, DateTimeOffset now, string? correlationId)
+    {
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = MovementType.Dispatch, OperationKey = operationKey, ProductId = productId, LotId = lotId,
+            SerialId = serialId, SourceBucketId = stagingBucketId, BaseQty = baseQty, DocumentType = DocumentType.Shipment, DocumentId = shipmentId,
+            DocumentLineId = shipmentLineId, ReservationId = reservationId, ActorSubject = actor, OccurredAt = now, RecordedAt = now,
+            CorrelationId = correlationId,
+        };
+    }
 
     /// <summary>Staging to storage within tenant stock (INB-006): both buckets, same product, lot, serial and quality.</summary>
     public static StockMovement Putaway(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid sourceBucketId,

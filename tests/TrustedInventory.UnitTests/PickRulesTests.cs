@@ -86,4 +86,40 @@ public class PickRulesTests
         Assert.Equal(ReservationState.Released, child.State);
         Assert.Throws<DomainException>(() => Active(1).ReleaseKeepingPicked(child, Now));
     }
+
+    [Fact]
+    [Trait("Requirement", "STK-008")]
+    public void Only_due_active_segments_expire_and_only_picked_segments_are_consumed()
+    {
+        var active = Active(5);
+        Assert.Throws<DomainException>(() => active.Expire(Now));               // not due yet
+        Assert.Throws<DomainException>(() => active.Consume(Now));              // unpicked stock never ships
+        active.Expire(Now.AddHours(24));
+        Assert.Equal((ReservationState.Expired, (DateTimeOffset?)null), (active.State, active.ExpiresAt));
+
+        var picked = Active(3);
+        picked.MoveToStaging(Guid.NewGuid(), 0, Now);
+        Assert.Throws<DomainException>(() => picked.Expire(Now.AddDays(30)));   // picked never expires
+        picked.Consume(Now);
+        Assert.Equal(ReservationState.Consumed, picked.State);
+        Assert.Throws<DomainException>(() => picked.Consume(Now));              // consumed once
+    }
+
+    [Fact]
+    [Trait("Requirement", "OUT-005")]
+    [Trait("Requirement", "STK-001")]
+    public void Lines_ship_only_picked_quantity_and_a_lot_stops_shipping_on_its_expiry_day()
+    {
+        var line = OutboundOrderLine.Create(Tenant, Guid.NewGuid(), 1, Guid.NewGuid(), 10, 0, "planner", Now);
+        line.Allocate(10, Now);
+        line.Pick(6, Now);
+        Assert.Throws<DomainException>(() => line.Dispatch(7, Now));
+        line.Dispatch(6, Now);
+        Assert.Throws<DomainException>(() => line.Unpick(1, Now));               // dispatched stock cannot be unpicked
+
+        var today = new DateOnly(2026, 11, 9);
+        Assert.True(Domain.Inbound.ReceivingRules.IsShippable(today.AddDays(1), today));
+        Assert.False(Domain.Inbound.ReceivingRules.IsShippable(today, today));
+        Assert.True(Domain.Inbound.ReceivingRules.IsShippable(null, today));
+    }
 }
