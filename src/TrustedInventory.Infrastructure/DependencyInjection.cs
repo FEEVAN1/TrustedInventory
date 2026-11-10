@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0014_adjustment_modifier";
+    public const string Required = "0015_transfer_modifier";
 }
 
 public static class DependencyInjection

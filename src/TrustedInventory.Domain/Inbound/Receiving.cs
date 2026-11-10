@@ -222,6 +222,45 @@ public sealed class StockMovement
         };
     }
 
+    /// <summary>An atomic move between bins of one warehouse; lot, serial and quality preserved (EXC-002, DEC-058).</summary>
+    public static StockMovement BinTransfer(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid sourceBucketId,
+        Guid destinationBucketId, decimal baseQty, Guid operationId, string? reason, string actor, DateTimeOffset now, string? correlationId)
+    {
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        if (sourceBucketId == destinationBucketId)
+            throw new DomainException("A bin transfer must move stock to a different bucket.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = MovementType.BinTransfer, OperationKey = operationKey, ProductId = productId, LotId = lotId, SerialId = serialId,
+            SourceBucketId = sourceBucketId, DestinationBucketId = destinationBucketId, BaseQty = baseQty, DocumentType = DocumentType.BinTransfer,
+            DocumentId = operationId, Reason = reason, ActorSubject = actor, OccurredAt = now, RecordedAt = now, CorrelationId = correlationId,
+        };
+    }
+
+    /// <summary>
+    /// A warehouse transfer step (STK-003, DEC-058): dispatch into the source Transit bin, receipt out of it, or an approved
+    /// disposition of lost or damaged transit stock (no destination).
+    /// </summary>
+    public static StockMovement Transfer(MovementType type, Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId,
+        Guid sourceBucketId, Guid? destinationBucketId, decimal baseQty, Guid transferId, Guid lineId, string? reason, string actor, DateTimeOffset now,
+        string? correlationId)
+    {
+        if (type is not (MovementType.TransferDispatch or MovementType.TransferReceipt or MovementType.TransitDisposition))
+            throw new DomainException("Not a transfer movement.");
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        if ((type == MovementType.TransitDisposition) != (destinationBucketId is null))
+            throw new DomainException("Only a disposition leaves transit without a destination.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = type, OperationKey = operationKey, ProductId = productId, LotId = lotId, SerialId = serialId,
+            SourceBucketId = sourceBucketId, DestinationBucketId = destinationBucketId, BaseQty = baseQty, DocumentType = DocumentType.Transfer,
+            DocumentId = transferId, DocumentLineId = lineId, Reason = reason, ActorSubject = actor, OccurredAt = now, RecordedAt = now,
+            CorrelationId = correlationId,
+        };
+    }
+
     /// <summary>Picked stock leaving the tenant's stock from its staging bucket (OUT-005, DEC-055).</summary>
     public static StockMovement Dispatch(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid stagingBucketId,
         decimal baseQty, Guid shipmentId, Guid shipmentLineId, Guid reservationId, string actor, DateTimeOffset now, string? correlationId)

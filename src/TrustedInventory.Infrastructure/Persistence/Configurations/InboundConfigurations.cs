@@ -156,3 +156,14 @@ internal sealed class AdjustmentConfiguration() : TenantEntityConfiguration<Doma
         builder.HasOne<StockMovement>().WithMany().HasForeignKey(a => a.PostedMovementId).OnDelete(DeleteBehavior.NoAction);
     }
 }
+
+internal sealed class TransferConfiguration() : TenantEntityConfiguration<Domain.Operations.Transfer>("transfer")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.Transfer> builder) { }
+}
+
+internal sealed class TransferLineConfiguration() : TenantEntityConfiguration<Domain.Operations.TransferLine>("transfer_line")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.TransferLine> builder) =>
+        builder.HasOne<Domain.Operations.Transfer>().WithMany().HasForeignKey(l => l.TransferId).OnDelete(DeleteBehavior.NoAction);
+}

@@ -109,10 +109,10 @@ public sealed class GeneralOperationsSchemaTests(ApiFixture fx)
     {
         var w = await WorldAsync("schema-transfer");
         await Expect(Check, """
-            INSERT INTO ti.transfer (tenant_id, source_warehouse_id, destination_warehouse_id, reference, created_by) VALUES (@t, @w, @w, 'TR-1', 'test')
+            INSERT INTO ti.transfer (tenant_id, source_warehouse_id, destination_warehouse_id, reference, created_by, last_modified_by) VALUES (@t, @w, @w, 'TR-1', 'test', 'test')
             """, ("t", w.Tenant), ("w", w.Warehouse));
         var transfer = (Guid)(await Scalar("""
-            INSERT INTO ti.transfer (tenant_id, source_warehouse_id, destination_warehouse_id, reference, created_by) VALUES (@t, @w, @d, 'TR-1', 'test')
+            INSERT INTO ti.transfer (tenant_id, source_warehouse_id, destination_warehouse_id, reference, created_by, last_modified_by) VALUES (@t, @w, @d, 'TR-1', 'test', 'test')
             RETURNING id
             """, ("t", w.Tenant), ("w", w.Warehouse), ("d", w.Other)))!;
         await Expect(Check, "UPDATE ti.transfer SET status = 'Approved' WHERE id = @id", ("id", transfer));               // who approved, when

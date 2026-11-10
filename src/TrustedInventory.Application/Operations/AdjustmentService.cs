@@ -93,34 +93,8 @@ internal static class AdjustmentRules
         return SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson.Serialize(body)));
     }
 
-    /// <summary>The live signed approval binding this exact version and content, if any.</summary>
-    public static async Task<Approval?> BindingApprovalAsync(ITenantSession s, Adjustment a, CancellationToken ct)
-    {
-        var now = s.Now;
-        var signed = await s.Db.Set<Approval>().AsNoTracking()
-            .Where(x => x.SubjectType == ApprovalSubjectType.Adjustment && x.SubjectId == a.Id && x.Status == ApprovalStatus.Approved
-                && x.SubjectVersion == a.Version && x.ExpiresAt > now)
-            .ToListAsync(ct);
-        if (signed.Count == 0)
-            return null;
-        var digest = await DigestAsync(s, a, ct);
-        return signed.FirstOrDefault(x => x.ContentDigest.AsSpan().SequenceEqual(digest));
-    }
-
-    /// <summary>Editing or cancelling the subject voids its live approvals (IAM-003, AT-EXC-02).</summary>
-    public static async Task<List<Guid>> InvalidateLiveAsync(ITenantSession s, Guid adjustmentId, string reason, CancellationToken ct)
-    {
-        var live = await s.Db.Set<Approval>()
-            .Where(x => x.SubjectType == ApprovalSubjectType.Adjustment && x.SubjectId == adjustmentId
-                && (x.Status == ApprovalStatus.Pending || x.Status == ApprovalStatus.Approved))
-            .ToListAsync(ct);
-        foreach (var approval in live)
-            DomainGuard.Run(() => approval.Invalidate(reason, s.Now));
-        return live.Select(x => x.Id).ToList();
-    }
-
     /// <summary>The permissions a signer needs: inventory, plus quality for medical stock (SOD-2).</summary>
-    public static async Task<string[]> SignPermissionsAsync(ITenantSession s, Adjustment a, CancellationToken ct)
+    public static async Task<IReadOnlyList<string>> SignPermissionsAsync(ITenantSession s, Adjustment a, CancellationToken ct)
     {
         var profile = await s.Db.Set<Product>().AsNoTracking().Where(p => p.Id == a.ProductId).Select(p => p.HandlingProfile).SingleAsync(ct);
         return profile == HandlingProfile.Medical
@@ -271,7 +245,7 @@ public sealed class AdjustmentService(
                     """, c);
                 await BindEvidenceAsync(s, id, evidence, c);
             }
-            var invalidated = await AdjustmentRules.InvalidateLiveAsync(s, id, "The adjustment changed after the approval was requested (IAM-003).", c);
+            var invalidated = await ApprovalSubjects.InvalidateLiveAsync(s, ApprovalSubjectType.Adjustment, id, "The adjustment changed after the approval was requested (IAM-003).", c);
             await s.Db.SaveChangesAsync(c);
             var after = await DtoAsync(s, adjustment, c);
             s.Audit(new AuditEntry("AdjustmentUpdated", "Adjustment", id, adjustment.Version, null, before, new { adjustment = after, invalidatedApprovals = invalidated }));
@@ -294,7 +268,7 @@ public sealed class AdjustmentService(
                 throw AppException.InvalidState("Only a requested adjustment can be cancelled.");
             var before = await DtoAsync(s, adjustment, c);
             DomainGuard.Run(() => adjustment.Cancel(caller.Subject, s.Now));
-            var invalidated = await AdjustmentRules.InvalidateLiveAsync(s, id, "The adjustment was cancelled.", c);
+            var invalidated = await ApprovalSubjects.InvalidateLiveAsync(s, ApprovalSubjectType.Adjustment, id, "The adjustment was cancelled.", c);
             await s.Db.SaveChangesAsync(c);
             var after = await DtoAsync(s, adjustment, c);
             s.Audit(new AuditEntry("AdjustmentCancelled", "Adjustment", id, adjustment.Version, cmd.Reason, before, new { adjustment = after, invalidatedApprovals = invalidated }));
@@ -326,22 +300,8 @@ public sealed class AdjustmentService(
             if (!adjustment.IsOpen)
                 throw AppException.InvalidState("Only a requested adjustment can be posted.");
 
-            // 1. The approval binds this exact version and content, is unexpired, and its signer still may sign (IAM-003, SOD-4).
-            await s.Db.Database.SqlQuery<Guid>($"SELECT id AS \"Value\" FROM ti.approval WHERE id = {cmd.ApprovalId} FOR UPDATE").ToListAsync(c);
-            var approval = await s.Db.Set<Approval>().SingleOrDefaultAsync(a => a.Id == cmd.ApprovalId, c);
-            if (approval is null || approval.SubjectType != ApprovalSubjectType.Adjustment || approval.SubjectId != id)
-                throw AppException.Validation("approvalId", "The approval is not for this adjustment.");
-            if (approval.Status != ApprovalStatus.Approved)
-                throw Stale($"The approval is {approval.EffectiveStatus(s.Now)}, not signed.");
-            if (s.Now >= approval.ExpiresAt)
-                throw Stale("The approval expired 30 minutes after signing; request a new one.");
-            var current = await AdjustmentRules.DigestAsync(s, adjustment, c);
-            if (approval.SubjectVersion != adjustment.Version || !approval.ContentDigest.AsSpan().SequenceEqual(current))
-                throw Stale("The adjustment changed after it was approved (IAM-003).");
-            if (approval.ApproverSubject == adjustment.CreatedBy || approval.ApproverSubject == adjustment.LastModifiedBy)
-                throw new AppException(ErrorCode.ApprovalSelf, "The approver also wrote this adjustment (SOD-1).");
-            if (!await ApproverStillEntitledAsync(s, approval.ApproverSubject!, await AdjustmentRules.SignPermissionsAsync(s, adjustment, c), c))
-                throw Stale("The approver is no longer an active member allowed to sign (SOD-4).");
+            // 1. The approval binds this exact version and content, is unexpired, and its signer still may sign (IAM-003, SOD-1, SOD-4).
+            var approval = await ApprovalSubjects.RequireBindingAsync(s, await ApprovalSubjects.AdjustmentAsync(s, adjustment, c), cmd.ApprovalId, c);
 
             // 2. The bucket: the named one, or the matching one created for an increase; reserved rechecked under lock.
             if (await StockBlocks.TenantBlockedAsync(s, c))
@@ -417,24 +377,11 @@ public sealed class AdjustmentService(
 
     internal static async Task<AdjustmentDto> DtoAsync(ITenantSession s, Adjustment a, CancellationToken ct)
     {
-        var digest = await AdjustmentRules.DigestAsync(s, a, ct);
-        var binding = a.Status == AdjustmentStatus.Requested ? await AdjustmentRules.BindingApprovalAsync(s, a, ct) : null;
+        var subject = await ApprovalSubjects.AdjustmentAsync(s, a, ct);
+        var binding = a.Status == AdjustmentStatus.Requested ? await ApprovalSubjects.BindingAsync(s, subject, ct) : null;
         return new AdjustmentDto(a.Id, a.Version, a.CreatedAt, a.CreatedBy, a.UpdatedAt, a.WarehouseId, a.BucketId, a.BinId, a.ProductId, a.LotId, a.SerialId,
             a.QualityStatus, SignedQuantity.From(a.DeltaQty), a.ReasonCode, a.Narrative, await AdjustmentRules.EvidenceAsync(s, a.Id, ct),
-            binding is not null ? AdjustmentStatus.Approved : a.Status, binding?.Id ?? a.ApprovalId, a.PostedMovementId, Convert.ToHexStringLower(digest));
-    }
-
-    /// <summary>SOD-4: the signer still holds an active membership with the signing permissions at posting time.</summary>
-    internal static async Task<bool> ApproverStillEntitledAsync(ITenantSession s, string approver, string[] permissions, CancellationToken ct)
-    {
-        var membership = await s.Db.Set<Membership>().AsNoTracking().Where(m => m.UserSubject == approver && m.Active).Select(m => (Guid?)m.Id)
-            .FirstOrDefaultAsync(ct);
-        if (membership is null)
-            return false;
-        var roles = await s.Db.Set<RoleGrant>().AsNoTracking().Where(g => g.MembershipId == membership && g.RevokedAt == null)
-            .Select(g => new { g.Role, g.WarehouseId }).ToListAsync(ct);
-        var grants = CallerContext.GrantsFrom(roles.Select(r => (r.Role, r.WarehouseId)));
-        return permissions.All(grants.ContainsKey);
+            binding is not null ? AdjustmentStatus.Approved : a.Status, binding?.Id ?? a.ApprovalId, a.PostedMovementId, Convert.ToHexStringLower(subject.Digest));
     }
 
     private static async Task<Guid> BucketForIncreaseAsync(ITenantSession s, CallerContext caller, Adjustment a, CancellationToken ct)
@@ -467,5 +414,4 @@ public sealed class AdjustmentService(
             throw AppException.Validation("evidenceAttachmentIds", "Every evidence file must exist and not belong to another record.");
     }
 
-    private static AppException Stale(string detail) => new(ErrorCode.ApprovalStale, detail);
 }

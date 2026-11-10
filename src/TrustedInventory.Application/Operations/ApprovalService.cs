@@ -62,33 +62,30 @@ public sealed class ApprovalService(
         caller.Require(Permissions.ApprovalsRequest);
         caller.RequireMutable();
         createValidator.ValidateOrThrow(cmd);
-        if (cmd.SubjectType != ApprovalSubjectType.Adjustment)
-            throw AppException.Validation("subjectType", "Only adjustments can be approved so far; other subjects arrive with their workflows.");
-        if (cmd.Action != ApprovalAction.Post)
-            throw AppException.Validation("action", "An adjustment approval authorises posting.");
         return uow.WriteAsync(async (s, c) =>
         {
-            var adjustment = await AdjustmentRules.LockAsync(s, cmd.SubjectId, c);
-            if (!adjustment.IsOpen)
-                throw AppException.InvalidState("Only a requested adjustment can be approved.");
-            if (adjustment.Version != cmd.SubjectVersion)
-                throw new AppException(ErrorCode.ApprovalStale, $"The adjustment is at version {adjustment.Version}; request approval of the current version.");
+            var subject = await ApprovalSubjects.LockAsync(s, cmd.SubjectType, cmd.SubjectId, c);
+            if (cmd.Action != subject.Action)
+                throw AppException.Validation("action", $"A {subject.Name} approval authorises {subject.Action}.");
+            if (!subject.Open)
+                throw AppException.InvalidState($"This {subject.Name} has nothing awaiting approval.");
+            if (subject.Version != cmd.SubjectVersion)
+                throw new AppException(ErrorCode.ApprovalStale, $"The {subject.Name} is at version {subject.Version}; request approval of the current version.");
             var existing = await s.Db.Set<Approval>()
-                .Where(x => x.SubjectType == ApprovalSubjectType.Adjustment && x.SubjectId == adjustment.Id
+                .Where(x => x.SubjectType == subject.Type && x.SubjectId == subject.Id
                     && (x.Status == ApprovalStatus.Pending || x.Status == ApprovalStatus.Approved))
                 .ToListAsync(c);
             if (existing.Any(x => x.IsLive(s.Now)))
-                throw AppException.InvalidState("This adjustment already has a pending or signed approval.");
+                throw AppException.InvalidState($"This {subject.Name} already has a pending or signed approval.");
             foreach (var lapsed in existing)
                 DomainGuard.Run(() => lapsed.Expire(s.Now));
 
-            var digest = await AdjustmentRules.DigestAsync(s, adjustment, c);
-            var approval = DomainGuard.Run(() => Approval.Request(caller.TenantId, cmd.SubjectType, adjustment.Id, adjustment.Version, digest, cmd.Action,
+            var approval = DomainGuard.Run(() => Approval.Request(caller.TenantId, subject.Type, subject.Id, subject.Version, subject.Digest, cmd.Action,
                 cmd.Reason, caller.Subject, s.Now));
             s.Db.Add(approval);
             var dto = Dto(approval, s.Now);
             s.Audit(new AuditEntry("ApprovalRequested", "Approval", approval.Id, approval.Version, cmd.Reason, null, dto));
-            s.Publish("ApprovalRequested", new { approvalId = approval.Id, subjectType = cmd.SubjectType.ToString(), subjectId = adjustment.Id });
+            s.Publish("ApprovalRequested", new { approvalId = approval.Id, subjectType = subject.Type.ToString(), subjectId = subject.Id });
             await s.Db.SaveChangesAsync(c);
             return dto;
         }, ct);
@@ -105,14 +102,13 @@ public sealed class ApprovalService(
         var reauthDigest = await reauth.VerifyAsync(cmd.ReauthToken, caller.Subject, ct); // 403 REAUTH_REQUIRED before anything else
         return await uow.WriteAsync(async (s, c) =>
         {
-            var (approval, adjustment) = await LockAsync(s, id, c);
+            var (approval, subject) = await LockAsync(s, id, c);
             Versioning.EnsureVersion(approval.Version, expectedVersion);
-            await EnsureMaySignAsync(s, caller, approval, adjustment, c);
+            EnsureMaySign(caller, approval, subject);
             if (approval.EffectiveStatus(s.Now) != ApprovalStatus.Pending)
                 throw AppException.InvalidState($"The approval is {approval.EffectiveStatus(s.Now)}; only a pending approval can be signed.");
-            var current = await AdjustmentRules.DigestAsync(s, adjustment, c);
-            if (!adjustment.IsOpen || adjustment.Version != approval.SubjectVersion || !approval.ContentDigest.AsSpan().SequenceEqual(current))
-                throw new AppException(ErrorCode.ApprovalStale, "The adjustment changed after approval was requested (IAM-003).");
+            if (!subject.Open || subject.Version != approval.SubjectVersion || !approval.ContentDigest.AsSpan().SequenceEqual(subject.Digest))
+                throw new AppException(ErrorCode.ApprovalStale, $"The {subject.Name} changed after approval was requested (IAM-003).");
             var before = Dto(approval, s.Now);
             DomainGuard.Run(() => approval.Sign(caller.Subject, cmd.Meaning, cmd.Reason, reauthDigest, s.Now, s.Now));
             var after = Dto(approval, s.Now);
@@ -132,15 +128,14 @@ public sealed class ApprovalService(
         reasonValidator.ValidateOrThrow(cmd);
         return uow.WriteAsync(async (s, c) =>
         {
-            var (approval, adjustment) = await LockAsync(s, id, c);
+            var (approval, subject) = await LockAsync(s, id, c);
             Versioning.EnsureVersion(approval.Version, expectedVersion);
-            await EnsureMaySignAsync(s, caller, approval, adjustment, c);
+            EnsureMaySign(caller, approval, subject);
             if (approval.EffectiveStatus(s.Now) != ApprovalStatus.Pending)
                 throw AppException.InvalidState($"The approval is {approval.EffectiveStatus(s.Now)}; only a pending approval can be rejected.");
             var before = Dto(approval, s.Now);
             DomainGuard.Run(() => approval.Reject(caller.Subject, cmd.Reason, s.Now));
-            if (adjustment.IsOpen)
-                DomainGuard.Run(() => adjustment.Reject(s.Now));
+            await ApprovalSubjects.OnRejectedAsync(s, subject, c);
             var after = Dto(approval, s.Now);
             s.Audit(new AuditEntry("ApprovalRejected", "Approval", approval.Id, approval.Version, cmd.Reason, before, after));
             await s.Db.SaveChangesAsync(c);
@@ -192,29 +187,26 @@ public sealed class ApprovalService(
             throw AppException.Forbidden();
     }
 
-    private static async Task<(Approval Approval, Domain.Operations.Adjustment Adjustment)> LockAsync(ITenantSession s, Guid id, CancellationToken ct)
+    private static async Task<(Approval Approval, SubjectState Subject)> LockAsync(ITenantSession s, Guid id, CancellationToken ct)
     {
-        var subject = await s.Db.Set<Approval>().AsNoTracking().Where(a => a.Id == id).Select(a => new { a.SubjectType, a.SubjectId }).SingleOrDefaultAsync(ct)
+        var target = await s.Db.Set<Approval>().AsNoTracking().Where(a => a.Id == id).Select(a => new { a.SubjectType, a.SubjectId }).SingleOrDefaultAsync(ct)
             ?? throw AppException.NotFound("Approval");
-        if (subject.SubjectType != ApprovalSubjectType.Adjustment)
-            throw AppException.InvalidState("This approval's subject type is not supported yet.");
-        var adjustment = await AdjustmentRules.LockAsync(s, subject.SubjectId, ct);
+        var subject = await ApprovalSubjects.LockAsync(s, target.SubjectType, target.SubjectId, ct);
         await s.Db.Database.SqlQuery<Guid>($"SELECT id AS \"Value\" FROM ti.approval WHERE id = {id} FOR UPDATE").ToListAsync(ct);
         var approval = await s.Db.Set<Approval>().SingleAsync(a => a.Id == id, ct);
-        return (approval, adjustment);
+        return (approval, subject);
     }
 
-    /// <summary>SOD-1: not the requester, creator or last modifier; SOD-2: the subject's sign permissions.</summary>
-    private static async Task EnsureMaySignAsync(ITenantSession s, CallerContext caller, Approval approval, Domain.Operations.Adjustment adjustment,
-        CancellationToken ct)
+    /// <summary>SOD-2: the subject's sign permissions; SOD-1: not the requester, creator or last modifier.</summary>
+    private static void EnsureMaySign(CallerContext caller, Approval approval, SubjectState subject)
     {
-        foreach (var permission in await AdjustmentRules.SignPermissionsAsync(s, adjustment, ct))
+        foreach (var permission in subject.SignPermissions)
             if (!caller.Has(permission))
                 throw AppException.Forbidden(permission == Permissions.ApprovalsSignQuality
-                    ? "Medical adjustments also need quality signing authority (SOD-2)."
+                    ? "Medical stock also needs quality signing authority (SOD-2)."
                     : "You may not sign inventory approvals.");
-        if (caller.Subject == approval.RequesterSubject || caller.Subject == adjustment.CreatedBy || caller.Subject == adjustment.LastModifiedBy)
-            throw new AppException(ErrorCode.ApprovalSelf, "You requested or wrote this adjustment, so someone else must sign it (SOD-1).");
+        if (caller.Subject == approval.RequesterSubject || subject.IsAuthor(caller.Subject))
+            throw new AppException(ErrorCode.ApprovalSelf, $"You requested or wrote this {subject.Name}, so someone else must sign it (SOD-1).");
     }
 
     internal static ApprovalDto Dto(Approval a, DateTimeOffset now) => new(

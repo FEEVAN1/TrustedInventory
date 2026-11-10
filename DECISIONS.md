@@ -874,6 +874,43 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   adjustment `Posted` and the approval `Consumed` with operation `adjustment:<id>:post` (unique, so it can never
   post twice).
 
+## DEC-058 Bin transfers and warehouse transfers (M4, EXC-001, EXC-002, STK-003, AT-EXC-01)
+- **Status:** Adopted
+- **Bin transfer (EXC-002):** `POST /inventory/bin-transfers` (`putaway.confirm`), `Idempotency-Key` and a permanent
+  operation key `bin-transfer:<subject>:<key>`. Moves unreserved stock from a bucket to another active bin of the same
+  warehouse in one transaction: the target is not Transit, suits the quality (Available → Storage or Staging; others →
+  Storage or Quarantine, as for putaway, DEC-050) and the product (DEC-012). Lot, serial and quality are preserved;
+  serial-tracked moves name the bucket's serial. Buckets lock in id order; blocked buckets refuse (OPS-001). One
+  `BinTransfer` movement (document `BinTransfer`, id = the operation).
+- **Warehouse transfer lifecycle (EXC-001):** create (lines: product, optional lot of that product, quantity; distinct
+  product/lot pairs; source ≠ destination; reference unique per tenant) → approve (If-Match) → dispatch → receive.
+  Dispatch and receipt may each happen in parts. Draft, Approved and Cancelled are stored decisions; afterwards the
+  status follows the lines: anything dispatched → `InTransit`; anything received or disposed → `PartReceived`; every
+  line fully dispatched with `received + disposed = dispatched` → `Received` (`received_at` set). Cancellation is only
+  possible before anything is dispatched. `transfers.manage` must cover the source warehouse for create, approve,
+  dispatch, cancel and disposition, and the destination for receipt. Migration 0015 adds `transfer.last_modified_by`.
+- **Dispatch (STK-003, DEC-010):** `Idempotency-Key`, If-Match on the transfer, permanent key `transfer-dispatch:<subject>:<key>`.
+  Each line names a source bucket of the source warehouse with the line's product (and lot, when the line names one),
+  not in a Transit bin, and a quantity no more than the line's remainder or the bucket's unreserved stock. Stock moves to
+  the bucket of the source warehouse's Transit bin with the same product, lot, serial and quality (`TransferDispatch`
+  movement, document Transfer, line = the transfer line). Tenant stock is unchanged.
+- **Receipt (AT-EXC-01):** permanent key `transfer-receive:<subject>:<key>`. Each line takes up to its in-transit quantity
+  into an active Staging bin of the destination warehouse that suits the product. The line's in-transit stock is read
+  from the ledger (its dispatches minus receipts and dispositions, by transit bucket) and drawn oldest bucket first;
+  serial-tracked lines name the serials. `TransferReceipt` movements keep lot, serial and quality. Shortages stay in
+  transit. Received stock is then placed with a bin transfer.
+- **Transit disposition (STK-003, IAM-003):** an approval of subject type `TransitDisposition`, subject = the transfer,
+  action `Dispose`, binding the transfer version and digest (id, warehouses, reference, status, lines with all
+  counters). The approval request cannot carry the disposition itself, so the approval authorises writing off in-transit
+  quantity of the transfer exactly as it stood when signed: any later dispatch or receipt changes the version and makes
+  it stale. Signers need `approvals.sign.inventory` (plus `approvals.sign.quality` when a line is a medical product) and
+  must differ from the requester, the transfer's creator and its last modifier (SOD-1). Posting the disposition
+  (`Idempotency-Key`, If-Match, lineId, quantity ≤ in transit, Lost or Damaged, reason, approvalId) posts
+  `TransitDisposition` movements out of the line's transit buckets, raises `disposed_qty` and consumes the approval with
+  operation `transfer:<id>:disposition:<approval>` (unique). Every dispatch, receipt, disposition, approval or
+  cancellation of the transfer invalidates its other live disposition approvals, as an edit does for an adjustment. The approval code is generalised: a subject registry supplies version, digest,
+  authors and sign permissions per subject type.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

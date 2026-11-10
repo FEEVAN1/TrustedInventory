@@ -60,6 +60,40 @@ public static class OperationsEndpoints
         adjustments.MapPost("/{id:guid}/cancel", async (HttpContext http, AdjustmentService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.CancelAsync(id, Conventions.IfMatch(http), body, ct)))
             .WithName("cancelAdjustment").RequirePermission(Permissions.AdjustmentsRequest);
+
+        // Bin and warehouse transfers (EXC-001, EXC-002, STK-003, DEC-058).
+        tenant.MapPost("/inventory/bin-transfers", async (HttpContext http, BinTransferService svc, BinTransfer body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.TransferAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("transferBetweenBins").RequirePermission(Permissions.PutawayConfirm);
+        var transfers = tenant.MapGroup("/transfers");
+        transfers.MapGet("", (TransferService svc, [AsParameters] ListQuery q, [FromQuery] Guid? sourceWarehouseId, [FromQuery] Guid? destinationWarehouseId,
+                [FromQuery] TransferStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new TransferFilter(sourceWarehouseId, destinationWarehouseId, status), q.ToPage(), ct))
+            .WithName("listTransfers").RequirePermission(Permissions.StockRead);
+        transfers.MapPost("", async (HttpContext http, TransferService svc, CreateTransfer body, CancellationToken ct) =>
+            {
+                var created = await svc.CreateAsync(body, ct);
+                return Conventions.Created(http, $"/api/v1/transfers/{created.Id}", created);
+            })
+            .WithName("createTransfer").RequirePermission(Permissions.TransfersManage);
+        transfers.MapGet("/{id:guid}", async (HttpContext http, TransferService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getTransfer").RequirePermission(Permissions.StockRead);
+        transfers.MapPost("/{id:guid}/approve", async (HttpContext http, TransferService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.ApproveAsync(id, Conventions.IfMatch(http), ct)))
+            .WithName("approveTransfer").RequirePermission(Permissions.TransfersManage);
+        transfers.MapPost("/{id:guid}/dispatch", async (HttpContext http, TransferService svc, Guid id, TransferDispatch body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.DispatchAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("dispatchTransfer").RequirePermission(Permissions.TransfersManage);
+        transfers.MapPost("/{id:guid}/receive", async (HttpContext http, TransferService svc, Guid id, TransferReceive body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.ReceiveAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("receiveTransfer").RequirePermission(Permissions.TransfersManage);
+        transfers.MapPost("/{id:guid}/disposition", async (HttpContext http, TransferService svc, Guid id, TransitDisposition body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.DisposeAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("dispositionTransitQuantity").RequirePermission(Permissions.TransfersManage);
+        transfers.MapPost("/{id:guid}/cancel", async (HttpContext http, TransferService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.CancelAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("cancelTransfer").RequirePermission(Permissions.TransfersManage);
         return tenant;
     }
 }
