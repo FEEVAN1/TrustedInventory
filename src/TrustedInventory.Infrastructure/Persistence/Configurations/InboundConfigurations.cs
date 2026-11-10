@@ -191,3 +191,18 @@ internal sealed class CustomerReturnConfiguration() : TenantEntityConfiguration<
     protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.CustomerReturn> builder) =>
         builder.HasOne<StockMovement>().WithMany().HasForeignKey(r => r.ReceiptMovementId).OnDelete(DeleteBehavior.NoAction);
 }
+
+internal sealed class AttachmentConfiguration() : TenantEntityConfiguration<Domain.Operations.Attachment>("attachment")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.Attachment> builder) =>
+        builder.Property(a => a.DigestSha256).HasColumnName("digest_sha256");
+}
+
+internal sealed class ExportJobConfiguration() : TenantEntityConfiguration<Domain.Operations.ExportJob>("export_job")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.ExportJob> builder)
+    {
+        builder.Property(j => j.Filter).HasColumnType("jsonb");
+        builder.Property(j => j.Manifest).HasColumnType("jsonb");
+    }
+}

@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Organization.IPlatformUnitOfWork, Organization.PlatformUnitOfWork>();
         services.AddSingleton<Application.Audit.IAuditSupport, Audit.AuditSupport>();
         Saas.ProvisioningRegistration.AddProvisioning(services, configuration);
+        Files.FileRegistration.AddFileInfrastructure(services, configuration);
 
         services.AddHealthChecks().AddCheck<DatabaseReadyCheck>("database", tags: ["ready"]);
         return services;

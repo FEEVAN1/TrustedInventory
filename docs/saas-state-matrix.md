@@ -107,6 +107,7 @@ is never reported as a stock shortage (section 29).
 | Outbox delivery | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Telemetry evaluation, stale detection, excursion holds | ✓ | ✓ | ✓ | ✓ ⁵ | ✗ |
 | Reservation expiry (releases stock, never consumes it) | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Export generation (exports already requested; new requests follow the `export` row) | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Ledger reconciliation, audit verification and checkpoints | ✓ | ✓ | ✓ | ✓ | ✗ (deletion evidence only) |
 | Idempotency cleanup | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Billing reminders and reconciliation | ✓ | ✓ | ✓ | ✓ | ✗ |

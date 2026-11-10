@@ -963,6 +963,36 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   The return becomes `Inspected` once everything is inspected; `disposition` shows the latest decision. `Closed` is
   not used in M4. A count lock on either bin refuses the movement (DEC-059) except protective quality changes.
 
+## DEC-061 Attachments, exports and download links (M4, TEN-005, AUD-004, NFR-EXPORTS)
+- **Status:** Adopted (export retention period: owner decision D05)
+- **Object storage (simulated, AGT-004):** an `IObjectStore` writes tenant-prefixed keys (`{tenant}/attachments/{id}`,
+  `{tenant}/exports/{id}.jsonl`) to a local directory (`Storage:Directory`), visibly labelled as a simulator; the
+  production store is D06. API and worker share it.
+- **Download links (TEN-005, section 18):** a link is `…/download?token=…` where the token is
+  HMAC-SHA256(`Storage:LinkKey`) over tenant, resource kind, resource id, the requesting subject and an expiry at most
+  15 minutes ahead. The download routes are ordinary tenant routes, so the bearer token, membership, permission and
+  access mode are re-checked at download time; the service then requires the token to match the tenant header, the
+  caller, the resource and an unexpired time (404 otherwise: no hint whether the resource exists). Contract change:
+  `GET /attachments/{id}/download` (`stock.read`, read) and `GET /exports/{id}/download` (`exports.create`, export)
+  are added; the existing `download-link` operations issue the links.
+- **Attachments:** multipart upload (`adjustments.request`, quota `attachment_bytes`). The server checks the size
+  (1 B–10 MiB) and the content by its leading bytes (PDF, JPEG or PNG; the declared type must agree), stores the
+  SHA-256, and counts the bytes against the quota in the insert transaction (the body is fully received first, so no
+  separate reservation is needed; an object written before a rolled-back insert is an orphan for the S3 clean-up
+  job). Scanning is a visible simulator run at upload: content containing the EICAR test string is `Rejected`,
+  anything else `Clean`. Links are issued only for `Clean` files (409 `INVALID_STATE` otherwise). An optional
+  entity binding must name an open adjustment.
+- **Exports (AUD-004, NFR-EXPORTS):** `POST /exports` (`exports.create`, access `export`) validates the filters
+  (time range, warehouse, product, lot), stores them with their SHA-256, and returns 202 with a `Queued` job. The
+  worker's `ExportGeneration` job (all modes except Deleted, a new row in the state matrix's background-work table)
+  writes JSON Lines: `Audit` (audit events in the range, `streamRange` = the first and last sequence exported),
+  `Movements` (ledger movements in the range and filters) and `StockSnapshot` (current buckets matching the
+  filters); for the latter two `streamRange` is the audit position the export is consistent with. The manifest holds
+  the file digest, the file count and `signatureReference` = `hmac-sha256:<checkpoint key id>:<signature>` over the
+  digest, filter digest and stream range, signed with the audit checkpoint key (AUD-003). `Traceability` arrives
+  with M5 and `TenantArchive` with S3 (both 422 until then). Completed files are kept for 30 days (`retainUntil`),
+  a default the owner must confirm with D05. Creating, generating and downloading an export are audited.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

@@ -25,6 +25,7 @@ public sealed class QuotaEnforcementTests(ApiFixture fx)
         ["acceptInvitation"] = "TeamTests.Concurrent_acceptance_of_the_final_seat_admits_exactly_one",
         ["createWarehouse"] = nameof(Warehouse_quota_blocks_only_new_warehouses_and_retiring_frees_a_slot),
         ["createProduct"] = nameof(Sku_quota_blocks_only_new_products_and_retiring_frees_a_slot),
+        ["uploadAttachment"] = nameof(Attachment_bytes_are_counted_and_an_upload_over_the_limit_is_refused),
     };
 
     [Fact]
@@ -98,6 +99,35 @@ public sealed class QuotaEnforcementTests(ApiFixture fx)
         Assert.Equal(1L, await UsedAsync(tenant.TenantId, "active_skus"));
         await CreateProductAsync(admin, unit, "Q-SKU-3");
         Assert.Equal(2L, await UsedAsync(tenant.TenantId, "active_skus"));
+    }
+
+    [Fact]
+    [Trait("Requirement", "SAS-005")]
+    [Trait("Requirement", "ENT-003")]
+    [Trait("Requirement", "TEN-005")]
+    public async Task Attachment_bytes_are_counted_and_an_upload_over_the_limit_is_refused()
+    {
+        var tenant = await TenantProvisioning.ProvisionAsync(fx, "quota-att");
+        await MoveToPlanAsync(tenant.TenantId, limitEach: 200);
+        await TenantProvisioning.GrantSelfAsync(fx, tenant, "WarehouseManager");
+        var admin = fx.Client(tenant.Admin, tenant.TenantId);
+        var pdf = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7\n" + new string('x', 141)); // 150 bytes
+
+        await (await UploadAsync(admin, pdf)).ExpectAsync(HttpStatusCode.Created);
+        Assert.Equal(150L, await UsedAsync(tenant.TenantId, "attachment_bytes"));
+        var limited = await (await UploadAsync(admin, pdf)).ExpectProblemAsync(HttpStatusCode.Conflict, "PLAN_LIMIT_REACHED");
+        Assert.Equal("attachment_bytes", (string?)limited["quota"]!["quota"]);
+        Assert.Equal(150L, await UsedAsync(tenant.TenantId, "attachment_bytes"));
+        Assert.Equal(1L, (long)(await TenantProvisioning.ScalarAsSuperuserAsync(fx, "SELECT count(*) FROM ti.attachment WHERE tenant_id = @t", ("t", tenant.TenantId)))!);
+    }
+
+    private static Task<HttpResponseMessage> UploadAsync(HttpClient client, byte[] content)
+    {
+        var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+        form.Add(file, "file", "evidence.pdf");
+        return client.PostAsync("/api/v1/attachments", form);
     }
 
     private static object Warehouse(string code) => new { code, name = code, timeZone = "UTC" };

@@ -11,6 +11,8 @@ public enum BackgroundJob
     LedgerReconciliation,
     /// <summary>Row "Reservation expiry (releases stock, never consumes it)" (STK-008, DEC-055).</summary>
     ReservationExpiry,
+    /// <summary>Row "Export generation (already requested exports)" (AUD-004, DEC-061).</summary>
+    ExportGeneration,
 }
 
 /// <summary>
@@ -23,7 +25,7 @@ public static class BackgroundWork
     {
         // Deleted: no work. Checkpoints keep deletion evidence only, which arrives with the deletion flow (S3).
         BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup or BackgroundJob.AuditCheckpoint
-            or BackgroundJob.LedgerReconciliation or BackgroundJob.ReservationExpiry => mode != AccessMode.Deleted,
+            or BackgroundJob.LedgerReconciliation or BackgroundJob.ReservationExpiry or BackgroundJob.ExportGeneration => mode != AccessMode.Deleted,
         _ => false,
     };
 

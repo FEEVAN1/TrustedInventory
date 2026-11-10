@@ -63,6 +63,8 @@ public sealed class ApiFixture : IAsyncLifetime
             web.UseSetting("Auth:Audience", TestTokens.Audience);
             web.UseSetting("Platform:AdministratorSubjects:0", SeedData.PlatformAdmin);
             web.UseSetting("RateLimit:PermitsPerMinute", "100000");
+            web.UseSetting("Storage:Directory", Path.Combine(Path.GetTempPath(), "ti-objects-simulated-" + Guid.NewGuid().ToString("N")));
+            web.UseSetting("Storage:LinkKey", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 201)).ToArray()));
             web.ConfigureServices(services =>
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
                 {

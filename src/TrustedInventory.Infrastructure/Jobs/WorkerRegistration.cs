@@ -24,6 +24,7 @@ public static class WorkerRegistration
         services.AddSingleton<AuditCheckpointJob>();
         services.AddSingleton<LedgerReconciliationJob>();
         services.AddSingleton<ReservationExpiryJob>();
+        services.AddSingleton<ExportGenerationJob>();
         return services;
     }
 }

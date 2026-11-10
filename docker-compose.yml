@@ -83,12 +83,16 @@ services:
       ConnectionStrings__Platform: Host=db;Database=trustedinventory;Username=ti_platform;Password=${TI_PLATFORM_PASSWORD}
       ConnectionStrings__Control: Host=db;Database=trustedinventory;Username=ti_control;Password=${TI_CONTROL_PASSWORD}
       Paging__CursorKey: ${TI_CURSOR_KEY:?set in .env}
+      # SIMULATED object store shared by API and worker (DEC-061; production storage is D06).
+      Storage__Directory: /data/objects-simulated
+      Storage__LinkKey: ${TI_LINK_KEY:?set in .env}
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api
       Auth__RequireHttpsMetadata: "false"
       Platform__AdministratorSubjects__0: 00000000-0000-4000-8000-000000000001
       # No synthetic platform-billing user exists yet (S2); the list is empty in development.
       Cors__AllowedOrigins__0: http://localhost:5173
+    volumes: [objects:/data/objects-simulated]
     ports: ["8081:8080"]
     depends_on:
       migrator: { condition: service_completed_successfully }
@@ -104,6 +108,7 @@ services:
       Audit__CheckpointKeyId: dev-checkpoint-key
       # SIMULATED retention store (AUD-003 production storage is D06).
       Audit__RetentionDirectory: /tmp/ti-retention-simulated
+    volumes: [objects:/data/objects-simulated]
     depends_on:
       migrator: { condition: service_completed_successfully }
 
@@ -114,3 +119,4 @@ services:
 
 volumes:
   db-data:
+  objects:

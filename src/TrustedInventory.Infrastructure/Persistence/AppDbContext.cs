@@ -83,6 +83,9 @@ public static class PgEnums
         builder.MapEnum<Domain.Operations.CountStatus>("ti.count_status", Verbatim);
         builder.MapEnum<Domain.Operations.ReturnStatus>("ti.return_status", Verbatim);
         builder.MapEnum<Domain.Operations.ReturnDisposition>("ti.return_disposition", Verbatim);
+        builder.MapEnum<Domain.Operations.AttachmentScanStatus>("ti.attachment_scan_status", Verbatim);
+        builder.MapEnum<Domain.Operations.ExportType>("ti.export_type", Verbatim);
+        builder.MapEnum<Domain.Operations.ExportStatus>("ti.export_status", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -119,5 +122,8 @@ public static class PgEnums
         o.MapEnum<Domain.Operations.CountStatus>("count_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Operations.ReturnStatus>("return_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Operations.ReturnDisposition>("return_disposition", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.AttachmentScanStatus>("attachment_scan_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ExportType>("export_type", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ExportStatus>("export_status", AppDbContext.Schema, Verbatim);
     }
 }

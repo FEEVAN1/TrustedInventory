@@ -7794,6 +7794,52 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /exports/{id}/download:
+    get:
+      operationId: downloadExport
+      tags:
+        - Exports
+      summary: Download content through a short-lived link
+      description: The token from the download-link operation is bound to the tenant, the caller, this export and an expiry at most 15 minutes ahead; the bearer token, membership, permission and access mode are re-checked here. An invalid, foreign or expired token returns 404 (DEC-061).
+      x-permission: exports.create
+      x-access: export
+      x-requirements:
+        - TEN-005
+        - NFR-EXPORTS
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 20
+            maxLength: 1024
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: The file content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                contentMediaType: application/octet-stream
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /attachments:
     post:
       operationId: uploadAttachment
@@ -7917,6 +7963,52 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /attachments/{id}/download:
+    get:
+      operationId: downloadAttachment
+      tags:
+        - Attachments
+      summary: Download content through a short-lived link
+      description: The token from the download-link operation is bound to the tenant, the caller, this attachment and an expiry at most 15 minutes ahead; the bearer token, membership, permission and access mode are re-checked here. An invalid, foreign or expired token returns 404 (DEC-061).
+      x-permission: stock.read
+      x-access: read
+      x-entitlement: core_inventory
+      x-requirements:
+        - TEN-005
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 20
+            maxLength: 1024
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: The file content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                contentMediaType: application/octet-stream
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":

@@ -20,6 +20,8 @@ public sealed record WorkerOptions
     public TimeSpan ReconciliationInterval { get; init; } = TimeSpan.FromHours(1);
     /// <summary>Reservation expiry (STK-008, DEC-055).</summary>
     public TimeSpan ReservationExpiryInterval { get; init; } = TimeSpan.FromMinutes(1);
+    /// <summary>Export generation (AUD-004, DEC-061).</summary>
+    public TimeSpan ExportInterval { get; init; } = TimeSpan.FromSeconds(15);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -37,6 +39,7 @@ public sealed record WorkerOptions
             CheckpointInterval = Seconds(config, "Worker:CheckpointIntervalSeconds", d.CheckpointInterval),
             ReconciliationInterval = Seconds(config, "Worker:ReconciliationIntervalSeconds", d.ReconciliationInterval),
             ReservationExpiryInterval = Seconds(config, "Worker:ReservationExpiryIntervalSeconds", d.ReservationExpiryInterval),
+            ExportInterval = Seconds(config, "Worker:ExportIntervalSeconds", d.ExportInterval),
         };
     }
 

@@ -68,6 +68,8 @@ public static class OperationPolicies
         ["dispatchTransfer"] = new("routine-write", "core_inventory", null),
         ["dispositionQuality"] = new("safety", null, null),
         ["dispositionTransitQuantity"] = new("routine-write", "core_inventory", null),
+        ["downloadAttachment"] = new("read", "core_inventory", null),
+        ["downloadExport"] = new("export", null, null),
         ["getAdjustment"] = new("read", "core_inventory", null),
         ["getAlert"] = new("read", "core_inventory", null),
         ["getApproval"] = new("read", "core_inventory", null),

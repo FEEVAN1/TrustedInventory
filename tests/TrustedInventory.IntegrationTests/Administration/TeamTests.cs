@@ -97,7 +97,8 @@ public sealed class TeamTests(ApiFixture fx)
             .ExpectProblemAsync(HttpStatusCode.Forbidden, "FORBIDDEN");
         await (await As(joiner, null, email, emailVerified: false).PostJsonAsync("/api/v1/invitations/accept", new { token }))
             .ExpectProblemAsync(HttpStatusCode.Forbidden, "FORBIDDEN");
-        await (await As(joiner, null, email).PostJsonAsync("/api/v1/invitations/accept", new { token = "x" + token[1..] }))
+        var tampered = (token[0] == 'x' ? "y" : "x") + token[1..]; // always differs from the real token
+        await (await As(joiner, null, email).PostJsonAsync("/api/v1/invitations/accept", new { token = tampered }))
             .ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
 
         // Expired: move the invitation's clock back past 72 hours.
