@@ -25,6 +25,7 @@ public static class WorkerRegistration
         services.AddSingleton<LedgerReconciliationJob>();
         services.AddSingleton<ReservationExpiryJob>();
         services.AddSingleton<ExportGenerationJob>();
+        services.AddSingleton<BillingNoticeRelayJob>();
         return services;
     }
 }

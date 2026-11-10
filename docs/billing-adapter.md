@@ -59,9 +59,11 @@ derived from our own record id, so a retried call never creates a second provide
      only if it is newer than what we hold (`provider_revision` / provider timestamps). An old
      `invoice.payment_failed` arriving after `invoice.paid` cannot regress a paid period (BIL-005).
    - Commit subscription state, the new entitlement snapshot (if plan or period changed), invoice/payment
-     rows, audit events and outbox notices together (section 27 consistency rules).
-   - Mark `Processed` (or `Ignored` for event types we do not use). Failures retry with backoff up to 10
-     attempts, then `Failed` and a `WebhookBacklog` alert.
+     rows, audit events and billing notices together (section 27 consistency rules). Notices go to `cp.billing_notice`
+     and a tenant-context worker job relays them to the outbox, because `ti_control` has no outbox privilege (DEC-064).
+   - Mark `Processed` (or `Ignored` for event types we do not use). Failures retry with backoff
+     (`min(30 s × 2^attempts, 1 h)`) up to 10 attempts, then stay `Failed`; the `WebhookBacklog` alert arrives with slice 5.
+   - Payload at rest: AES-256-GCM with `Billing:InboxKey`, bound to provider and event id (DEC-064).
 5. Lifecycle precedence still applies: a payment can settle dues but never clears a security suspension,
    and no event recreates or reactivates a `Deleted` tenant (LFC-001, AT-BIL-04).
 
@@ -91,15 +93,17 @@ SOP-003, AT-SOP-01). Alert when the oldest unprocessed inbox row is older than f
 
 Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` in logs and UI.
 
-- Signs webhooks with HMAC-SHA256 using `Billing:Simulator:SigningSecret` (required; startup fails without
-  it) and a timestamp header, so the real verification path is exercised.
+- Signs webhooks with HMAC-SHA256 using `Billing:Simulator:SigningSecret` (required, at least 32 characters; startup fails
+  without it) in the header `Simulator-Signature: t=<unix seconds>,v1=<hex>` over `"{t}.{raw body}"`, so the real
+  verification path is exercised. `Billing:Simulator:PreviousSigningSecret` is accepted during rotation.
 - Its state lives in memory in the process that hosts it (DEC-063). Hosted checkout and portal links are
   `https://billing-simulator.invalid/...` URLs that cannot be opened; outcomes are driven through the test console
-  (a browsable console is UI-milestone work). The `Outage` switch is available now; the payment actions arrive with
-  the webhook slice.
+  (a browsable console is UI-milestone work). The `Outage` switch and the payment actions below are available now (DEC-064); events are
+  delivered by posting the signed `SimEvent` to the webhook route.
 - Catalog prices without a provider reference are registered on first checkout as `sim_price_{priceVersionId}`.
 - Test console actions (also callable from integration tests):
-  - **Pay** the open invoice; **fail** a payment; **dispute**; **refund**.
+  - `PayCheckout`, `FailCheckout`, `PayRenewal`, `FailRenewal`, `Dispute` (or chargeback), `Refund`; `Resend` repeats an
+    event under a new id. Each returns a signed `SimEvent` (exact bytes and signature header).
   - **Deliver events out of order**, **duplicate** an event, **forge** a signature, send an **unknown
     reference**.
   - **Outage**: make every adapter call fail until cleared, to test retained access and reconciliation.
@@ -124,7 +128,7 @@ refuses any other provider and live checkout switched on. `Billing:ReturnUrl` (a
 | Evidence | Test |
 |----------|------|
 | Billing sandbox run (simulator now; real provider sandbox once chosen) | S2 suite |
-| Signed-webhook replay, duplicate and forgery | AT-BIL-01, AT-BIL-02 |
+| Signed-webhook replay, duplicate and forgery | AT-BIL-01, AT-BIL-02 (`WebhookTests`, passing on the simulator) |
 | Out-of-order events cannot regress a paid period | AT-BIL-02 |
 | Provider outage keeps last verified access; reconciliation converges | AT-SOP-01 |
 | Trial and grace boundaries restrict without workers; safety still works | AT-BIL-03 |

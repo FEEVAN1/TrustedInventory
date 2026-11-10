@@ -11,7 +11,8 @@ namespace TrustedInventory.Infrastructure.Billing;
 /// this process; nothing is ever charged. Hosted pages are https://billing-simulator.invalid/... URLs that cannot be opened:
 /// outcomes are driven through the test console methods below.
 /// </summary>
-public sealed partial class SimulatedBillingProvider(TimeProvider clock, ILogger<SimulatedBillingProvider> log) : IBillingProvider
+public sealed partial class SimulatedBillingProvider(TimeProvider clock, SimulatorSigning signing, ILogger<SimulatedBillingProvider> log)
+    : IBillingProvider, IBillingWebhooks
 {
     public const string HostedBase = "https://billing-simulator.invalid";
     public static readonly TimeSpan PortalLifetime = TimeSpan.FromMinutes(5);
@@ -42,7 +43,12 @@ public sealed partial class SimulatedBillingProvider(TimeProvider clock, ILogger
         Once($"customer:{request.BillingAccountId}", () => $"sim_cus_{request.BillingAccountId:N}");
 
     public Task<string> EnsurePriceAsync(Guid priceVersionId, MoneyDto amount, BillingInterval interval, CancellationToken ct) =>
-        Once($"price:{priceVersionId}", () => $"sim_price_{priceVersionId:N}");
+        Once($"price:{priceVersionId}", () =>
+        {
+            var reference = $"sim_price_{priceVersionId:N}";
+            _prices[reference] = new SimPrice(reference, amount.Currency, amount.MinorUnits, (short)amount.Exponent, interval);
+            return reference;
+        });
 
     public Task<ProviderCheckout> CreateCheckoutSessionAsync(ProviderCheckoutRequest request, CancellationToken ct) =>
         Once($"checkout:{request.CheckoutSessionId}", () =>
@@ -76,5 +82,5 @@ public sealed partial class SimulatedBillingProvider(TimeProvider clock, ILogger
     private static partial void LogCall(ILogger logger, string operation);
 }
 
-/// <summary>A simulated hosted checkout; nothing completes it until slice 3's console pays it and sends a signed event.</summary>
+/// <summary>A simulated hosted checkout; only the console paying it (a signed event) completes our session.</summary>
 public sealed record SimCheckout(string SessionRef, Guid CheckoutSessionId, string CustomerRef, string PriceRef, DateTimeOffset ExpiresAt);

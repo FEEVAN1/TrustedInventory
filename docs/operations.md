@@ -75,6 +75,18 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
   (owner decision D05). Download links expire after 15 minutes and work only for the user who requested them.
 - Attachments are scanned by a **simulator** at upload; only `Clean` files can be downloaded (DEC-061).
 
+### Billing webhooks (draft, S2; simulator only)
+- Configuration: `Billing:Simulator:SigningSecret` (at least 32 characters; optional `Billing:Simulator:PreviousSigningSecret`
+  during rotation) and `Billing:InboxKey` (base64, 32 bytes). `TI_BILLING_SIM_SECRET` and `TI_INBOX_KEY` in development; both
+  the API and the worker refuse to start without them (DEC-064).
+- `POST /api/v1/webhooks/billing/simulator` stores the verified event and answers 200; the worker's `BillingEventJob`
+  (every `Worker:BillingEventIntervalSeconds`, default 5) applies it. Billing notices reach tenant outboxes through
+  `BillingNoticeRelayJob` (`Worker:BillingNoticeIntervalSeconds`, default 30).
+- `Quarantined` events name a reference we do not hold or mix two tenants' references; each opens a
+  `cp.billing_task`. Nothing is applied: resolve the task, never edit the payload.
+- `Failed` events retry with backoff up to 10 attempts; `last_error` holds the exception type only. A row at 10 attempts
+  needs an operator (console and `WebhookBacklog` alert arrive with S2 slice 5).
+
 ### Stuck outbox (draft)
 - **Symptoms:** rising outbox age, or `OutboxDeadLetter` alerts.
 - Leases expire on their own: a crashed worker's batch is picked up by another after `lease_expires_at`.

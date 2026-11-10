@@ -1065,6 +1065,64 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Audit:** `CheckoutStarted`, `CheckoutExpired` and `BillingPortalOpened` go to the tenant's own chain in the same
   control-plane transaction (AUD-001).
 
+## DEC-064 Signed webhook inbox, event processor and billing notices (S2, BIL-004, BIL-005, BIL-007, BIL-008, AT-BIL-01, AT-BIL-02, AT-BIL-04)
+- **Status:** Adopted (simulator only; real provider wire formats arrive with D09). Grace length 7 days and the notice
+  schedule are proposals (D10, BIL-007).
+- **Receiving (BIL-004):** `receiveBillingWebhook` is anonymous (no token, no tenant header) and accepts only the
+  configured provider key; any other key is 401. The raw body (at most 256 KiB, else 400) is verified **before** it is
+  parsed. Simulator signature header `Simulator-Signature: t=<unix seconds>,v1=<hex>`; `v1` = HMAC-SHA256 over
+  `"{t}.{raw body}"` with `Billing:Simulator:SigningSecret` (required, at least 32 characters) or, during rotation,
+  `Billing:Simulator:PreviousSigningSecret`; comparison is constant time; `t` must be within 5 minutes of our clock in
+  either direction. A bad or missing signature or a stale timestamp is 401; a verified body that is not a JSON event
+  with `id`, `type` and `created` is 400; neither writes anything. The event is inserted into `cp.webhook_inbox`
+  (`ON CONFLICT (provider, event_id) DO NOTHING`) and 200 `{received, duplicate}` is returned only after commit; a
+  storage failure is 503 so the provider retries.
+- **Payload at rest:** AES-256-GCM with `Billing:InboxKey` (base64, 32 bytes; required by API and worker, from the vault
+  in production), associated data `provider|event_id`, stored as `v1 | nonce | tag | ciphertext`. `payload_redacted`
+  holds the event type and provider references only: no amounts, names or emails. Logs carry event id, type and tenant.
+- **Processing (BIL-005):** `BillingEventJob` in the worker, on the `ti_control` pool. Each due row (`Received`, or
+  `Failed` with attempts left and `next_attempt_at` due) is processed in **one transaction** that locks the inbox row
+  (`FOR UPDATE SKIP LOCKED`, so two workers never process one event), applies every effect and sets the final state.
+  Lock order: inbox row → billing account → subscription → invoice → audit stream (last, DEC-024). On an exception the
+  transaction rolls back and a second one records `Failed`, attempts + 1, backoff `min(30 s × 2^attempts, 1 h)`,
+  `failure_code = PROCESSING_ERROR` and the exception type only; after 10 attempts the row stays `Failed` for operators
+  (the `WebhookBacklog` alert and the console arrive with slice 5).
+- **Tenant resolution:** only from **our** records: the customer reference must match a `cp.billing_account`
+  (provider, provider_customer_id). Unknown → `Quarantined` (`UNKNOWN_REFERENCE`) plus one `UnknownBillingReference` task
+  per unknown customer. A subscription, checkout or invoice reference that we hold for a *different* tenant →
+  `Quarantined` (`REFERENCE_MISMATCH`) plus a task. Tenant ids in payloads are never read.
+- **Ordering:** a subscription change applies only when the event's subscription revision is greater than the stored
+  `provider_revision`; an invoice row changes only on a newer invoice revision, and a `Paid` invoice never returns to
+  `Open`. Payments are unique by provider reference. So duplicates are no-ops and an older failure cannot regress a paid
+  period (AT-BIL-02).
+- **Effects** (rules in `Domain/Saas/BillingEvents.cs`):
+  - *Initial invoice paid* (references our checkout session): session `Completed`; subscription `Active` on the
+    session's price and its plan, period from the invoice, provider subscription reference and revision set, grace and
+    pending cancellation cleared; new current entitlement snapshot (previous one closed). A second paid initial event
+    for the same provider subscription changes nothing; one for a different provider subscription opens a
+    `SubscriptionMismatch` task and changes nothing (no double activation).
+  - *Initial payment failed*: invoice and payment recorded; trial, end state and session unchanged (BIL-003).
+  - *Renewal paid*: period advanced; `PastDue → Active` and grace cleared only when no other open invoice of the
+    subscription remains (BIL-007).
+  - *Renewal failed*: `Active → PastDue` with `grace_end = due date + 7 days`; already `PastDue` keeps its grace.
+  - *Dispute, chargeback, refund*: payment/refund rows and one operator task per provider reference; no access change,
+    no stock effect (BIL-008).
+  - Other event types: `Ignored`.
+- **Lifecycle precedence (LFC-001, AT-BIL-04):** billing never reads or writes the security suspension, so a payment
+  can settle dues but the computed mode stays `SecuritySuspended`. A `Deleted` tenant gets no effect at all: the event
+  is `Ignored` (`TENANT_DELETED`) with a `SubscriptionMismatch` task for refund review; nothing is created.
+- **Notices without an outbox grant:** `ti_control` still has no privilege on `ti.outbox_event` (SAS-004). The processor
+  writes `cp.billing_notice` rows (SubscriptionActivated, PaymentFailed, PaymentRecovered) in its transaction;
+  `BillingNoticeRelayJob` moves them into the tenant's outbox from a per-tenant `ti_app` transaction (TenantJobRunner,
+  matrix row "Billing reminders and reconciliation"). `ti_app` may read its own tenant's notices and set only
+  `relayed_at` (migration 0018). Day 3 and 6 reminders come with slice 5's schedule.
+- **Audit:** `SubscriptionActivated`, `CheckoutCompleted`, `SubscriptionRenewed`, `SubscriptionPastDue`,
+  `PaymentRecorded`, `PaymentFailed`, `BillingDisputeOpened`, `ChargebackRecorded`, `RefundRecorded` in the tenant's own
+  chain, actor `system:billing-webhook` (System), correlation id = provider event id.
+- **Simulator console:** `PayCheckout`, `FailCheckout`, `PayRenewal`, `FailRenewal`, `Dispute`, `Refund` build signed
+  events (`SimEvent`: body bytes and signature header) for tests to deliver; `Sign(body, at)` and `Forge` exercise replay
+  and forgery. Nothing is charged.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

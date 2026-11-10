@@ -18,6 +18,10 @@ builder.Services.AddHostedService(sp => new ScheduledJob<AuditCheckpointJob>(sp,
 builder.Services.AddHostedService(sp => new ScheduledJob<LedgerReconciliationJob>(sp, sp.GetRequiredService<WorkerOptions>().ReconciliationInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<ReservationExpiryJob>(sp, sp.GetRequiredService<WorkerOptions>().ReservationExpiryInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<ExportGenerationJob>(sp, sp.GetRequiredService<WorkerOptions>().ExportInterval));
+// Verified billing events and the notices they raise (DEC-064). Simulator only (DEC-039).
+builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.BillingEventJob>(sp,
+    sp.GetRequiredService<WorkerOptions>().BillingEventInterval));
+builder.Services.AddHostedService(sp => new ScheduledJob<BillingNoticeRelayJob>(sp, sp.GetRequiredService<WorkerOptions>().BillingNoticeInterval));
 // Resumes signups whose inline provisioning stopped part-way (ONB-002).
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Saas.ProvisioningSweepJob>(sp,
     builder.Configuration.GetValue("Worker:ProvisioningInterval", TimeSpan.FromSeconds(30))));

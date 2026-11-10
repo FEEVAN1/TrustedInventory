@@ -21,6 +21,11 @@ public sealed class ApiFixture : IAsyncLifetime
     private const string MigratorPassword = "test-migrator-password";
     private const string ControlPassword = "test-control-password";
 
+    /// <summary>Synthetic simulator webhook secret (DEC-064); never a real provider secret.</summary>
+    public const string SimulatorSecret = "test-simulator-signing-secret-0123456789";
+
+    public static readonly byte[] InboxKey = new byte[32].Select((_, i) => (byte)(i + 51)).ToArray();
+
     private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:16")
         .WithDatabase("trustedinventory")
         .Build();
@@ -57,6 +62,8 @@ public sealed class ApiFixture : IAsyncLifetime
             web.UseSetting("ConnectionStrings:Platform", PlatformConnection);
             web.UseSetting("ConnectionStrings:Control", ControlConnection);
             web.UseSetting("Platform:BillingSubjects:0", SeedData.PlatformBilling);
+            web.UseSetting("Billing:Simulator:SigningSecret", SimulatorSecret);
+            web.UseSetting("Billing:InboxKey", Convert.ToBase64String(InboxKey));
             web.UseSetting("Paging:CursorKey", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 1)).ToArray()));
             web.UseSetting("Invitations:TokenKey", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 101)).ToArray()));
             web.UseSetting("Auth:Authority", TestTokens.Issuer);

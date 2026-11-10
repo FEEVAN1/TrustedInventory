@@ -85,6 +85,7 @@ var api = app.MapGroup("/api/v1").RequireAuthorization();
 api.MapIdentityEndpoints();   // GET /me: authenticated, no tenant context
 api.MapSaasSignupEndpoints(); // signup, provisioning status, public plans: before any tenant exists
 api.MapInvitationAcceptance(); // POST /invitations/accept: authenticated, not yet a member
+api.MapBillingWebhookEndpoints(); // POST /webhooks/billing/{provider}: signature-authenticated, no token or tenant (DEC-064)
 app.MapPlatformEndpoints();   // /platform/v1/*: platform operations console, no tenant context (DEC-037)
 app.MapPlatformBillingEndpoints(); // /platform/v1/plan-versions: plan catalog for platform billing (DEC-062)
 

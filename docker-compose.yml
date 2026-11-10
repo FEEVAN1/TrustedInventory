@@ -89,6 +89,9 @@ services:
       # SIMULATED BILLING only (DEC-039, DEC-063): startup refuses any other provider or live checkout.
       Billing__Provider: simulator
       Billing__ReturnUrl: http://localhost:5173/billing/return
+      # Simulator webhook signing secret and inbox payload key (DEC-064); both API and worker need them.
+      Billing__Simulator__SigningSecret: ${TI_BILLING_SIM_SECRET:?set in .env}
+      Billing__InboxKey: ${TI_INBOX_KEY:?set in .env}
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api
       Auth__RequireHttpsMetadata: "false"

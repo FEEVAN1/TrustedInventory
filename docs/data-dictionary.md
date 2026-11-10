@@ -431,6 +431,7 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | billing_task | Operator tasks: reconciliation differences, unknown references, disputes, refunds, chargebacks (0017) | `dedupe_key` unique (one task per cause); Resolved needs resolved_at, resolved_by and resolution | none |
 | billing_sync_state | Reconciliation cursor per provider (0017) | provider is the key | none |
 | catalog_event | Who created, priced or published a plan version and why (0017) | Append-only (trigger); a price event names its price | none |
+| billing_notice | Notices from verified billing events (SubscriptionActivated, PaymentFailed, PaymentRecovered), relayed to the tenant outbox by the worker (0018, DEC-064) | `dedupe_key` unique; immutable except `relayed_at`, set once | SELECT own; UPDATE `relayed_at` only |
 | provisioning_job | Resumable signup provisioning | `signup_key` unique; tenant id allocated up front; Ready ⇔ ready_at | none |
 | terms_acceptance | Terms/privacy/subscription-terms evidence | Append-only | none |
 | deletion_record | Closure, deletion register | One open per tenant; Deleted needs approval and backup expiry | none |

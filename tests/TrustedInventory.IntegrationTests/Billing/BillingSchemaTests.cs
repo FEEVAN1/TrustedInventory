@@ -71,6 +71,54 @@ public sealed class BillingSchemaTests(ApiFixture fx)
         Assert.Equal(PostgresErrorCodes.IntegrityConstraintViolation, relink.SqlState);
     }
 
+    [Fact]
+    [Trait("Requirement", "SAS-004")]
+    [Trait("Requirement", "BIL-007")]
+    public async Task A_tenant_relays_only_its_own_billing_notices_and_only_marks_them_relayed_once()
+    {
+        await using (var control = new NpgsqlConnection(fx.ControlConnection))
+        {
+            await control.OpenAsync();
+            foreach (var tenant in new[] { fx.Seed.A.TenantId, fx.Seed.B.TenantId })
+                await ExecAsync(control, """
+                    INSERT INTO cp.billing_notice (tenant_id, kind, dedupe_key, detail, created_at) VALUES (@t, 'PaymentFailed', @k, '{}', now())
+                    """, ("t", tenant), ("k", "schema-test:" + Guid.NewGuid().ToString("N")));
+            // The control plane writes notices but still cannot touch any tenant's outbox (SAS-004).
+            var outbox = await Assert.ThrowsAsync<PostgresException>(() => ExecAsync(control,
+                "INSERT INTO ti.outbox_event (tenant_id, event_id, event_type, payload) VALUES (@t, gen_random_uuid(), 'X', '{}')", ("t", fx.Seed.A.TenantId)));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, outbox.SqlState);
+        }
+
+        await using var app = new NpgsqlConnection(fx.AppConnection);
+        await app.OpenAsync();
+        await using var tx = await app.BeginTransactionAsync();
+        await using (var set = new NpgsqlCommand("SELECT set_config('app.tenant_id', @t, true)", app, tx))
+        {
+            set.Parameters.AddWithValue("t", fx.Seed.A.TenantId.ToString());
+            await set.ExecuteScalarAsync();
+        }
+        await using (var foreign = new NpgsqlCommand("SELECT count(*) FROM cp.billing_notice WHERE tenant_id <> @t", app, tx))
+        {
+            foreign.Parameters.AddWithValue("t", fx.Seed.A.TenantId);
+            Assert.Equal(0L, (long)(await foreign.ExecuteScalarAsync())!);
+        }
+        Assert.True(await ExecAsync(app, tx, "UPDATE cp.billing_notice SET relayed_at = now() WHERE relayed_at IS NULL") >= 1);
+        await using (var savepoint = new NpgsqlCommand("SAVEPOINT s", app, tx))
+            await savepoint.ExecuteNonQueryAsync();
+        var again = await Assert.ThrowsAsync<PostgresException>(() => ExecAsync(app, tx, "UPDATE cp.billing_notice SET relayed_at = now() + interval '1 hour'"));
+        Assert.Equal(PostgresErrorCodes.IntegrityConstraintViolation, again.SqlState);
+        await using (var rollback = new NpgsqlCommand("ROLLBACK TO SAVEPOINT s", app, tx))
+            await rollback.ExecuteNonQueryAsync();
+        var kind = await Assert.ThrowsAsync<PostgresException>(() => ExecAsync(app, tx, "UPDATE cp.billing_notice SET kind = 'PaymentRecovered'"));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, kind.SqlState);
+    }
+
+    private static async Task<int> ExecAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string sql)
+    {
+        await using var cmd = new NpgsqlCommand(sql, conn, tx);
+        return await cmd.ExecuteNonQueryAsync();
+    }
+
     private static async Task<int> ExecAsync(NpgsqlConnection conn, string sql, params (string Name, object Value)[] args)
     {
         await using var cmd = new NpgsqlCommand(sql, conn);

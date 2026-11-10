@@ -23,11 +23,31 @@ public static class BillingRegistration
         if (!Uri.TryCreate(returnUrl, UriKind.Absolute, out var parsed) || parsed.Scheme is not ("https" or "http"))
             throw new InvalidOperationException("Billing:ReturnUrl must be an absolute http(s) URL.");
 
+        // Webhook secrets and the inbox key come from the vault in production; startup fails without them (DEC-064).
+        var secret = DependencyInjection.Required(config, "Billing:Simulator:SigningSecret");
+        var previous = config["Billing:Simulator:PreviousSigningSecret"] is { Length: > 0 } prev ? prev : null;
+        if (secret.Length < SimulatorSigning.MinLength || previous is { Length: < SimulatorSigning.MinLength })
+            throw new InvalidOperationException($"Billing:Simulator signing secrets need at least {SimulatorSigning.MinLength} characters.");
+        byte[] inboxKey;
+        try
+        {
+            inboxKey = Convert.FromBase64String(DependencyInjection.Required(config, "Billing:InboxKey"));
+        }
+        catch (FormatException)
+        {
+            throw new InvalidOperationException("Billing:InboxKey must be base64 of exactly 32 bytes.");
+        }
+
         services.AddSingleton(new BillingOptions(provider, LiveCheckoutEnabled: false) { ReturnUrl = returnUrl });
+        services.AddSingleton(new SimulatorSigning(secret, previous));
+        services.AddSingleton(new InboxCipher(inboxKey));
         services.AddSingleton<IBillingCatalogStore, BillingCatalogStore>();
         // One simulator per process: the adapter and its test console are the same instance (DEC-063).
         services.AddSingleton<SimulatedBillingProvider>();
         services.AddSingleton<IBillingProvider>(sp => sp.GetRequiredService<SimulatedBillingProvider>());
+        services.AddSingleton<IBillingWebhooks>(sp => sp.GetRequiredService<SimulatedBillingProvider>());
+        services.AddSingleton<IWebhookInbox, WebhookInbox>();
+        services.AddSingleton<BillingEventJob>();
         services.AddSingleton<ICheckoutStore, CheckoutStore>();
         return services;
     }

@@ -15,6 +15,7 @@ public class BackgroundWorkTests
         [BackgroundJob.LedgerReconciliation] = "YYYYYN", // same document row as checkpoints
         [BackgroundJob.ReservationExpiry] = "YYYYYN",
         [BackgroundJob.ExportGeneration] = "YYYYYN",
+        [BackgroundJob.BillingNotices] = "YYYYYN", // row "Billing reminders and reconciliation"
     };
 
     private static readonly AccessMode[] Columns =

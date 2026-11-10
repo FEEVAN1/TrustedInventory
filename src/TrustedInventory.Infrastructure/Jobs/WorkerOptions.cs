@@ -22,6 +22,10 @@ public sealed record WorkerOptions
     public TimeSpan ReservationExpiryInterval { get; init; } = TimeSpan.FromMinutes(1);
     /// <summary>Export generation (AUD-004, DEC-061).</summary>
     public TimeSpan ExportInterval { get; init; } = TimeSpan.FromSeconds(15);
+    /// <summary>Billing event processing (BIL-005, DEC-064); webhook age alerts at five minutes (SOP-003).</summary>
+    public TimeSpan BillingEventInterval { get; init; } = TimeSpan.FromSeconds(5);
+    /// <summary>Billing notice relay to tenant outboxes (DEC-064).</summary>
+    public TimeSpan BillingNoticeInterval { get; init; } = TimeSpan.FromSeconds(30);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -40,6 +44,8 @@ public sealed record WorkerOptions
             ReconciliationInterval = Seconds(config, "Worker:ReconciliationIntervalSeconds", d.ReconciliationInterval),
             ReservationExpiryInterval = Seconds(config, "Worker:ReservationExpiryIntervalSeconds", d.ReservationExpiryInterval),
             ExportInterval = Seconds(config, "Worker:ExportIntervalSeconds", d.ExportInterval),
+            BillingEventInterval = Seconds(config, "Worker:BillingEventIntervalSeconds", d.BillingEventInterval),
+            BillingNoticeInterval = Seconds(config, "Worker:BillingNoticeIntervalSeconds", d.BillingNoticeInterval),
         };
     }
 

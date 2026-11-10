@@ -38,6 +38,28 @@ public static class BillingEndpoints
     }
 
     /// <summary>
+    /// POST /webhooks/billing/{provider} (BIL-004, DEC-064): no token and no tenant header; the signature over the raw body is the
+    /// authentication. The body is read as bytes, never model-bound, so verification sees exactly what the provider signed.
+    /// </summary>
+    public static RouteGroupBuilder MapBillingWebhookEndpoints(this RouteGroupBuilder api)
+    {
+        api.MapPost("/webhooks/billing/{provider}", async (HttpContext http, WebhookService svc, string provider, CancellationToken ct) =>
+            {
+                using var buffer = new MemoryStream();
+                var limit = WebhookService.MaxBodyBytes + 1;
+                var chunk = new byte[16 * 1024];
+                int read;
+                while ((read = await http.Request.Body.ReadAsync(chunk, ct)) > 0 && buffer.Length < limit)
+                    buffer.Write(chunk, 0, read);
+                var headers = http.Request.Headers;
+                return Results.Ok(await svc.ReceiveAsync(provider, buffer.ToArray(), name => headers.TryGetValue(name, out var v) ? v.ToString() : null, ct));
+            })
+            .WithName("receiveBillingWebhook")
+            .AllowAnonymous();
+        return api;
+    }
+
+    /// <summary>
     /// Plan catalog under /platform/v1 (DEC-037). Changes need PlatformBilling (<see cref="PlatformEndpoints.BillingKey"/>); the
     /// catalog view also admits platform operations. The service checks the role again.
     /// </summary>
