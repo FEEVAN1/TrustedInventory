@@ -11,9 +11,10 @@ namespace TrustedInventory.Application.Operations;
 /// <summary>What an approval binds and who may sign it, for one subject at its current version (IAM-003, SOD-1, SOD-2).</summary>
 internal sealed record SubjectState(
     ApprovalSubjectType Type, Guid Id, int Version, byte[] Digest, string CreatedBy, string LastModifiedBy, IReadOnlyList<string> SignPermissions,
-    bool Open, ApprovalAction Action, string Name)
+    bool Open, ApprovalAction Action, string Name, IReadOnlyList<string>? OtherAuthors = null)
 {
-    public bool IsAuthor(string subject) => subject == CreatedBy || subject == LastModifiedBy;
+    /// <summary>Created, last modified or (for counts) counted the subject (SOD-1).</summary>
+    public bool IsAuthor(string subject) => subject == CreatedBy || subject == LastModifiedBy || (OtherAuthors?.Contains(subject) ?? false);
 }
 
 /// <summary>
@@ -26,6 +27,7 @@ internal static class ApprovalSubjects
     {
         ApprovalSubjectType.Adjustment => await AdjustmentAsync(s, await AdjustmentRules.LockAsync(s, id, ct), ct),
         ApprovalSubjectType.TransitDisposition => await TransferAsync(s, await TransferRules.LockAsync(s, id, ct), ct),
+        ApprovalSubjectType.CountVariance => await CountAsync(s, await CountRules.LockAsync(s, id, ct), ct),
         _ => throw AppException.Validation("subjectType", "This subject type is not supported yet; it arrives with its workflow."),
     };
 
@@ -38,6 +40,11 @@ internal static class ApprovalSubjects
         t.Transfer.LastModifiedBy, await TransferRules.SignPermissionsAsync(s, t.Lines, ct),
         t.Transfer.Status is TransferStatus.InTransit or TransferStatus.PartReceived && t.Lines.Any(l => l.InTransitQty > 0), ApprovalAction.Dispose,
         "transfer");
+
+    public static async Task<SubjectState> CountAsync(ITenantSession s, (StockCount Count, List<StockCountLine> Lines) c, CancellationToken ct) => new(
+        ApprovalSubjectType.CountVariance, c.Count.Id, c.Count.Version, CountRules.Digest(c.Count, c.Lines), c.Count.CreatedBy, c.Count.LastModifiedBy,
+        await CountRules.SignPermissionsAsync(s, c.Lines, ct), c.Count.Status == CountStatus.Submitted, ApprovalAction.Post, "count",
+        c.Lines.Where(l => l.CountedBy is not null).Select(l => l.CountedBy!).Distinct().ToList());
 
     /// <summary>A rejected approval closes an adjustment; a transfer carries on (DEC-057, DEC-058).</summary>
     public static async Task OnRejectedAsync(ITenantSession s, SubjectState subject, CancellationToken ct)
@@ -77,7 +84,8 @@ internal static class ApprovalSubjects
     /// Posting rechecks (IAM-003, SOD-1, SOD-4): the approval is for this subject, signed, unexpired, binds the current
     /// version and digest, its signer wrote none of it and still holds an active membership with the sign permissions.
     /// </summary>
-    public static async Task<Approval> RequireBindingAsync(ITenantSession s, SubjectState subject, Guid approvalId, CancellationToken ct)
+    public static async Task<Approval> RequireBindingAsync(ITenantSession s, SubjectState subject, Guid approvalId, CancellationToken ct,
+        bool checkVersion = true)
     {
         await s.Db.Database.SqlQuery<Guid>($"SELECT id AS \"Value\" FROM ti.approval WHERE id = {approvalId} FOR UPDATE").ToListAsync(ct);
         var approval = await s.Db.Set<Approval>().SingleOrDefaultAsync(a => a.Id == approvalId, ct);
@@ -87,7 +95,7 @@ internal static class ApprovalSubjects
             throw Stale($"The approval is {approval.EffectiveStatus(s.Now)}, not signed.");
         if (s.Now >= approval.ExpiresAt)
             throw Stale("The approval expired 30 minutes after signing; request a new one.");
-        if (approval.SubjectVersion != subject.Version || !approval.ContentDigest.AsSpan().SequenceEqual(subject.Digest))
+        if ((checkVersion && approval.SubjectVersion != subject.Version) || !approval.ContentDigest.AsSpan().SequenceEqual(subject.Digest))
             throw Stale($"The {subject.Name} changed after it was approved (IAM-003).");
         if (subject.IsAuthor(approval.ApproverSubject!))
             throw new AppException(ErrorCode.ApprovalSelf, $"The approver also wrote this {subject.Name} (SOD-1).");

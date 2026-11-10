@@ -258,7 +258,7 @@ public sealed class GeneralOperationsSchemaTests(ApiFixture fx)
         """, ("t", w.Tenant), ("p", w.Product), ("b", bucket)))!;
 
     private async Task<Guid> CountAsync(World w) => (Guid)(await Scalar(
-        "INSERT INTO ti.stock_count (tenant_id, warehouse_id, reason, created_by) VALUES (@t, @w, 'Cycle count', 'test') RETURNING id",
+        "INSERT INTO ti.stock_count (tenant_id, warehouse_id, reason, created_by, last_modified_by) VALUES (@t, @w, 'Cycle count', 'test', 'test') RETURNING id",
         ("t", w.Tenant), ("w", w.Warehouse)))!;
 
     private async Task<Guid> ShipmentLineAsync(World w, Guid movement, decimal shipped)

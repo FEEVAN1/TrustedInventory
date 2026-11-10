@@ -167,3 +167,21 @@ internal sealed class TransferLineConfiguration() : TenantEntityConfiguration<Do
     protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.TransferLine> builder) =>
         builder.HasOne<Domain.Operations.Transfer>().WithMany().HasForeignKey(l => l.TransferId).OnDelete(DeleteBehavior.NoAction);
 }
+
+internal sealed class StockCountConfiguration() : TenantEntityConfiguration<Domain.Operations.StockCount>("stock_count")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.StockCount> builder) { }
+}
+
+internal sealed class StockCountBinConfiguration() : TenantEntityConfiguration<Domain.Operations.StockCountBin>("stock_count_bin")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.StockCountBin> builder) =>
+        builder.HasOne<Domain.Operations.StockCount>().WithMany().HasForeignKey(b => b.CountId).OnDelete(DeleteBehavior.NoAction);
+}
+
+/// <summary>variance_qty is a generated column; the domain computes the same value, so it is not mapped.</summary>
+internal sealed class StockCountLineConfiguration() : TenantEntityConfiguration<Domain.Operations.StockCountLine>("stock_count_line")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.StockCountLine> builder) =>
+        builder.HasOne<Domain.Operations.StockCount>().WithMany().HasForeignKey(l => l.CountId).OnDelete(DeleteBehavior.NoAction);
+}

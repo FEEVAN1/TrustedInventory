@@ -277,6 +277,7 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 | `0013_general_operations` | Approvals (binding and status guard trigger), attachments, transfers and lines, stock counts with bin locks and lines, adjustments (posted frozen), customer returns and append-only inspections, export jobs; forced RLS; no DELETE grants | M4 schema (DEC-056) |
 | `0014_adjustment_modifier` | `adjustment.last_modified_by` (NOT NULL, backfilled from `created_by`) | The signer must differ from the last modifier (SOD-1, DEC-057) |
 | `0015_transfer_modifier` | `transfer.last_modified_by` (NOT NULL, backfilled from `created_by`) | Transit disposition signers differ from the last modifier (SOD-1, DEC-058) |
+| `0016_count_lock` | `stock_count.last_modified_by`; trigger `stock_movement_count_lock` refuses movements into or out of a bin with an active count lock (SQLSTATE `TI001`, except quality changes to Hold or Recalled) | EXC-003, DEC-008, DEC-059 |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

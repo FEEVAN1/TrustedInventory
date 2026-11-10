@@ -183,13 +183,19 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
     /// Constraint violations that slipped past validation. Messages are generic: constraint text can name
     /// columns or values and must never reach the client (section 15).
     /// </summary>
+    /// <summary>Raised by trigger stock_movement_count_lock (migration 0016, DEC-059).</summary>
+    private const string CountLockSqlState = "TI001";
+
     private static Exception? Translate(PostgresException pg) => pg.SqlState switch
     {
         PostgresErrorCodes.UniqueViolation when pg.ConstraintName == IdempotencyStore.UniqueConstraint => new IdempotencyRace(),
+        PostgresErrorCodes.UniqueViolation when pg.ConstraintName == "stock_count_bin_one_lock_uq" =>
+            new AppException(ErrorCode.CountLocked, "Another count already locks one of these bins (EXC-003)."),
         PostgresErrorCodes.UniqueViolation => AppException.InvalidState("The change conflicts with an existing record."),
         PostgresErrorCodes.ForeignKeyViolation => new AppException(ErrorCode.ValidationFailed, "A referenced record does not exist."),
         PostgresErrorCodes.CheckViolation => new AppException(ErrorCode.ValidationFailed, "A value is outside the allowed range."),
         PostgresErrorCodes.InsufficientPrivilege => AppException.Forbidden(),
+        CountLockSqlState => new AppException(ErrorCode.CountLocked, "A stock count has locked this bin; wait until the count is posted or cancelled (EXC-003)."),
         _ => null,
     };
 
@@ -307,11 +313,11 @@ internal static class IdempotencyStore
 
     /// <summary>
     /// Business rejections are stable for a given payload; transient and precondition failures are not stored. A stock
-    /// block (OPS-001) is transient: once the alert is closed, a retry with the same key must be able to post.
+    /// block (OPS-001) or a count lock (DEC-059) is transient: once it clears, a retry with the same key must be able to post.
     /// </summary>
     public static bool IsDeterministicRejection(AppException ex) =>
         ex.Status is >= 400 and < 500
         && ex.Code is not (ErrorCode.RetryableConflict or ErrorCode.VersionConflict or ErrorCode.PreconditionRequired
             or ErrorCode.IdempotencyMismatch or ErrorCode.RateLimited or ErrorCode.Forbidden or ErrorCode.Unauthenticated
-            or ErrorCode.StockBlocked);
+            or ErrorCode.StockBlocked or ErrorCode.CountLocked);
 }

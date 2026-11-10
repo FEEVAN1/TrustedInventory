@@ -94,6 +94,39 @@ public static class OperationsEndpoints
         transfers.MapPost("/{id:guid}/cancel", async (HttpContext http, TransferService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.CancelAsync(id, Conventions.IfMatch(http), body, ct)))
             .WithName("cancelTransfer").RequirePermission(Permissions.TransfersManage);
+
+        // Stock counts (EXC-003, DEC-008, DEC-059).
+        var counts = tenant.MapGroup("/counts");
+        counts.MapGet("", (CountService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] CountStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new CountFilter(warehouseId, status), q.ToPage(), ct))
+            .WithName("listCounts").RequirePermission(Permissions.CountsPerform);
+        counts.MapPost("", async (HttpContext http, CountService svc, CreateCount body, CancellationToken ct) =>
+            {
+                var created = await svc.CreateAsync(body, ct);
+                return Conventions.Created(http, $"/api/v1/counts/{created.Id}", created);
+            })
+            .WithName("createCount").RequirePermission(Permissions.CountsPerform);
+        counts.MapGet("/{id:guid}", async (HttpContext http, CountService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getCount").RequirePermission(Permissions.CountsPerform);
+        counts.MapPost("/{id:guid}/start", async (HttpContext http, CountService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.StartAsync(id, Conventions.IfMatch(http), ct)))
+            .WithName("startCount").RequirePermission(Permissions.CountsPerform);
+        counts.MapPost("/{id:guid}/submit", async (HttpContext http, CountService svc, Guid id, SubmitCount body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.SubmitAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("submitCount").RequirePermission(Permissions.CountsPerform);
+        counts.MapPost("/{id:guid}/approve", async (HttpContext http, CountService svc, Guid id, ApprovalReference body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.ApproveAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("approveCount").RequirePermission(Permissions.CountsManage);
+        counts.MapPost("/{id:guid}/reject", async (HttpContext http, CountService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.RejectAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("rejectCount").RequirePermission(Permissions.CountsManage);
+        counts.MapPost("/{id:guid}/post", async (HttpContext http, CountService svc, Guid id, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.PostAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), ct)))
+            .WithName("postCount").RequirePermission(Permissions.CountsManage);
+        counts.MapPost("/{id:guid}/cancel", async (HttpContext http, CountService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.CancelAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("cancelCount").RequirePermission(Permissions.CountsManage);
         return tenant;
     }
 }

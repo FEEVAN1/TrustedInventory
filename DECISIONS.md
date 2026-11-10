@@ -911,6 +911,38 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   cancellation of the transfer invalidates its other live disposition approvals, as an edit does for an adjustment. The approval code is generalised: a subject registry supplies version, digest,
   authors and sign permissions per subject type.
 
+## DEC-059 Stock counts and the count lock (M4, EXC-003, AT-EXC-04, DEC-008)
+- **Status:** Adopted
+- **Lifecycle (section 13):** create (warehouse, 1–500 distinct non-Transit bins of it, reason; `counts.perform`) →
+  start (If-Match; locks the bins, refused with 409 `COUNT_LOCKED` when another count holds one; snapshots the
+  expected on hand per bin, product, lot and serial across all quality statuses (DEC-008) as revision 1, and records
+  the tenant audit sequence as `snapshotSequence`) → submit (`counts.perform`) → approve or reject (`counts.manage`)
+  → post (`counts.manage`). Reject returns the count to Counting as revision n+1 (expected copied, observations
+  empty; earlier revisions kept). Cancel (`counts.manage`, reason) unlocks the bins from any state before posting and
+  keeps every observation. Migration 0016 adds `stock_count.last_modified_by`.
+- **Blind count (EXC-003):** while the count is not yet Submitted, expected quantities and variances read as `null`
+  for callers without `counts.manage`. A submission reports bin, product, optional lot and serial numbers, and the
+  observed quantity. Lines it does not mention count as observed zero (the counter counted the whole bin). A lot or
+  serial number the tenant does not know is refused with 422 rather than recorded, because a lot needs its expiry
+  (deviation from DEC-022's "counters can record unknown lots"; such finds go through an adjustment with evidence).
+- **Independent approval (IAM-003, SOD-1):** an approval of subject type `CountVariance` (action `Post`) binds the
+  count version and the digest of the current revision's lines (bin, product, lot, serial, expected, observed). The
+  signer needs `approvals.sign.inventory` (plus quality for medical products) and must differ from the requester, the
+  count's creator and last modifier, and every counter of the revision. `approve` checks the binding and records the
+  approval. Approving changes the count's version, so `post` rechecks the approval is signed, unexpired, still entitled
+  (SOD-4) and that the lines' digest is unchanged (bins are locked, so the lines cannot move in between), then
+  consumes it with operation `count:<id>:post`.
+- **Posting (EXC-004):** in one transaction the bins are unlocked first, then each variance posts as an adjustment
+  record (count, approval, Posted) with one `AdjustmentIncrease`/`AdjustmentDecrease` movement per bucket touched.
+  A shortage reduces unreserved stock in the order Available, Hold, Quarantine, other statuses; a shortage larger than
+  the unreserved stock is refused with 409 `INSUFFICIENT_STOCK` (resolve reservations first). A surplus lands in the
+  Available bucket, or Hold for medical products (DEC-022). The count ends `Posted`, or `Closed` when there was no
+  variance. `Idempotency-Key` plus a permanent operation key `count-post:<subject>:<key>`.
+- **Count lock (DEC-008):** a trigger on `stock_movement` refuses any movement into or out of a bin with an active
+  count lock (SQLSTATE `TI001`, mapped to 409 `COUNT_LOCKED`), so putaway, pick, unpick, dispatch, bin and warehouse
+  transfers, adjustments and receipts are all covered in one place. Quality changes to Hold or Recalled stay allowed
+  (protective, M5). Reservations are not movements and are not blocked.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

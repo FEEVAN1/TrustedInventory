@@ -33,7 +33,7 @@ SaaS access, billing and lifecycle rules apply to every module.
 | M1 foundation | **Gate met** (7 Nov 2026): 30 unit + 53 integration tests on PostgreSQL 16 | Isolation and authorization suites pass on real PostgreSQL |
 | M2 inbound ledger | **Gate met** (8 Nov 2026, owner sign-off): receiving retries, precision, serial uniqueness and reconciliation pass; 195 unit + 145 integration tests on PostgreSQL 16; migrations 0005-0009. Partial carry-overs: STK-001 (M4/M5 checks), STK-PRECISION (reversals), INB-003 (M5 medical), STATE-13, DATA-08 | Receiving retries, precision, serial uniqueness, reconciliation pass |
 | M3 outbound | **Gate met** (9 Nov 2026, owner sign-off): AT-STK-01, AT-STK-02, AT-STK-03 and AT-OUT-01 pass; 217 unit + 169 integration tests on PostgreSQL 16; migrations 0010-0012. Partial carry-overs: STK-005 (retry exhaustion), OUT-006 and AT-OUT-02 (recall and excursion holds, M5) | Concurrency and stock arithmetic scenarios pass |
-| M4 general operations | In progress: schema (0013-0015), approvals, adjustments, bin and warehouse transfers done (slice 3 of 6) | Stock conservation, independent approvals, end-to-end general flow pass |
+| M4 general operations | In progress: schema (0013-0016), approvals, adjustments, transfers and counts done (slice 4 of 6) | Stock conservation, independent approvals, end-to-end general flow pass |
 | M5 medical | Not started | Medical blocking, historical traceability, audit evidence pass |
 | M6 release readiness | Not started | Owner reviews evidence and approves production policies |
 | v3.0 contract pass | **Gate met** (7 Nov 2026): contract lints clean, SaaS schema draft passes 59 checks | SaaS contracts, state matrix, control-plane design; no unresolved isolation or stock conflict |
