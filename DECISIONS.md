@@ -836,6 +836,44 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   (the 15-minute limit applies to download links, not the job). Attachments add `file_name`, allow only PDF, JPEG and
   PNG up to 10 MiB (DEC-022), and bind to an entity optionally (uploaded before the adjustment exists).
 
+## DEC-057 Approvals and adjustments (M4, IAM-003, IAM-004, SOD-1, SOD-2, SOD-4, EXC-004)
+- **Status:** Adopted
+- **Approval subjects:** this slice supports `Adjustment` subjects with action `Post`; count variances and transit
+  dispositions join in their slices, quality subjects in M5 (other types return 422 until then). A subject has at most
+  one live (Pending or unexpired Approved) approval; requesting a new one is refused with 409 `INVALID_STATE`.
+- **Binding (IAM-003):** the request names the subject version, which must be current (409 `APPROVAL_STALE`); the
+  server stores the SHA-256 of the subject's canonical JSON (RFC 8785, the audit canonicaliser). For an adjustment
+  that is id, warehouse, bucket, bin, product, lot, serial, quality, delta, reason code, narrative and the sorted
+  evidence attachment ids. Editing or cancelling the adjustment changes its version and invalidates its live approval
+  (reason recorded).
+- **Signing (IAM-004, SOD-1, SOD-2, DEC-009):** If-Match on the approval, a fresh re-auth token (the S1 verifier:
+  issuer, audience, `sub` = caller, `auth_time` ≤ 300 s, MFA; only its digest is stored with the verification time),
+  meaning `Approval` and a reason. The signer must differ from the requester and from the adjustment's creator and
+  last modifier (409 `APPROVAL_SELF`); migration 0014 adds `adjustment.last_modified_by` for this. An adjustment needs
+  `approvals.sign.inventory`; a medical product's also needs `approvals.sign.quality` (SOD-2). A subject that moved on
+  since the request gives 409 `APPROVAL_STALE`. The signature is valid 30 minutes. Signing never writes the adjustment:
+  that would change its version and void the binding. The stored adjustment status moves Requested → Posted, Rejected
+  or Cancelled; the API reports `Approved` (with `approvalId`) while a signed, unexpired approval binds its current
+  version and digest.
+- **Rejection:** the same permission and SOD-1 rules with a reason and no re-auth (DEC-056); the adjustment becomes
+  `Rejected` (final; edit nothing, request a new adjustment).
+- **Approval inbox:** visible to holders of `approvals.request` **or** either sign permission, as the contract's
+  description says; the operations' `x-permission` is widened to that alternative form (contract change).
+  `awaitingMySignature` lists Pending approvals the caller could sign. An Approved approval past `expires_at` reads
+  as `Expired`; it is persisted as Expired when the next approval for the subject is requested.
+- **Adjustments (EXC-004):** request with bin (not Transit), product, optional lot/serial/bucket and quality (medical
+  increases default to `Hold`, DEC-022), a signed delta within precision (serial-tracked: ±1), reason code,
+  narrative and up to 20 evidence attachments (bound to the adjustment; already bound elsewhere is refused). A
+  reduction names an existing bucket and may not take on hand below reserved (409 `INSUFFICIENT_STOCK`), checked at
+  request, edit and post.
+- **Posting:** `Idempotency-Key`, If-Match on the adjustment, the approval id, and a permanent operation key
+  `adjustment:<subject>:<key>`. The approval must be Approved, unexpired and bind the current version and digest,
+  and its approver must still be an active member holding the sign permissions (SOD-4); otherwise 409
+  `APPROVAL_STALE`. In one transaction: lock the bucket, recheck reserved, apply blocks (OPS-001), post one
+  `AdjustmentIncrease` or `AdjustmentDecrease` movement (an increase creates the bucket if needed), mark the
+  adjustment `Posted` and the approval `Consumed` with operation `adjustment:<id>:post` (unique, so it can never
+  post twice).
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

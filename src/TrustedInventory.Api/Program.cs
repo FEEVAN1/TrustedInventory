@@ -95,6 +95,7 @@ tenant.MapAuditEndpoints();
 tenant.MapTeamEndpoints();
 tenant.MapInboundEndpoints();
 tenant.MapOutboundEndpoints();
+tenant.MapOperationsEndpoints();
 
 app.Run();
 

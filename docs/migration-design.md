@@ -275,6 +275,7 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 | `0011_reserved_reconciliation` | `stock_bucket_block.expected_reserved_qty` and `stored_reserved_qty`; the mismatch CHECK now requires on hand **or** reserved to differ | Reconciliation compares reserved with live reservations (DEC-053) |
 | `0012_dispatch_reference` | `shipment.dispatch_reference` becomes `identifier_text` (1–100, trimmed) | The contract allows 100 characters (DEC-055) |
 | `0013_general_operations` | Approvals (binding and status guard trigger), attachments, transfers and lines, stock counts with bin locks and lines, adjustments (posted frozen), customer returns and append-only inspections, export jobs; forced RLS; no DELETE grants | M4 schema (DEC-056) |
+| `0014_adjustment_modifier` | `adjustment.last_modified_by` (NOT NULL, backfilled from `created_by`) | The signer must differ from the last modifier (SOD-1, DEC-057) |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

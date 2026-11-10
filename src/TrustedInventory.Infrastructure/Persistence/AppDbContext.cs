@@ -74,6 +74,11 @@ public static class PgEnums
         builder.MapEnum<Domain.Inbound.TaskStatus>("ti.task_status", Verbatim);
         builder.MapEnum<Domain.Outbound.OutboundOrderStatus>("ti.outbound_order_status", Verbatim);
         builder.MapEnum<Domain.Outbound.ReservationState>("ti.reservation_state", Verbatim);
+        builder.MapEnum<Domain.Operations.ApprovalSubjectType>("ti.approval_subject_type", Verbatim);
+        builder.MapEnum<Domain.Operations.ApprovalAction>("ti.approval_action", Verbatim);
+        builder.MapEnum<Domain.Operations.ApprovalStatus>("ti.approval_status", Verbatim);
+        builder.MapEnum<Domain.Operations.SignatureMeaning>("ti.signature_meaning", Verbatim);
+        builder.MapEnum<Domain.Operations.AdjustmentStatus>("ti.adjustment_status", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -101,5 +106,10 @@ public static class PgEnums
         o.MapEnum<Domain.Inbound.TaskStatus>("task_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Outbound.OutboundOrderStatus>("outbound_order_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Outbound.ReservationState>("reservation_state", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ApprovalSubjectType>("approval_subject_type", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ApprovalAction>("approval_action", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ApprovalStatus>("approval_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.SignatureMeaning>("signature_meaning", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.AdjustmentStatus>("adjustment_status", AppDbContext.Schema, Verbatim);
     }
 }

@@ -141,3 +141,18 @@ internal sealed class PurchaseOrderLineConfiguration() : TenantEntityConfigurati
         builder.HasOne<Unit>().WithMany().HasForeignKey(l => l.UomId).OnDelete(DeleteBehavior.NoAction);
     }
 }
+
+internal sealed class ApprovalConfiguration() : TenantEntityConfiguration<Domain.Operations.Approval>("approval")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.Approval> builder) { }
+}
+
+internal sealed class AdjustmentConfiguration() : TenantEntityConfiguration<Domain.Operations.Adjustment>("adjustment")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.Adjustment> builder)
+    {
+        builder.Property(a => a.DeltaQty).HasColumnName("delta_qty");
+        builder.HasOne<Domain.Operations.Approval>().WithMany().HasForeignKey(a => a.ApprovalId).OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne<StockMovement>().WithMany().HasForeignKey(a => a.PostedMovementId).OnDelete(DeleteBehavior.NoAction);
+    }
+}

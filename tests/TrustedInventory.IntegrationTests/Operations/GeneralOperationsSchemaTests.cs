@@ -241,8 +241,9 @@ public sealed class GeneralOperationsSchemaTests(ApiFixture fx)
         """, ("t", w.Tenant), ("d", Digest())))!;
 
     private static string Adjustment(string bucket, decimal delta) => $"""
-        INSERT INTO ti.adjustment (tenant_id, warehouse_id, bucket_id, bin_id, product_id, quality_status, delta_qty, reason_code, narrative, created_by)
-        VALUES (@t, @w, {bucket}, @bin, @p, 'Available', {delta.ToString(System.Globalization.CultureInfo.InvariantCulture)}, 'DAMAGE', 'Broken in aisle', 'test')
+        INSERT INTO ti.adjustment (tenant_id, warehouse_id, bucket_id, bin_id, product_id, quality_status, delta_qty, reason_code, narrative, created_by,
+                                   last_modified_by)
+        VALUES (@t, @w, {bucket}, @bin, @p, 'Available', {delta.ToString(System.Globalization.CultureInfo.InvariantCulture)}, 'DAMAGE', 'Broken in aisle', 'test', 'test')
         """;
 
     private async Task<Guid> BucketAsync(World w, decimal onHand, Guid? bin = null, string quality = "Available") => (Guid)(await Scalar("""

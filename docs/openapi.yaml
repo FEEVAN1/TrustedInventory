@@ -6482,7 +6482,7 @@ paths:
         - Approvals
       summary: Approval inbox
       description: Also available to holders of approvals.sign.inventory or approvals.sign.quality.
-      x-permission: approvals.request
+      x-permission: approvals.request|approvals.sign.inventory|approvals.sign.quality
       x-access: read
       x-entitlement: core_inventory
       x-requirements:
@@ -6580,7 +6580,8 @@ paths:
       tags:
         - Approvals
       summary: Get approval
-      x-permission: approvals.request
+      x-permission: approvals.request|approvals.sign.inventory|approvals.sign.quality
+      description: Visible to approvals.request or either sign permission (DEC-057).
       x-access: read
       x-entitlement: core_inventory
       x-requirements:

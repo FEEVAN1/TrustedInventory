@@ -203,6 +203,25 @@ public sealed class StockMovement
     public DateTimeOffset RecordedAt { get; private set; }
     public string? CorrelationId { get; private set; }
 
+    /// <summary>
+    /// An approved adjustment (EXC-004, DEC-057): an increase enters the bucket from outside the ledger, a reduction
+    /// leaves it. The quantity on the movement is always positive; the type carries the direction.
+    /// </summary>
+    public static StockMovement Adjustment(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid bucketId, decimal delta,
+        Guid adjustmentId, string reason, string actor, DateTimeOffset now, string? correlationId)
+    {
+        if (delta == 0)
+            throw new DomainException("An adjustment changes stock by a non-zero quantity.");
+        var increase = delta > 0;
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = increase ? MovementType.AdjustmentIncrease : MovementType.AdjustmentDecrease, OperationKey = operationKey,
+            ProductId = productId, LotId = lotId, SerialId = serialId, SourceBucketId = increase ? null : bucketId,
+            DestinationBucketId = increase ? bucketId : null, BaseQty = Math.Abs(delta), DocumentType = DocumentType.Adjustment, DocumentId = adjustmentId,
+            Reason = reason, ActorSubject = actor, OccurredAt = now, RecordedAt = now, CorrelationId = correlationId,
+        };
+    }
+
     /// <summary>Picked stock leaving the tenant's stock from its staging bucket (OUT-005, DEC-055).</summary>
     public static StockMovement Dispatch(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid stagingBucketId,
         decimal baseQty, Guid shipmentId, Guid shipmentLineId, Guid reservationId, string actor, DateTimeOffset now, string? correlationId)
