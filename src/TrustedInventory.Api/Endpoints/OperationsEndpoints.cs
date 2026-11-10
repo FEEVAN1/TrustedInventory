@@ -127,6 +127,21 @@ public static class OperationsEndpoints
         counts.MapPost("/{id:guid}/cancel", async (HttpContext http, CountService svc, Guid id, ReasonRequest body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.CancelAsync(id, Conventions.IfMatch(http), body, ct)))
             .WithName("cancelCount").RequirePermission(Permissions.CountsManage);
+
+        // Customer returns (EXC-005, AT-EXC-03, DEC-060).
+        var returns = tenant.MapGroup("/returns");
+        returns.MapGet("", (ReturnService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] ReturnStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new ReturnFilter(warehouseId, status), q.ToPage(), ct))
+            .WithName("listReturns").RequirePermission(Permissions.StockRead);
+        returns.MapPost("", async (HttpContext http, ReturnService svc, CreateReturn body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.CreateAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("createReturn").RequirePermission(Permissions.ReturnsManage);
+        returns.MapGet("/{id:guid}", async (HttpContext http, ReturnService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getReturn").RequirePermission(Permissions.StockRead);
+        returns.MapPost("/{id:guid}/inspect", async (HttpContext http, ReturnService svc, Guid id, InspectReturn body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.InspectAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("inspectReturn").RequirePermission(Permissions.ReturnsInspect);
         return tenant;
     }
 }

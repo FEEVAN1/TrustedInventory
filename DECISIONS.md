@@ -943,6 +943,26 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   transfers, adjustments and receipts are all covered in one place. Quality changes to Hold or Recalled stay allowed
   (protective, M5). Reservations are not movements and are not blocked.
 
+## DEC-060 Customer returns (M4, EXC-005, AT-EXC-03)
+- **Status:** Adopted
+- **Recording a return (`returns.manage`):** `Idempotency-Key` and a permanent operation key `return:<subject>:<key>`.
+  It names a shipment line of the tenant and a quantity no more than shipped less already returned (422
+  `RETURN_EXCEEDS_SHIPPED`, AT-EXC-03; the `shipment_line.returned_qty` CHECK backs it in the database). The shipment
+  line row is locked, so concurrent returns cannot together exceed it. The goods enter an active Quarantine bin of the
+  shipment's warehouse that suits the product (DEC-012), always as `Quarantine` quality, general goods included
+  (EXC-005), with the shipped lot and serial (a serial-tracked return names that serial). One `ReturnReceipt`
+  movement (document Return).
+- **Inspection (`returns.inspect`):** `Idempotency-Key`, If-Match on the return, permanent key
+  `return-inspect:<subject>:<key>`. Inspections may split the returned quantity; each records an append-only
+  inspection row and moves the stock:
+  - `Release`: to an active Storage bin of the warehouse that suits the product, as `Available` (`QualityChange`
+    movement from the quarantine bucket). Releasing **medical** returns needs QA quality release with an approval
+    (`ReturnRelease`, `quality.release`), which arrives with M5; until then it is refused with 422.
+  - `Damaged`: stays in the quarantine bin as `Damaged` quality (`QualityChange`), never allocatable.
+  - `SupplierReturn` / `Disposal`: leaves stock (`SupplierReturn` / `Disposal` movement, with the reason).
+  The return becomes `Inspected` once everything is inspected; `disposition` shows the latest decision. `Closed` is
+  not used in M4. A count lock on either bin refuses the movement (DEC-059) except protective quality changes.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

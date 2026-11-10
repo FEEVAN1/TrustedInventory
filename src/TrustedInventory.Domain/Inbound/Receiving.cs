@@ -204,6 +204,33 @@ public sealed class StockMovement
     public string? CorrelationId { get; private set; }
 
     /// <summary>
+    /// A customer return step (EXC-005, DEC-060): receipt into quarantine (destination only), a quality decision between
+    /// buckets (release or damage), or goods leaving stock (supplier return or disposal, source only).
+    /// </summary>
+    public static StockMovement Return(MovementType type, Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId,
+        Guid? sourceBucketId, Guid? destinationBucketId, decimal baseQty, Guid returnId, string? reason, string actor, DateTimeOffset now,
+        string? correlationId)
+    {
+        var shapeOk = type switch
+        {
+            MovementType.ReturnReceipt => sourceBucketId is null && destinationBucketId is not null,
+            MovementType.QualityChange => sourceBucketId is not null && destinationBucketId is not null && sourceBucketId != destinationBucketId,
+            MovementType.SupplierReturn or MovementType.Disposal => sourceBucketId is not null && destinationBucketId is null,
+            _ => false,
+        };
+        if (!shapeOk)
+            throw new DomainException("Not a valid return movement.");
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = type, OperationKey = operationKey, ProductId = productId, LotId = lotId, SerialId = serialId,
+            SourceBucketId = sourceBucketId, DestinationBucketId = destinationBucketId, BaseQty = baseQty, DocumentType = DocumentType.Return,
+            DocumentId = returnId, Reason = reason, ActorSubject = actor, OccurredAt = now, RecordedAt = now, CorrelationId = correlationId,
+        };
+    }
+
+    /// <summary>
     /// An approved adjustment (EXC-004, DEC-057): an increase enters the bucket from outside the ledger, a reduction
     /// leaves it. The quantity on the movement is always positive; the type carries the direction.
     /// </summary>

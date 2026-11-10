@@ -185,3 +185,9 @@ internal sealed class StockCountLineConfiguration() : TenantEntityConfiguration<
     protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.StockCountLine> builder) =>
         builder.HasOne<Domain.Operations.StockCount>().WithMany().HasForeignKey(l => l.CountId).OnDelete(DeleteBehavior.NoAction);
 }
+
+internal sealed class CustomerReturnConfiguration() : TenantEntityConfiguration<Domain.Operations.CustomerReturn>("customer_return")
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.CustomerReturn> builder) =>
+        builder.HasOne<StockMovement>().WithMany().HasForeignKey(r => r.ReceiptMovementId).OnDelete(DeleteBehavior.NoAction);
+}

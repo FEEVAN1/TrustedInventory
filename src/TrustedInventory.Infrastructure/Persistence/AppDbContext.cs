@@ -81,6 +81,8 @@ public static class PgEnums
         builder.MapEnum<Domain.Operations.AdjustmentStatus>("ti.adjustment_status", Verbatim);
         builder.MapEnum<Domain.Operations.TransferStatus>("ti.transfer_status", Verbatim);
         builder.MapEnum<Domain.Operations.CountStatus>("ti.count_status", Verbatim);
+        builder.MapEnum<Domain.Operations.ReturnStatus>("ti.return_status", Verbatim);
+        builder.MapEnum<Domain.Operations.ReturnDisposition>("ti.return_disposition", Verbatim);
     }
 
     public static void Map(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder o)
@@ -115,5 +117,7 @@ public static class PgEnums
         o.MapEnum<Domain.Operations.AdjustmentStatus>("adjustment_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Operations.TransferStatus>("transfer_status", AppDbContext.Schema, Verbatim);
         o.MapEnum<Domain.Operations.CountStatus>("count_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ReturnStatus>("return_status", AppDbContext.Schema, Verbatim);
+        o.MapEnum<Domain.Operations.ReturnDisposition>("return_disposition", AppDbContext.Schema, Verbatim);
     }
 }
