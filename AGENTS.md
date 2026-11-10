@@ -38,7 +38,7 @@ SaaS access, billing and lifecycle rules apply to every module.
 | M6 release readiness | Not started | Owner reviews evidence and approves production policies |
 | v3.0 contract pass | **Gate met** (7 Nov 2026): contract lints clean, SaaS schema draft passes 59 checks | SaaS contracts, state matrix, control-plane design; no unresolved isolation or stock conflict |
 | S1 provisioning | **Gate met** (8 Nov 2026, owner sign-off): AT-ONB-01, AT-ONB-02, AT-SAS-01 pass; 133 unit + 103 integration tests on PostgreSQL 16. Partial carry-overs: ONB-004 (sample data M2, screen with first UI), LFC-001 (S2), SOD-6 (S3), SOD-7 (S3/M4) | AT-ONB and AT-SAS pass |
-| S2 commercial control | In progress (DEC-062): slice 1 of 6 done (platform plan catalog, integer money, subscription and invoice reads, migration 0017). Billing runs only against the simulator; no live charging | AT-BIL and AT-ENT pass in provider sandbox; no live charging |
+| S2 commercial control | In progress (DEC-062): slices 1-2 of 6 done (platform plan catalog, integer money, subscription and invoice reads, migration 0017; simulated provider adapter, checkout preview and consent, hosted checkout, billing portal, DEC-063). Billing runs only against the simulator; no live charging | AT-BIL and AT-ENT pass in provider sandbox; no live charging |
 | S3 lifecycle and service | Not started | AT-LFC and AT-SOP pass; owner approves commercial defaults |
 
 Order: v3.0 contract pass → S1 → M2 → M3 → M4, with S2 and S3 before any commercial activation. R1A

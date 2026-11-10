@@ -88,3 +88,24 @@ CREATE POLICY subscribed_read ON cp.price_version FOR SELECT TO ti_app USING (
   EXISTS (SELECT 1 FROM cp.subscription s WHERE s.price_version_id = price_version.id)
   OR EXISTS (SELECT 1 FROM cp.subscription_change c WHERE c.target_price_version_id = price_version.id)
   OR EXISTS (SELECT 1 FROM cp.checkout_session k WHERE k.price_version_id = price_version.id));
+
+-- A referenced price stays immutable in every term (ENT-001). The one exception is linking it to the provider: the provider
+-- and its price reference may be set once, from NULL, because that changes no amount, currency, interval or date (DEC-063).
+CREATE OR REPLACE FUNCTION cp.price_version_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cp.subscription WHERE price_version_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM cp.checkout_session WHERE price_version_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM cp.subscription_change WHERE target_price_version_id = OLD.id) THEN
+    IF TG_OP = 'DELETE' THEN
+      RAISE EXCEPTION 'price_version % is referenced and cannot be deleted', OLD.id USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    IF (NEW.plan_version_id, NEW.currency, NEW.minor_unit_amount, NEW.exponent, NEW.billing_interval, NEW.active_from)
+       IS DISTINCT FROM
+       (OLD.plan_version_id, OLD.currency, OLD.minor_unit_amount, OLD.exponent, OLD.billing_interval, OLD.active_from)
+       OR (OLD.provider_price_ref IS NOT NULL
+           AND (NEW.provider, NEW.provider_price_ref) IS DISTINCT FROM (OLD.provider, OLD.provider_price_ref)) THEN
+      RAISE EXCEPTION 'price_version % is referenced and immutable', OLD.id USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;

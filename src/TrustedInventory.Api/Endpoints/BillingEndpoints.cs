@@ -20,6 +20,20 @@ public static class BillingEndpoints
             .WithName("listInvoices").RequirePermission(Permissions.BillingRead);
         tenant.MapGet("/saas/invoices/{id:guid}", (SubscriptionService svc, Guid id, CancellationToken ct) => svc.GetInvoiceAsync(id, ct))
             .WithName("getInvoice").RequirePermission(Permissions.BillingRead);
+
+        tenant.MapPost("/saas/checkout/preview", (CheckoutService svc, CheckoutPreviewRequest body, CancellationToken ct) => svc.PreviewAsync(body, ct))
+            .WithName("previewCheckout").RequirePermission(Permissions.BillingManage);
+        tenant.MapPost("/saas/checkout", async (HttpContext http, CheckoutService svc, CheckoutRequest body, CancellationToken ct) =>
+            {
+                var session = await svc.CreateAsync(Conventions.IdempotencyKey(http), body, ct);
+                return Results.Created($"/api/v1/saas/checkout/{session.CheckoutId}", session);
+            })
+            .WithName("createCheckout").RequirePermission(Permissions.BillingManage);
+        tenant.MapGet("/saas/checkout/{id:guid}", (CheckoutService svc, Guid id, CancellationToken ct) => svc.GetAsync(id, ct))
+            .WithName("getCheckout").RequirePermission(Permissions.BillingManage);
+        tenant.MapPost("/saas/billing-portal", async (CheckoutService svc, CancellationToken ct) =>
+                Results.Created((string?)null, await svc.PortalAsync(ct)))
+            .WithName("createBillingPortalSession").RequirePermission(Permissions.BillingManage);
         return tenant;
     }
 

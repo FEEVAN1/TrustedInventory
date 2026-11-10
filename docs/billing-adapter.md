@@ -93,7 +93,11 @@ Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` 
 
 - Signs webhooks with HMAC-SHA256 using `Billing:Simulator:SigningSecret` (required; startup fails without
   it) and a timestamp header, so the real verification path is exercised.
-- Hosted checkout and portal are simple pages served by the simulator with buttons for each outcome.
+- Its state lives in memory in the process that hosts it (DEC-063). Hosted checkout and portal links are
+  `https://billing-simulator.invalid/...` URLs that cannot be opened; outcomes are driven through the test console
+  (a browsable console is UI-milestone work). The `Outage` switch is available now; the payment actions arrive with
+  the webhook slice.
+- Catalog prices without a provider reference are registered on first checkout as `sim_price_{priceVersionId}`.
 - Test console actions (also callable from integration tests):
   - **Pay** the open invoice; **fail** a payment; **dispute**; **refund**.
   - **Deliver events out of order**, **duplicate** an event, **forge** a signature, send an **unknown
@@ -103,7 +107,9 @@ Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` 
 - Prices come from `docs/entitlement-catalog.json` (currency XTS, fixtures).
 
 Configuration: `Billing:Provider` = `simulator` in development and tests. Any other value requires an
-owner-approved provider configuration, and `Billing:LiveCheckoutEnabled` stays `false` until then.
+owner-approved provider configuration, and `Billing:LiveCheckoutEnabled` stays `false` until then. Startup
+refuses any other provider and live checkout switched on. `Billing:ReturnUrl` (absolute http(s), default
+`http://localhost:5173/billing/return`) is where hosted pages send the browser back: navigation only.
 
 ## Must never happen
 

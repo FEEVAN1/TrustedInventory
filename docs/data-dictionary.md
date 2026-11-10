@@ -419,7 +419,7 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | Table | Purpose | Key constraints | `ti_app` access |
 |-------|---------|-----------------|-----------------|
 | plan_version | Plan code + version, features, quota map, `trial_days` (default 14), draft `revision` (ETag) | `(plan_code, version)` unique; immutable once published | SELECT published public rows, plus the plan its own subscription or scheduled change names (`subscribed_read`, 0017) |
-| price_version | Amount per plan version, currency, interval, `display_approved` (false; no route sets it, D09) | Minor units ≥ 0; exponent 0–4; ISO currency; immutable once referenced (trigger); added to drafts only (DEC-062) | SELECT prices of published plans, plus those its own subscription, change or checkout names |
+| price_version | Amount per plan version, currency, interval, `display_approved` (false; no route sets it, D09) | Minor units ≥ 0; exponent 0–4; ISO currency; immutable once referenced (trigger), except a one-time provider link (0017); added to drafts only (DEC-062) | SELECT prices of published plans, plus those its own subscription, change or checkout names |
 | billing_account | One per tenant | `tenant_id` unique; `(provider, provider_customer_id)` unique | SELECT own row **without** `tax_reference` |
 | subscription | One per tenant | `tenant_id` unique; state-dependent CHECKs (Trialing needs trial dates, Active needs price and period, PastDue needs grace_end); `revision` bumps on every change | SELECT own |
 | checkout_session | Hosted checkout attempts | One open per tenant; `(tenant_id, idempotency_key)` unique; HTTPS URL only; Completed ⇔ completed_at | SELECT own |

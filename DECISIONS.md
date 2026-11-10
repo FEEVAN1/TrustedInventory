@@ -1029,6 +1029,42 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   `cp.plan_version.trial_days` and `revision`; `cp.catalog_event`; `cp.price_version.display_approved`. `ti_control` keeps **no** privilege on `ti.outbox_event`
   (SchemaConformanceTests, SAS-004); how billing notices reach tenants is decided in slice 3 without widening it.
 
+## DEC-063 Provider adapter, simulator, checkout and billing portal (S2, BIL-002, BIL-003, AT-BIL-01)
+- **Status:** Adopted (the real provider remains D09; nothing here can charge)
+- **Adapter:** `IBillingProvider` (Application) with `EnsureCustomer`, `EnsurePrice`, `CreateCheckoutSession` and
+  `CreatePortalSession` in this slice; webhook verification and authoritative fetches arrive in slices 3 and 5. Every
+  mutating call carries the idempotency key from `docs/billing-adapter.md` (`customer:{billingAccountId}`,
+  `price:{priceVersionId}`, `checkout:{checkoutSessionId}`, `portal:{billingAccountId}:{minute}`), so a retry never creates
+  a second provider object. A provider failure is `503 SERVICE_UNAVAILABLE`; nothing in our records changes on failure.
+- **Simulator (AGT-004):** `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]`, is the only implementation and
+  holds its state in memory per process. Hosted pages are `https://billing-simulator.invalid/...` URLs that nobody can open:
+  outcomes (pay, fail, abandon) are driven through the simulator's test console, which tests call directly; a browsable
+  console is UI-milestone work. Prices without a provider reference are registered on first checkout as
+  `sim_price_{priceVersionId}`. 0017 replaces 0004's price guard so that a referenced price may be linked to the
+  provider once (provider and reference set from NULL); every term (amount, currency, exponent, interval, plan, start)
+  and any existing reference stay immutable.
+- **Who and when (BIL-003):** `billing.manage` (owner or billing administrator). A checkout starts a paid subscription
+  for a tenant that is `Trialing` (before or after trial end) or `Cancelled`; an `Active` or `PastDue` subscription
+  changes plan through slice 4 instead (409 `INVALID_STATE`). The price must be active now and belong to a published
+  public plan or the tenant's contracted plan.
+- **Preview and consent:** `previewCheckout` states plan, amount, interval, renewal wording, the cancellation policy
+  (effective at paid period end, no refund or proration, BIL-008) and an indicative `startsAt` (the period starts when
+  the provider confirms payment). `previewDigest` = SHA-256 over the RFC 8785 canonical JSON of tenant, price version,
+  plan version, currency, amount, exponent, interval, renewal and cancellation wording, and **not** the time, so the
+  same terms give the same digest. `createCheckout` recomputes it; a mismatch (the terms changed or were never shown)
+  is 409 `INVALID_STATE` and nothing is created. The accepted digest is stored on the session as consent evidence.
+- **Checkout session:** `createCheckout` needs an `Idempotency-Key`. The same key with the same price and digest returns
+  the same session while it is open (201 again); the same key with a different body is 409 `IDEMPOTENCY_MISMATCH`. A new
+  key while another session is open for the tenant expires that session first (one open session per tenant, 0004).
+  The row is written before the provider call and filled in after it, so a provider failure leaves an open row without
+  a URL that the same key completes on retry. Sessions expire after 60 minutes; `getCheckout` reports `Expired` with
+  retry guidance from then on without writing. **A return URL never completes a session** (BIL-002, AT-BIL-01): only a
+  verified paid event does, in slice 3, so the subscription stays as it was until then.
+- **Billing portal:** `createBillingPortalSession` ensures the provider customer and returns a provider URL valid for
+  5 minutes; no card data passes through the service (BIL-002).
+- **Audit:** `CheckoutStarted`, `CheckoutExpired` and `BillingPortalOpened` go to the tenant's own chain in the same
+  control-plane transaction (AUD-001).
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

@@ -19,8 +19,16 @@ public static class BillingRegistration
         if (bool.TryParse(config["Billing:LiveCheckoutEnabled"], out var live) && live)
             throw new InvalidOperationException("Billing:LiveCheckoutEnabled must stay false until the owner approves a provider (DEC-039, DEC-040).");
 
-        services.AddSingleton(new BillingOptions(provider, LiveCheckoutEnabled: false));
+        var returnUrl = config["Billing:ReturnUrl"] is { Length: > 0 } u ? u : "http://localhost:5173/billing/return";
+        if (!Uri.TryCreate(returnUrl, UriKind.Absolute, out var parsed) || parsed.Scheme is not ("https" or "http"))
+            throw new InvalidOperationException("Billing:ReturnUrl must be an absolute http(s) URL.");
+
+        services.AddSingleton(new BillingOptions(provider, LiveCheckoutEnabled: false) { ReturnUrl = returnUrl });
         services.AddSingleton<IBillingCatalogStore, BillingCatalogStore>();
+        // One simulator per process: the adapter and its test console are the same instance (DEC-063).
+        services.AddSingleton<SimulatedBillingProvider>();
+        services.AddSingleton<IBillingProvider>(sp => sp.GetRequiredService<SimulatedBillingProvider>());
+        services.AddSingleton<ICheckoutStore, CheckoutStore>();
         return services;
     }
 }

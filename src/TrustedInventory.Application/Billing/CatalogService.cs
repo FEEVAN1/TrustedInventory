@@ -13,6 +13,9 @@ public sealed record BillingOptions(string Provider, bool LiveCheckoutEnabled)
     public const string Simulator = "simulator";
 
     public bool SimulatorOnly => Provider == Simulator;
+
+    /// <summary>Where the hosted pages send the browser back: navigation only, never proof of payment (BIL-002).</summary>
+    public string ReturnUrl { get; init; } = "http://localhost:5173/billing/return";
 }
 
 public sealed record CatalogPriceRow(Guid Id, Guid PlanVersionId, string Currency, long MinorUnits, int Exponent, BillingInterval Interval,

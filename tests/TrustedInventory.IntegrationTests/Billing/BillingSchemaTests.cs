@@ -47,6 +47,30 @@ public sealed class BillingSchemaTests(ApiFixture fx)
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, delete.SqlState);
     }
 
+    [Fact]
+    [Trait("Requirement", "ENT-001")]
+    [Trait("Requirement", "BIL-001")]
+    public async Task A_referenced_price_can_be_linked_to_the_provider_once_and_never_changed()
+    {
+        await using var conn = new NpgsqlConnection(fx.ControlConnection);
+        await conn.OpenAsync();
+        // Seeded tenant A's subscription references its price, which has no provider reference yet.
+        await using var find = new NpgsqlCommand("SELECT price_version_id FROM cp.subscription WHERE tenant_id = @t", conn);
+        find.Parameters.AddWithValue("t", fx.Seed.A.TenantId);
+        var price = (Guid)(await find.ExecuteScalarAsync())!;
+        foreach (var change in new[] { "minor_unit_amount = minor_unit_amount + 1", "billing_interval = 'Year'", "active_from = active_from - interval '1 day'" })
+        {
+            var ex = await Assert.ThrowsAsync<PostgresException>(() => ExecAsync(conn, $"UPDATE cp.price_version SET {change} WHERE id = @p", ("p", price)));
+            Assert.Equal(PostgresErrorCodes.IntegrityConstraintViolation, ex.SqlState);
+        }
+        Assert.Equal(1, await ExecAsync(conn,
+            "UPDATE cp.price_version SET provider = 'simulator', provider_price_ref = @r WHERE id = @p AND provider_price_ref IS NULL",
+            ("p", price), ("r", "sim_price_" + price.ToString("N"))));
+        var relink = await Assert.ThrowsAsync<PostgresException>(() => ExecAsync(conn,
+            "UPDATE cp.price_version SET provider_price_ref = 'sim_price_other' WHERE id = @p", ("p", price)));
+        Assert.Equal(PostgresErrorCodes.IntegrityConstraintViolation, relink.SqlState);
+    }
+
     private static async Task<int> ExecAsync(NpgsqlConnection conn, string sql, params (string Name, object Value)[] args)
     {
         await using var cmd = new NpgsqlCommand(sql, conn);

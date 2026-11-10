@@ -86,6 +86,9 @@ services:
       # SIMULATED object store shared by API and worker (DEC-061; production storage is D06).
       Storage__Directory: /data/objects-simulated
       Storage__LinkKey: ${TI_LINK_KEY:?set in .env}
+      # SIMULATED BILLING only (DEC-039, DEC-063): startup refuses any other provider or live checkout.
+      Billing__Provider: simulator
+      Billing__ReturnUrl: http://localhost:5173/billing/return
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api
       Auth__RequireHttpsMetadata: "false"
