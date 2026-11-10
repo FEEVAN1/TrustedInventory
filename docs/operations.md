@@ -98,5 +98,5 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 | Telemetry outage | M5 |
 | Recall initiation | M5 |
 | Ledger reconciliation failure | M2 |
-| Controlled export and retention | M4 |
+| Controlled export retention and orphan-object cleanup | S3 |
 | Billing provider outage, webhook backlog, tenant closure and deletion | S2 / S3 |

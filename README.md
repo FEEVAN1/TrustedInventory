@@ -4,7 +4,7 @@ Multi-tenant warehouse and inventory management for general goods and pharmaceut
 Built to `TrustedInventory_Implementation_Specification_updated.pdf` (v3.0 SaaS, 7 November 2026); v2.0 is
 kept for traceability of DEC-001 to DEC-031.
 
-**Status: M3 (outbound) gate met; M4 (general operations) complete, awaiting gate sign-off.** Sign-in with OIDC and MFA, tenants and memberships,
+**Status: M3 (outbound) gate met; M4 (general operations) gate met.** Sign-in with OIDC and MFA, tenants and memberships,
 roles and permissions, row-level tenant isolation, warehouses/zones/bins, the product catalog, configuration
 versions, the hash-chained audit trail, idempotency and the outbox worker (M1); self-service signup with a
 resumable provisioning job, invitations and ownership transfer, the access-mode pipeline, entitlement and quota
