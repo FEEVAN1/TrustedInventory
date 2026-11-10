@@ -179,7 +179,7 @@ Expiry is immutable after receipt except through an audited QA correction (`Expi
 `serial_number` is an `identifier_text`. Unique `(tenant_id, product_id, serial_number)`. The optional `lot_id` is checked by FK `(tenant_id, product_id, lot_id) → lot`.
 
 ### attachment
-`object_key` must start with `{tenant_id}/` (TEN-005). It also records `digest_sha256`, `scan_status` and `size_bytes > 0`. Files are downloaded only through authorized short-lived links.
+`object_key` must start with `{tenant_id}/` (TEN-005). It also records `digest_sha256`, `scan_status` and `size_bytes > 0`. Files are downloaded only through authorized short-lived links. Created by 0013 (DEC-056): `file_name`, media types PDF/JPEG/PNG only, `size_bytes` up to 10 MiB, and an optional entity binding (both `entity_type` and `entity_id` or neither).
 
 ## 3. Stock
 
@@ -278,6 +278,8 @@ Created by dispatch (OUT-005, DEC-055): one shipment per dispatch and one line p
 
 ## 6. Transfers, counts, adjustments, returns, recalls
 
+Created by migration 0013 (DEC-056), following the contract where it differs from the M0 draft: transfer lines name a product and optional lot (dispatch chooses the buckets); counts carry `reason`, `snapshot_sequence`, `locked_at` and `submitted_at` and no reference; a Posted adjustment is frozen by trigger and `posted_movement_id` is a ledger foreign key; returns keep `quarantine_bin_id`, the quarantine `bucket_id`, the `ReturnReceipt` movement, `reason`, at most one serial and `inspected_qty`, with split inspections in the append-only `customer_return_inspection`. Recalls arrive with M5.
+
 ### transfer / transfer_line
 Source warehouse differs from destination. A line references its source bucket, which preserves lot, serial and quality (EXC-001). Quantities satisfy `dispatched ≤ requested` and `received + disposed ≤ dispatched`. The in-transit amount is `dispatched − received − disposed`, held in the source warehouse's Transit bin (DEC-010).
 
@@ -294,6 +296,8 @@ References the shipment line, with an FK that includes product. `returned_qty > 
 A recall has a product, reason and `effective_at`. Closing it requires `closure_approval_id` and `closed_at` (EXC-007). Each item is a lot or a serial of that product. Outreach status (`recall_outreach_status`) is recorded manually (EXC-006).
 
 ## 7. Approvals
+
+Created by migration 0013 (DEC-056), with `reauth_verified_at` and `invalidated_reason` (set exactly when Invalidated) added. Trigger `approval_guard` freezes the binding and the signature or rejection once written and allows only Pending → Approved, Rejected, Invalidated or Expired, and Approved → Consumed, Invalidated or Expired. A rejection records the approver and reason with meaning `Rejection` but no re-authentication.
 
 ### approval
 | Column | Type | Null | Constraint |
@@ -332,7 +336,7 @@ One per zone and product, evaluated against that product's profile (DEC-012). Pa
 Type, severity, status and `details` (jsonb: zone, products, lots, first and last abnormal values; TEL-005). Partial unique `(tenant_id, dedupe_key) WHERE status <> Closed` prevents duplicate open alerts.
 
 ### export_job
-`filter` and `filter_digest`, audit stream range, `object_key` (tenant-prefixed), `manifest` (integrity manifest and signature references; AUD-004) and `expires_at`. The 15-minute expiry applies to download links, not the job.
+`filter` and `filter_digest`, audit stream range, `object_key` (tenant-prefixed), `manifest` (integrity manifest and signature references; AUD-004) and `expires_at`. The 15-minute expiry applies to download links, not the job. Created by 0013 with `failure_reason` (set exactly when Failed) and `retain_until` instead of `expires_at`.
 
 ### outbox_event
 Written in the same transaction as the change (ARC-003). `event_id` is globally unique for consumer deduplication. Rows carry `attempts ≤ 10` (section 18), lease columns, `sent_at` and `dead_lettered_at`. Partial index on unsent rows.

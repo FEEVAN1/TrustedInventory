@@ -807,6 +807,35 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   and dispatch consumes only Picked segments while expiry touches only Active ones, both under the order lock, so the
   two can never consume the same commitment.
 
+## DEC-056 General-operations schema (M4, migration 0013)
+- **Status:** Adopted
+- **Context:** the M0 schema draft predates the M4 contract shapes. Contract first (DEC-003): the tables follow
+  `docs/openapi.yaml`; the draft's controls are kept.
+- **Approvals (IAM-003, IAM-004, SOD-1):** as drafted, plus `reauth_verified_at` (the contract's `reauthVerifiedAt`)
+  and `invalidated_reason` (required exactly when `Invalidated`). A trigger freezes the binding (subject, version,
+  digest, action, requester, reason) and the signature once written, and allows only Pending → Approved, Rejected,
+  Invalidated or Expired, and Approved → Consumed, Invalidated or Expired. The requester can never sign (CHECK), one
+  approval allows one posting (unique `consumed_operation`), and it lasts 30 minutes from signing (CHECK).
+- **Adjustments (EXC-004):** as drafted, with `posted_movement_id` now a foreign key to the ledger. A Posted adjustment
+  is frozen by trigger. Evidence files are `attachment` rows bound to the adjustment; the contract's `contentDigest` is
+  computed from the canonical request, not stored.
+- **Transfers (EXC-001, STK-003):** lines name a product and optional lot (the contract's `TransferLineInput`), not a
+  source bucket; dispatch picks the buckets and the movements carry them. `dispatched ≤ requested` and
+  `received + disposed ≤ dispatched` as drafted; `approved_at` joins `approved_by`.
+- **Counts (EXC-003):** no reference (the contract has none); `reason`, `snapshot_sequence`, `locked_at` and
+  `submitted_at` added; `stock_count_bin.lock_active` keeps at most one active lock per bin. The DB backstop that
+  refuses movements in locked bins comes with the count slice.
+- **Returns (EXC-005):** `returned_qty`, `quarantine_bin_id`, the quarantine `bucket_id`, `reason`, at most one
+  serial (a shipment line holds one serial, DEC-055) and the `ReturnReceipt` movement. Inspection may be split:
+  `customer_return_inspection` is append-only (disposition, quantity, movement, approval) and the return keeps
+  `inspected_qty ≤ returned_qty`, the latest `disposition`, and status `Inspected` exactly when all is inspected.
+  The returned quantity is also counted on `shipment_line.returned_qty`, whose CHECK caps returns at the shipped
+  quantity in the database (AT-EXC-03).
+- **Exports and attachments (AUD-004, TEN-005):** object keys must start with the tenant id. Export jobs keep
+  `filter`/`filter_digest`, the audit stream range, `manifest`, `failure_reason`, `completed_at` and `retain_until`
+  (the 15-minute limit applies to download links, not the job). Attachments add `file_name`, allow only PDF, JPEG and
+  PNG up to 10 MiB (DEC-022), and bind to an entity optionally (uploaded before the adjustment exists).
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which
