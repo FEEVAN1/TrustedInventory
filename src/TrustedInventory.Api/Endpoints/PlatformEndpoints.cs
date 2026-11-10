@@ -58,12 +58,12 @@ public static class PlatformEndpoints
     }
 
     /// <summary>MFA plus membership of the configured subject list (DEC-026); PlatformBilling routes use <see cref="BillingKey"/>.</summary>
-    public static AuthorizationPolicyBuilder PlatformPolicy(AuthorizationPolicyBuilder p, string subjectsKey) =>
+    public static AuthorizationPolicyBuilder PlatformPolicy(AuthorizationPolicyBuilder p, params string[] subjectsKeys) =>
         p.RequireAuthenticatedUser().RequireClaim("sub").AddRequirements(new MfaRequirement())
-            .RequireAssertion(ctx => ctx.Resource is HttpContext http && IsListed(http, subjectsKey));
+            .RequireAssertion(ctx => ctx.Resource is HttpContext http && subjectsKeys.Any(k => IsListed(http, k)));
 
-    private static PlatformCaller Caller(HttpContext http) =>
-        new(http.User.FindFirst("sub")!.Value, IsListed(http, AdministratorsKey), Problems.TraceId(http));
+    public static PlatformCaller Caller(HttpContext http) =>
+        new(http.User.FindFirst("sub")!.Value, IsListed(http, AdministratorsKey), Problems.TraceId(http), IsListed(http, BillingKey));
 
     private static bool IsListed(HttpContext http, string key)
     {

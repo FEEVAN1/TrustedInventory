@@ -8,12 +8,26 @@ namespace TrustedInventory.Application.Organization;
 /// A platform-level caller (DEC-026). Platform administrators manage tenants only; they hold no tenant
 /// membership and therefore no stock access (section 05, TEN-004).
 /// </summary>
-public sealed record PlatformCaller(string Subject, bool IsAdministrator, string? RequestId = null)
+public sealed record PlatformCaller(string Subject, bool IsAdministrator, string? RequestId = null, bool IsBilling = false)
 {
     public void RequireAdministrator()
     {
         if (!IsAdministrator)
             throw AppException.Forbidden("Platform administration is restricted to platform administrators.");
+    }
+
+    /// <summary>PlatformBilling (platform.billing.manage): catalog publication and billing reconciliation (SOD-8).</summary>
+    public void RequireBilling()
+    {
+        if (!IsBilling)
+            throw AppException.Forbidden("Platform billing is restricted to platform billing operators.");
+    }
+
+    /// <summary>The catalog view is open to either platform role (listPlanVersions).</summary>
+    public void RequireCatalogReader()
+    {
+        if (!IsAdministrator && !IsBilling)
+            throw AppException.Forbidden("The plan catalog is restricted to platform operators.");
     }
 }
 

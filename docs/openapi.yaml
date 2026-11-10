@@ -9565,6 +9565,8 @@ paths:
         "201":
           description: Created.
           headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
             Location:
               $ref: "#/components/headers/Location"
           content:
@@ -13526,6 +13528,12 @@ components:
           anyOf:
             - $ref: "#/components/schemas/Timestamp"
             - type: "null"
+        revision:
+          type: integer
+          format: int32
+          minimum: 1
+          readOnly: true
+          description: Draft concurrency token, also returned as the ETag; If-Match on adding prices and publishing (DEC-062).
         prices:
           type: array
           items:
@@ -13541,6 +13549,7 @@ components:
         - trialDays
         - publishedAt
         - prices
+        - revision
     PlanVersionPage:
       type: object
       properties:

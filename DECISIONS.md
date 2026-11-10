@@ -993,6 +993,42 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   with M5 and `TenantArchive` with S3 (both 422 until then). Completed files are kept for 30 days (`retainUntil`),
   a default the owner must confirm with D05. Creating, generating and downloading an export are audited.
 
+## DEC-062 S2 commercial control: plan, architecture, catalog and schema (S2, ENT-001, BIL-001, BIL-006)
+- **Status:** Adopted (provider, prices and currency remain owner decision D09; all S2 billing runs against the simulator)
+- **Slices:** (1) catalog, money, subscription and invoice reads, migration 0017; (2) provider adapter, labelled
+  simulator, checkout preview/consent, hosted checkout, billing portal; (3) signed webhook inbox and processor;
+  (4) plan changes, cancel and resume; (5) reconciliation, outage behaviour, platform billing consoles, quota races;
+  (6) gate flow and handoff docs.
+- **Architecture:** tenant-facing billing *reads* run in the tenant unit of work (`ti_app`, the `tenant_read` RLS
+  policies from 0004), so they can only see the caller's tenant. Billing *writes* run in a control-plane billing
+  store on the `ti_control` pool (DEC-035) with the tenant id taken from the validated caller or from our own
+  provider references, never from a payload; each command is one transaction that also appends the audit events to
+  the tenant's own chain (AUD-001, ARC-003). `ti_control` still has no stock privilege (SAS-004): anything that needs
+  stock facts (downgrade blockers, slice 4) is computed in a tenant transaction first and rechecked when applied.
+  Platform billing routes require `Platform:BillingSubjects` (PlatformBilling, SOD-8); `listPlanVersions` admits
+  either platform list.
+- **Money (BIL-001):** `Money(currency, minorUnits, exponent)`: ISO 4217 code, `long` minor units, exponent 0–4, never
+  floating point; amounts are copied into checkout, invoice and change rows and never recomputed from the catalog.
+- **Catalog (ENT-001):** `createPlanVersion` adds a `Draft` with the next version number of its plan code; features and
+  limits must use the catalog keys, and every quota key needs a non-negative limit. `createPriceVersion` adds an
+  immutable price to a **draft** plan version only (new terms on a published plan need a new plan version);
+  `publishPlanVersion` needs at least one price and freezes the plan (0004's trigger). Drafts carry a `revision`
+  (ETag, If-Match on price and publish). Catalog changes belong to no tenant, so each one is recorded in the
+  append-only `cp.catalog_event` (actor, action, reason, request id) instead of a tenant chain.
+  Status is derived: `Draft` (unpublished), `Published`, or `Retired` (published with no price
+  active now or later). **No live commerce (DEC-040):** while `Billing:Provider` is `simulator`, any currency other
+  than the test currency `XTS` is refused (422), and `display_approved` stays false because no route sets it (prices
+  shown publicly need owner approval, D09). `trialDays` is stored on the plan (default 14); provisioning keeps using
+  the configured trial length until D09 decides per-plan trials.
+- **Reads:** `getSubscription` returns state, periods, grace, pending cancellation, the open scheduled change, access
+  mode, limits and usage; its version and ETag are the subscription revision. `listInvoices` / `getInvoice` return
+  the snapshot lines and totals as `Money` and the latest payment status (BIL-006).
+- **Migration 0017:** `cp.billing_task` (operator tasks for reconciliation, unknown references, disputes, refunds and
+  chargebacks; `dedupe_key` unique so a replayed cause opens one task; control plane only); `cp.billing_sync_state`
+  (reconciliation cursor per provider); `cp.webhook_inbox.failure_code`; `cp.invoice.issued_at`;
+  `cp.plan_version.trial_days` and `revision`; `cp.catalog_event`; `cp.price_version.display_approved`. `ti_control` keeps **no** privilege on `ti.outbox_event`
+  (SchemaConformanceTests, SAS-004); how billing notices reach tenants is decided in slice 3 without widening it.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

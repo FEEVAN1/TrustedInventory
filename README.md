@@ -15,7 +15,7 @@ unpick, dispatch with in-transaction rechecks and rework tasks, and the reservat
 independent approvals with re-authentication, adjustments, bin and warehouse transfers, blind counts with bin
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
 storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrive with M5.
-**No billing yet**: checkout, the provider simulator and webhooks arrive in S2. Passing builds and tests are not evidence that product requirements are met; see
+**S2 (commercial control) in progress:** the platform plan catalog and tenant subscription and invoice reads exist; checkout, the provider simulator and webhooks follow. Nothing can charge: only the test currency XTS can be priced. Passing builds and tests are not evidence that product requirements are met; see
 `docs/requirement-test-matrix.csv`.
 
 ## Layout

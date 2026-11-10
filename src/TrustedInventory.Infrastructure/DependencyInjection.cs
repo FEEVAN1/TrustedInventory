@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0016_count_lock";
+    public const string Required = "0017_commercial_control";
 }
 
 public static class DependencyInjection
@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Organization.IPlatformUnitOfWork, Organization.PlatformUnitOfWork>();
         services.AddSingleton<Application.Audit.IAuditSupport, Audit.AuditSupport>();
         Saas.ProvisioningRegistration.AddProvisioning(services, configuration);
+        Billing.BillingRegistration.AddBilling(services, configuration);
         Files.FileRegistration.AddFileInfrastructure(services, configuration);
 
         services.AddHealthChecks().AddCheck<DatabaseReadyCheck>("database", tags: ["ready"]);

@@ -62,10 +62,10 @@ public sealed class NoProvisioningFaults : IProvisioningFaults
 /// <summary>A published, public plan with its currently purchasable prices (GET /saas/plans).</summary>
 public sealed record PlanView(
     Guid Id, string PlanCode, int Version, string Name, IReadOnlyList<string> Features,
-    IReadOnlyDictionary<string, long?> Limits, DateTimeOffset PublishedAt, IReadOnlyList<PriceView> Prices);
+    IReadOnlyDictionary<string, long?> Limits, int TrialDays, DateTimeOffset PublishedAt, IReadOnlyList<PriceView> Prices, int Revision);
 
 public sealed record PriceView(Guid Id, Guid PlanVersionId, string Currency, long MinorUnits, int Exponent, string Interval,
-    DateTimeOffset ActiveFrom, DateTimeOffset? ActiveTo);
+    DateTimeOffset ActiveFrom, DateTimeOffset? ActiveTo, bool DisplayApproved);
 
 public interface IPlanCatalog
 {

@@ -28,15 +28,7 @@ public sealed class EntitlementService(ITenantUnitOfWork uow, ICallerAccessor ca
                 FROM cp.entitlement_snapshot WHERE tenant_id = {caller.TenantId} AND is_current
                 """).SingleOrDefaultAsync(c) ?? throw AppException.NotFound("Entitlements");
 
-            var counted = await s.Db.Database.SqlQuery<UsageRow>(
-                $"SELECT metric::text AS \"Metric\", used AS \"Used\" FROM ti.usage_counter").ToListAsync(c);
-            var live = await s.Db.Database.SqlQuery<UsageRow>($"""
-                SELECT 'active_seats' AS "Metric", count(*) AS "Used" FROM ti.membership WHERE active
-                UNION ALL SELECT 'active_warehouses', count(*) FROM ti.warehouse WHERE active
-                UNION ALL SELECT 'active_skus', count(*) FROM ti.product WHERE active
-                """).ToListAsync(c);
-            IReadOnlyDictionary<string, long> usage = Enum.GetValues<QuotaKey>().Select(SaasWire.Quota).ToDictionary(k => k, k =>
-                (long?)counted.FirstOrDefault(u => u.Metric == k)?.Used ?? live.FirstOrDefault(u => u.Metric == k)?.Used ?? 0L);
+            var usage = await TenantUsage.ReadAsync(s, c);
 
             return new EntitlementsDto(caller.TenantId, state.EntitlementVersion ?? 0, snapshot.SubscriptionRevision,
                 state.Features.Order(StringComparer.Ordinal).ToList(),
@@ -46,6 +38,26 @@ public sealed class EntitlementService(ITenantUnitOfWork uow, ICallerAccessor ca
     }
 
     private sealed record SnapshotRow(DateTimeOffset EffectiveFrom, long SubscriptionRevision);
+}
+
+/// <summary>
+/// Current usage per quota key (ENT-003): the quota counter where one exists, otherwise the authoritative active records.
+/// RLS limits every count to the session's tenant.
+/// </summary>
+public static class TenantUsage
+{
+    public static async Task<IReadOnlyDictionary<string, long>> ReadAsync(ITenantSession s, CancellationToken c)
+    {
+        var counted = await s.Db.Database.SqlQuery<UsageRow>(
+            $"SELECT metric::text AS \"Metric\", used AS \"Used\" FROM ti.usage_counter").ToListAsync(c);
+        var live = await s.Db.Database.SqlQuery<UsageRow>($"""
+            SELECT 'active_seats' AS "Metric", count(*) AS "Used" FROM ti.membership WHERE active
+            UNION ALL SELECT 'active_warehouses', count(*) FROM ti.warehouse WHERE active
+            UNION ALL SELECT 'active_skus', count(*) FROM ti.product WHERE active
+            """).ToListAsync(c);
+        return Enum.GetValues<QuotaKey>().Select(SaasWire.Quota).ToDictionary(k => k, k =>
+            (long?)counted.FirstOrDefault(u => u.Metric == k)?.Used ?? live.FirstOrDefault(u => u.Metric == k)?.Used ?? 0L);
+    }
 
     private sealed record UsageRow(string Metric, long Used);
 }

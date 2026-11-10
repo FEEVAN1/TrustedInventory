@@ -86,6 +86,7 @@ api.MapIdentityEndpoints();   // GET /me: authenticated, no tenant context
 api.MapSaasSignupEndpoints(); // signup, provisioning status, public plans: before any tenant exists
 api.MapInvitationAcceptance(); // POST /invitations/accept: authenticated, not yet a member
 app.MapPlatformEndpoints();   // /platform/v1/*: platform operations console, no tenant context (DEC-037)
+app.MapPlatformBillingEndpoints(); // /platform/v1/plan-versions: plan catalog for platform billing (DEC-062)
 
 var tenant = api.MapGroup("").WithMetadata(TenantScopedMetadata.Instance);
 tenant.MapLocationEndpoints();
@@ -97,6 +98,7 @@ tenant.MapInboundEndpoints();
 tenant.MapOutboundEndpoints();
 tenant.MapOperationsEndpoints();
 tenant.MapFileEndpoints();
+tenant.MapBillingEndpoints();
 
 app.Run();
 
