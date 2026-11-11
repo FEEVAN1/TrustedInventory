@@ -49,3 +49,23 @@ simulator tests (`PaystackTests`, `WebhookTests`); record them as "not run" unle
 
 Send the table with results and any `[PAYSTACK TEST MODE]` log lines for failing steps. Logs contain method, path and
 status only: no keys, cards or payloads. Then remove the test key from `.env` or rotate it in the dashboard.
+
+## Results so far
+
+**API contract probe, 11 Nov 2026 (Paystack test mode, synthetic data, no payment).** Run from the development machine with
+the owner's test key passed only through the environment; the key is not stored anywhere in the repository.
+
+| Adapter assumption | Result |
+|--------------------|--------|
+| `POST /plan` creates an NGN monthly plan in kobo | Confirmed |
+| `GET /plan?interval=&amount=` filters, so a retry finds the plan it already created | Confirmed |
+| `POST /customer` with the same email returns the same `customer_code` | Confirmed |
+| `GET /customer/{code}` and `GET /plan/{code}` return numeric ids for the subscription filters | Confirmed |
+| `POST /transaction/initialize` with `plan` and a `ti-cs-` reference returns a `checkout.paystack.com` page | Confirmed |
+| A reused reference is refused with "Duplicate Transaction Reference" | Confirmed |
+| `GET /subscription?customer=&plan=` filters by both | Confirmed |
+| `POST /subscription` for a customer with no saved card | Refused ("no saved authorizations"), as expected: a plan change is only scheduled after a paid first period |
+
+Not yet verified (need a card payment on the hosted page and webhooks through a tunnel): steps 4–12 above, in particular the
+`charge.success`, `invoice.update` and `subscription.disable` payload fields, the status of a future-dated subscription,
+`/subscription/disable` and `/enable` with the email token, and the manage link.
