@@ -97,6 +97,9 @@ public sealed class BillingCatalogStore(ControlDataSource control) : IBillingCat
         var prices = await ScalarAsync<long>(conn, tx, "SELECT count(*) FROM cp.price_version WHERE plan_version_id = @id", ct, ("id", planVersionId));
         if (prices == 0)
             throw AppException.Validation("prices", "Add at least one price before publishing.");
+        // Publication approves the display of its NGN prices (owner decision D09, DEC-067); test-currency prices never are.
+        await ExecAsync(conn, tx, "UPDATE cp.price_version SET display_approved = true WHERE plan_version_id = @id AND currency = 'NGN'", ct,
+            ("id", planVersionId));
         // The last change to the row: once published_at is set the 0004 guard freezes it (ENT-001).
         await ExecAsync(conn, tx, "UPDATE cp.plan_version SET published_at = @at, revision = revision + 1 WHERE id = @id", ct,
             ("id", planVersionId), ("at", change.At));

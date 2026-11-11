@@ -65,7 +65,8 @@ public sealed record BillingEvent(
     string? CheckoutSessionRef,
     ProviderInvoice? Invoice,
     ProviderPayment? Payment,
-    ProviderDispute? Dispute);
+    ProviderDispute? Dispute,
+    string? PriceRef = null);
 
 /// <summary>Provider-specific signature checking and event parsing (docs/billing-adapter.md, VerifyWebhook).</summary>
 public interface IBillingWebhooks
@@ -74,10 +75,16 @@ public interface IBillingWebhooks
     string Code { get; }
 
     /// <summary>Verifies the signature over the raw bytes, then reads the envelope. Throws the exceptions above.</summary>
-    WebhookEnvelope Verify(ReadOnlySpan<byte> rawBody, Func<string, string?> header);
+    WebhookEnvelope Verify(ReadOnlySpan<byte> rawBody, Func<string, string?> header, string? remoteAddress);
 
     /// <summary>Parses a stored, previously verified body into the neutral form.</summary>
     BillingEvent Parse(ReadOnlySpan<byte> rawBody);
+
+    /// <summary>
+    /// Completes a parsed event from the provider's authoritative API where the event alone is not enough (BIL-005, DEC-068). Called by the
+    /// processor before it locks the inbox row; a provider failure is a processing failure with backoff.
+    /// </summary>
+    Task<BillingEvent> ResolveAsync(BillingEvent parsed, CancellationToken ct);
 }
 
 public interface IWebhookInbox
@@ -96,7 +103,7 @@ public sealed class WebhookService(IBillingWebhooks webhooks, IWebhookInbox inbo
 {
     public const int MaxBodyBytes = 256 * 1024;
 
-    public async Task<WebhookAck> ReceiveAsync(string provider, byte[] rawBody, Func<string, string?> header, CancellationToken ct)
+    public async Task<WebhookAck> ReceiveAsync(string provider, byte[] rawBody, Func<string, string?> header, string? remoteAddress, CancellationToken ct)
     {
         if (!string.Equals(provider, webhooks.Code, StringComparison.Ordinal))
             throw new AppException(ErrorCode.Unauthenticated, "No verifier is configured for this provider.");
@@ -106,7 +113,7 @@ public sealed class WebhookService(IBillingWebhooks webhooks, IWebhookInbox inbo
         WebhookEnvelope envelope;
         try
         {
-            envelope = webhooks.Verify(rawBody, header);
+            envelope = webhooks.Verify(rawBody, header, remoteAddress);
         }
         catch (WebhookSignatureException e)
         {

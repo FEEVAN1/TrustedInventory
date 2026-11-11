@@ -107,7 +107,7 @@ public sealed class CatalogService(IBillingCatalogStore store, ICursorCodec curs
         if (request.Amount is null)
             throw AppException.Validation("amount", "An amount is required.");
         var amount = Rule("amount", () => Money.Of(request.Amount.Currency, request.Amount.MinorUnits, request.Amount.Exponent));
-        Rule("amount", () => CatalogRules.ValidatePrice(amount, options.SimulatorOnly));
+        Rule("amount", () => CatalogRules.ValidatePrice(amount));
         if (request.ProviderPriceRef is { } reference && (reference.Length is < 1 or > 200 || string.IsNullOrWhiteSpace(reference)))
             throw AppException.Validation("providerPriceRef", "A provider price reference is 1 to 200 characters.");
         var price = await store.AddPriceAsync(planVersionId, ifMatch,

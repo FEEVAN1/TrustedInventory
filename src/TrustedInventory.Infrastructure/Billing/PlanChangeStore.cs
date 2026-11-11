@@ -124,14 +124,17 @@ public sealed class PlanChangeStore(ControlDataSource control) : IPlanChangeStor
             effectiveAt, newRevision, Created: true);
     }
 
-    public async Task AttachProviderChangeAsync(Guid changeId, string providerChangeRef, DateTimeOffset now, CancellationToken ct)
+    public async Task AttachProviderChangeAsync(Guid changeId, string providerChangeRef, string? newSubscriptionRef, DateTimeOffset now,
+        CancellationToken ct)
     {
         await using var conn = await control.Source.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("""
-            UPDATE cp.subscription_change SET state = 'Scheduled', provider_change_ref = @r, updated_at = @now, version = version + 1
+            UPDATE cp.subscription_change SET state = 'Scheduled', provider_change_ref = @r, provider_new_subscription_ref = @n, updated_at = @now,
+                   version = version + 1
             WHERE id = @id AND state = 'Pending'
             """, conn);
         cmd.Parameters.AddWithValue("r", providerChangeRef);
+        cmd.Parameters.AddWithValue("n", (object?)newSubscriptionRef ?? DBNull.Value);
         cmd.Parameters.AddWithValue("now", now);
         cmd.Parameters.AddWithValue("id", changeId);
         await cmd.ExecuteNonQueryAsync(ct);

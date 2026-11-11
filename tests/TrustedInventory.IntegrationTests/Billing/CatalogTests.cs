@@ -116,9 +116,10 @@ public sealed class CatalogTests(ApiFixture fx)
     [Theory]
     [Trait("Requirement", "BIL-001")]
     [InlineData("USD", 2500L)]
-    [InlineData("NGN", 2500L)]
+    [InlineData("EUR", 2500L)]
+    [InlineData("NGN", 0L)]
     [InlineData("XTS", 0L)]
-    public async Task Only_a_positive_test_currency_price_is_accepted_while_the_simulator_is_the_provider(string currency, long amount)
+    public async Task Only_positive_NGN_or_test_currency_prices_are_accepted(string currency, long amount)
     {
         var client = Billing();
         var draft = await (await client.PostJsonAsync("/platform/v1/plan-versions", Plan(Code()))).ExpectAsync(HttpStatusCode.Created);

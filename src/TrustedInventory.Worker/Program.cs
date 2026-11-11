@@ -30,6 +30,8 @@ builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infras
     sp.GetRequiredService<WorkerOptions>().BillingReconciliationInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.BillingReminderJob>(sp,
     sp.GetRequiredService<WorkerOptions>().BillingReminderInterval));
+builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.SubscriptionPeriodEndJob>(sp,
+    sp.GetRequiredService<WorkerOptions>().SubscriptionPeriodEndInterval));
 // Resumes signups whose inline provisioning stopped part-way (ONB-002).
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Saas.ProvisioningSweepJob>(sp,
     builder.Configuration.GetValue("Worker:ProvisioningInterval", TimeSpan.FromSeconds(30))));

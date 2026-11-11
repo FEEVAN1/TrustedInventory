@@ -282,6 +282,7 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 | `0018_billing_events` | `cp.billing_notice` (enum `cp.billing_notice_kind`): notices raised by verified billing events; `ti_control` inserts, `ti_app` reads its own tenant's rows and sets `relayed_at` once (guard trigger) | S2 webhook processing and notices (DEC-064) |
 | `0019_plan_changes` | `subscription_change.idempotency_key` (unique per tenant) and `provider_change_ref`; notice kinds `PlanChangeBlocked`, `PlanChangeApplied` | S2 plan changes (DEC-065) |
 | `0020_billing_reconciliation` | `webhook_inbox.received_via` (Webhook or Reconciliation); notice kind `PaymentReminder` | S2 reconciliation and reminders (DEC-066) |
+| `0021_paystack` | `subscription_change.provider_new_subscription_ref` (unique): the replacement subscription for providers that cannot reprice one | S2 Paystack adapter (DEC-068) |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

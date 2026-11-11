@@ -93,11 +93,14 @@ public sealed partial class BillingReconciliationJob(ControlDataSource control, 
                     differences.Add("the provider does not know this subscription");
                 else
                 {
-                    if (theirs.State.ToString() != s.State)
+                    // Ended at the provider while our paid period still runs after a cancellation is consistent (DEC-068).
+                    var endedEarly = theirs.State == SubscriptionState.Cancelled && s.Cancel && s.State is "Active" or "PastDue"
+                        && s.PeriodEnd > clock.GetUtcNow();
+                    if (!endedEarly && theirs.State.ToString() != s.State)
                         differences.Add($"state {s.State} here, {theirs.State} at the provider");
-                    if (s.PeriodEnd is null || Math.Abs((theirs.PeriodEnd - s.PeriodEnd.Value).TotalSeconds) >= 1)
-                        differences.Add($"period end {s.PeriodEnd:O} here, {theirs.PeriodEnd:O} at the provider");
-                    if (theirs.CancelAtPeriodEnd != s.Cancel)
+                    if (theirs.PeriodEnd is { } end && (s.PeriodEnd is null || Math.Abs((end - s.PeriodEnd.Value).TotalSeconds) >= 1))
+                        differences.Add($"period end {s.PeriodEnd:O} here, {end:O} at the provider");
+                    if (!endedEarly && theirs.CancelAtPeriodEnd != s.Cancel)
                         differences.Add($"pending cancellation {s.Cancel} here, {theirs.CancelAtPeriodEnd} at the provider");
                 }
                 if (differences.Count == 0)

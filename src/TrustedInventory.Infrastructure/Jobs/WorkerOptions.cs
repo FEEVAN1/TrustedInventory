@@ -32,6 +32,8 @@ public sealed record WorkerOptions
     public TimeSpan BillingReconciliationInterval { get; init; } = TimeSpan.FromHours(24);
     /// <summary>Payment reminders on days 3 and 6 (BIL-007, DEC-066).</summary>
     public TimeSpan BillingReminderInterval { get; init; } = TimeSpan.FromHours(1);
+    /// <summary>Records the end of cancelled subscriptions after their paid period (DEC-068); access never waits for it.</summary>
+    public TimeSpan SubscriptionPeriodEndInterval { get; init; } = TimeSpan.FromMinutes(10);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -55,6 +57,7 @@ public sealed record WorkerOptions
             PlanChangeInterval = Seconds(config, "Worker:PlanChangeIntervalSeconds", d.PlanChangeInterval),
             BillingReconciliationInterval = Seconds(config, "Worker:BillingReconciliationIntervalSeconds", d.BillingReconciliationInterval),
             BillingReminderInterval = Seconds(config, "Worker:BillingReminderIntervalSeconds", d.BillingReminderInterval),
+            SubscriptionPeriodEndInterval = Seconds(config, "Worker:SubscriptionPeriodEndIntervalSeconds", d.SubscriptionPeriodEndInterval),
         };
     }
 

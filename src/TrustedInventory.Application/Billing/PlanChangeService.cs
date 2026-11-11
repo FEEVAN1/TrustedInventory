@@ -47,7 +47,7 @@ public interface IPlanChangeStore
     Task<PlanChangeRow> BeginAsync(BillingActor actor, Guid idempotencyKey, int expectedRevision, CheckoutPriceRow target, string digest,
         DateTimeOffset effectiveAt, DateTimeOffset now, CancellationToken ct);
 
-    Task AttachProviderChangeAsync(Guid changeId, string providerChangeRef, DateTimeOffset now, CancellationToken ct);
+    Task AttachProviderChangeAsync(Guid changeId, string providerChangeRef, string? newSubscriptionRef, DateTimeOffset now, CancellationToken ct);
 
     Task CancelAsync(BillingActor actor, int expectedRevision, string reason, DateTimeOffset now, CancellationToken ct);
 
@@ -159,9 +159,9 @@ public sealed class PlanChangeService(IPlanChangeStore store, ICheckoutStore che
                     target.Interval, ct);
                 await checkouts.SetPriceRefAsync(target.PriceVersionId, provider.Code, priceRef, ct);
             }
-            var reference = await provider.ScheduleChangeAsync(row.Id, context.ProviderSubscriptionRef!, priceRef, row.EffectiveAt, ct);
-            await store.AttachProviderChangeAsync(row.Id, reference, clock.GetUtcNow(), ct);
-            return (Dto(row with { State = SubscriptionChangeState.Scheduled, ProviderChangeRef = reference }), checked((int)row.SubscriptionRevision));
+            var schedule = await provider.ScheduleChangeAsync(row.Id, context.ProviderSubscriptionRef!, priceRef, row.EffectiveAt, ct);
+            await store.AttachProviderChangeAsync(row.Id, schedule.Ref, schedule.NewSubscriptionRef, clock.GetUtcNow(), ct);
+            return (Dto(row with { State = SubscriptionChangeState.Scheduled, ProviderChangeRef = schedule.Ref }), checked((int)row.SubscriptionRevision));
         }
         catch (BillingProviderUnavailableException ex)
         {
@@ -214,7 +214,7 @@ public sealed class PlanChangeService(IPlanChangeStore store, ICheckoutStore che
         var price = context.Target;
         if (price is null || context.TargetTerms is null || !price.PlanPublished
             || !(price.PlanPublic || price.PlanVersionId == context.ContractedPlanVersionId)
-            || price.ActiveFrom > now || (price.ActiveTo is { } to && to <= now))
+            || !provider.Supports(price.Currency) || price.ActiveFrom > now || (price.ActiveTo is { } to && to <= now))
             throw AppException.NotFound("Price");
         switch (context.State)
         {

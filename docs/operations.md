@@ -95,6 +95,13 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 - Cancellation keeps all data. Access becomes billing-restricted at period end by computation; the provider's end event
   later sets the subscription `Cancelled`.
 
+### Paystack test mode (draft, S2)
+- Only with a `sk_test_` key (`TI_BILLING_PROVIDER=paystack`, `TI_PAYSTACK_SECRET_KEY`); startup refuses live keys and live checkout.
+  Steps and evidence: `docs/paystack-sandbox.md`. Logs are tagged `[PAYSTACK TEST MODE]` with method, path and status only.
+- Paystack has no event list: a webhook that Paystack gave up on is caught by the reconciliation comparison as an operator task.
+- `SubscriptionPeriodEndJob` (`Worker:SubscriptionPeriodEndIntervalSeconds`, default 600) records `Cancelled` after the paid
+  period of a cancelled subscription; access is already restricted at `period_end` without it.
+
 ### Billing provider outage and reconciliation (draft, S2; simulator only)
 - **During an outage** tenants keep their last verified access: nothing reads the provider to decide access. Webhooks are still
   stored. Checkout, portal, plan changes and cancellation answer 503; the same request (same Idempotency-Key) completes later.

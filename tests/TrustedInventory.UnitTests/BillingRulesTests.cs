@@ -38,13 +38,14 @@ public sealed class BillingRulesTests
 
     [Fact]
     [Trait("Requirement", "BIL-001")]
-    public void While_the_simulator_is_the_provider_only_a_positive_test_currency_price_is_allowed()
+    public void Only_positive_NGN_prices_in_kobo_or_test_currency_prices_are_allowed()
     {
-        CatalogRules.ValidatePrice(Money.Of("XTS", 1000, 2), simulatorOnly: true);
-        Assert.Throws<DomainException>(() => CatalogRules.ValidatePrice(Money.Of("USD", 1000, 2), simulatorOnly: true));
-        Assert.Throws<DomainException>(() => CatalogRules.ValidatePrice(Money.Of("XTS", 0, 2), simulatorOnly: true));
-        // An approved provider (not yet configured, D09) would allow real currencies.
-        CatalogRules.ValidatePrice(Money.Of("USD", 1000, 2), simulatorOnly: false);
+        CatalogRules.ValidatePrice(Money.Of("NGN", 500000, 2));
+        CatalogRules.ValidatePrice(Money.Of("XTS", 1000, 2));
+        Assert.Throws<DomainException>(() => CatalogRules.ValidatePrice(Money.Of("USD", 1000, 2)));
+        Assert.Throws<DomainException>(() => CatalogRules.ValidatePrice(Money.Of("NGN", 5000, 0)));
+        Assert.Throws<DomainException>(() => CatalogRules.ValidatePrice(Money.Of("NGN", 0, 2)));
+        Assert.Throws<DomainException>(() => CatalogRules.ValidatePrice(Money.Of("XTS", 0, 2)));
     }
 
     [Fact]

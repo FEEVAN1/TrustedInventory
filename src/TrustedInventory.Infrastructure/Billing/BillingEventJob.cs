@@ -75,27 +75,38 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
         string? eventId = null;
         try
         {
-            await using var conn = await control.Source.OpenConnectionAsync(ct);
-            await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            // 1. Read and complete the event before taking any lock: a provider may need an authoritative fetch (BIL-005, DEC-068).
             string provider;
             byte[] payload;
-            await using (var cmd = new NpgsqlCommand("""
+            await using (var peek = control.Source.CreateCommand("""
                 SELECT provider, event_id, payload_encrypted FROM cp.webhook_inbox
                 WHERE id = @id AND processing_state IN ('Received','Failed') AND attempts < @max
-                FOR UPDATE SKIP LOCKED
-                """, conn, tx))
+                """))
             {
-                cmd.Parameters.AddWithValue("id", inboxId);
-                cmd.Parameters.AddWithValue("max", MaxAttempts);
-                await using var r = await cmd.ExecuteReaderAsync(ct);
+                peek.Parameters.AddWithValue("id", inboxId);
+                peek.Parameters.AddWithValue("max", MaxAttempts);
+                await using var r = await peek.ExecuteReaderAsync(ct);
                 if (!await r.ReadAsync(ct))
                     return null;
                 provider = r.GetString(0);
                 eventId = r.GetString(1);
                 payload = r.GetFieldValue<byte[]>(2);
             }
+            var ev = await webhooks.ResolveAsync(webhooks.Parse(cipher.Decrypt(provider, eventId, payload)), ct);
 
-            var ev = webhooks.Parse(cipher.Decrypt(provider, eventId, payload));
+            // 2. One transaction under the row lock; another worker that got here first wins (SKIP LOCKED, state re-checked).
+            await using var conn = await control.Source.OpenConnectionAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+            await using (var claim = new NpgsqlCommand("""
+                SELECT 1 FROM cp.webhook_inbox WHERE id = @id AND processing_state IN ('Received','Failed') AND attempts < @max
+                FOR UPDATE SKIP LOCKED
+                """, conn, tx))
+            {
+                claim.Parameters.AddWithValue("id", inboxId);
+                claim.Parameters.AddWithValue("max", MaxAttempts);
+                if (await claim.ExecuteScalarAsync(ct) is null)
+                    return null;
+            }
             var now = clock.GetUtcNow();
             var apply = new Apply(conn, tx, provider, ev, now, ct);
             var (state, tenantId, failureCode) = await apply.RunAsync(ct);
@@ -174,6 +185,7 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
 
             // 2. Every other reference we already hold must belong to the same tenant.
             if (!await OwnedAsync("SELECT tenant_id FROM cp.subscription WHERE provider = @p AND provider_subscription_ref = @r", ev.SubscriptionRef, ct)
+                || !await OwnedAsync("SELECT tenant_id FROM cp.subscription_change WHERE provider_new_subscription_ref = @r AND @p IS NOT NULL", ev.SubscriptionRef, ct)
                 || !await OwnedAsync("SELECT tenant_id FROM cp.checkout_session WHERE provider = @p AND provider_session_ref = @r", ev.CheckoutSessionRef, ct)
                 || !await OwnedAsync("SELECT tenant_id FROM cp.invoice WHERE provider = @p AND provider_invoice_ref = @r", ev.Invoice?.Ref, ct)
                 || !await OwnedAsync("SELECT tenant_id FROM cp.payment WHERE provider = @p AND provider_payment_ref = @r",
@@ -232,7 +244,7 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
             }
             else
             {
-                if (sub.Facts.ProviderSubscriptionRef != ev.SubscriptionRef)
+                if (sub.Facts.ProviderSubscriptionRef != ev.SubscriptionRef && !await IsReplacementAsync(sub.Id, ev.SubscriptionRef!))
                 {
                     await TaskAsync(ReconciliationTaskKind.UnknownBillingReference, _tenant, $"unknown-subscription:{provider}:{ev.SubscriptionRef}",
                         $"Event {ev.EventId} ({ev.EventType}) names a provider subscription this workspace is not linked to.", ct);
@@ -405,11 +417,28 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
         private async Task<(WebhookProcessingState, Guid?, string?)> EndedAsync(CancellationToken ct)
         {
             var sub = await SubscriptionAsync(ct) ?? throw new InvalidOperationException("The workspace has no subscription (SAS-001).");
+            if (await IsReplacementAsync(sub.Id, ev.SubscriptionRef!))
+                return (WebhookProcessingState.Processed, _tenant, null); // the replacement of an open change: not this subscription's end
             if (sub.Facts.ProviderSubscriptionRef != ev.SubscriptionRef)
             {
                 await TaskAsync(ReconciliationTaskKind.UnknownBillingReference, _tenant, $"unknown-subscription:{provider}:{ev.SubscriptionRef}",
                     $"Event {ev.EventId} ({ev.EventType}) names a provider subscription this workspace is not linked to.", ct);
                 return (WebhookProcessingState.Quarantined, _tenant, "UNKNOWN_REFERENCE");
+            }
+            // A provider that cancels at once (Paystack disables on cancel) or replaces the subscription for a scheduled change: the paid
+            // period still runs, so nothing ends now (DEC-068). SubscriptionPeriodEndJob records Cancelled after period_end.
+            var replaced = await RowAsync("""
+                SELECT EXISTS (SELECT 1 FROM cp.subscription_change WHERE subscription_id = @s AND state = 'Scheduled'
+                               AND provider_new_subscription_ref IS NOT NULL)
+                """, r => r.GetBoolean(0), ("s", sub.Id)) ?? false;
+            var paidOn = await RowAsync("SELECT cancel_at_period_end AND period_end > @now FROM cp.subscription WHERE id = @s",
+                r => r.GetBoolean(0), ("now", now), ("s", sub.Id)) ?? false;
+            if (replaced || paidOn)
+            {
+                Audit.Add(new AuditEntry("ProviderSubscriptionEnded", "Subscription", sub.Id, null, null, null,
+                    new { providerSubscriptionRef = ev.SubscriptionRef, reason = replaced ? "replaced for a scheduled change" : "cancelled; paid period continues",
+                          providerEventId = ev.EventId }));
+                return (WebhookProcessingState.Processed, _tenant, null);
             }
             var next = PlanChangeRules.Ended(sub.Facts, ev.SubscriptionRevision!.Value);
             if (next is null)
@@ -480,6 +509,13 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
         // ---------------------------------------------------------------------------------------------------------
 
         private sealed record Sub(Guid Id, SubscriptionFacts Facts);
+
+        /// <summary>The provider subscription that an open change of this subscription will move to (DEC-068).</summary>
+        private async Task<bool> IsReplacementAsync(Guid subscriptionId, string reference) =>
+            await RowAsync("""
+                SELECT EXISTS (SELECT 1 FROM cp.subscription_change WHERE subscription_id = @s AND state IN ('Pending','Scheduled')
+                               AND provider_new_subscription_ref = @r)
+                """, r => r.GetBoolean(0), ("s", subscriptionId), ("r", reference)) ?? false;
 
         private Task<Sub?> SubscriptionAsync(CancellationToken ct) =>
             RowAsync("""

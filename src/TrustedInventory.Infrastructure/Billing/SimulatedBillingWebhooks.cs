@@ -71,7 +71,7 @@ public sealed partial class SimulatedBillingProvider
 
     // ---- Verification (IBillingWebhooks, BIL-004) ----
 
-    public WebhookEnvelope Verify(ReadOnlySpan<byte> rawBody, Func<string, string?> header)
+    public WebhookEnvelope Verify(ReadOnlySpan<byte> rawBody, Func<string, string?> header, string? remoteAddress)
     {
         var value = header(SignatureHeader) ?? throw new WebhookSignatureException("The event is not signed.");
         long? timestamp = null;
@@ -114,6 +114,9 @@ public sealed partial class SimulatedBillingProvider
         var parsed = Parse(rawBody);
         return new WebhookEnvelope(parsed.EventId, parsed.EventType, parsed.CreatedAt);
     }
+
+    /// <summary>Simulator events carry the whole resource; nothing to fetch.</summary>
+    public Task<BillingEvent> ResolveAsync(BillingEvent parsed, CancellationToken ct) => Task.FromResult(parsed);
 
     public BillingEvent Parse(ReadOnlySpan<byte> rawBody)
     {

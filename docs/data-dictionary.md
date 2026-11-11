@@ -423,7 +423,7 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | billing_account | One per tenant | `tenant_id` unique; `(provider, provider_customer_id)` unique | SELECT own row **without** `tax_reference` |
 | subscription | One per tenant | `tenant_id` unique; state-dependent CHECKs (Trialing needs trial dates, Active needs price and period, PastDue needs grace_end); `revision` bumps on every change | SELECT own |
 | checkout_session | Hosted checkout attempts | One open per tenant; `(tenant_id, idempotency_key)` unique; HTTPS URL only; Completed ⇔ completed_at | SELECT own |
-| subscription_change | Scheduled upgrade/downgrade at the current period end; `idempotency_key` and `provider_change_ref` (0019, DEC-065) | One Pending/Scheduled per subscription; Blocked needs blockers; key unique per tenant | SELECT own |
+| subscription_change | Scheduled upgrade/downgrade at the current period end; `idempotency_key` and `provider_change_ref` (0019, DEC-065); `provider_new_subscription_ref` for providers that replace the subscription (0021, DEC-068) | One Pending/Scheduled per subscription; Blocked needs blockers; key unique per tenant | SELECT own |
 | entitlement_snapshot | Features + limits in force | Exactly one `is_current` per tenant; `(tenant_id, entitlement_version)` unique | SELECT own |
 | invoice | Provider invoice snapshot; `lines` hold `{description, quantity, unitAmount, discount, tax, subtotal, total}` in minor units; `issued_at` (0017) | `(provider, provider_invoice_ref)` unique; `total = subtotal − discount + tax`; Paid ⇔ paid_at | SELECT own |
 | payment | Payment and refund records | `(provider, provider_payment_ref)` unique; refunds reference the original | SELECT own |

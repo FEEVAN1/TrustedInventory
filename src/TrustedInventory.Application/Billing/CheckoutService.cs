@@ -120,7 +120,8 @@ public sealed class CheckoutService(ICheckoutStore store, IBillingProvider provi
                 await store.SetPriceRefAsync(price.PriceVersionId, provider.Code, priceRef, ct);
             }
             var session = await provider.CreateCheckoutSessionAsync(
-                new ProviderCheckoutRequest(row.Id, customer, priceRef, expected, row.ExpiresAt, options.ReturnUrl), ct);
+                new ProviderCheckoutRequest(row.Id, customer, priceRef, expected, row.ExpiresAt, options.ReturnUrl, context.Account.ContactEmail,
+                    new MoneyDto(price.Currency, price.MinorUnits, price.Exponent)), ct);
             await store.AttachProviderSessionAsync(row.Id, session.SessionRef, session.HostedUrl, ct);
             return Dto(row.Id, session.HostedUrl, row.ExpiresAt, CheckoutStatus.Open, now);
         }
@@ -175,7 +176,7 @@ public sealed class CheckoutService(ICheckoutStore store, IBillingProvider provi
         var now = clock.GetUtcNow();
         var price = context.Price;
         if (price is null || !price.PlanPublished || !(price.PlanPublic || price.PlanVersionId == context.ContractedPlanVersionId)
-            || price.ActiveFrom > now || (price.ActiveTo is { } to && to <= now))
+            || !provider.Supports(price.Currency) || price.ActiveFrom > now || (price.ActiveTo is { } to && to <= now))
             throw AppException.NotFound("Price");
         if (context.Subscription is SubscriptionState.Active or SubscriptionState.PastDue)
             throw AppException.InvalidState("The subscription is already paid; change plan instead of starting a new checkout.");

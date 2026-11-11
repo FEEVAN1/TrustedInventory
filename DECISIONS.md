@@ -1224,6 +1224,51 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   tested against a labelled Paystack-format simulator in the repository, then run once against Paystack test mode by the owner
   with test keys held outside the repository. S2 closes when that sandbox run passes.
 
+## DEC-068 Paystack adapter, NGN catalog prices and provider-neutral adjustments (S2 slice 7, D09, BIL-002, BIL-004, BIL-005)
+- **Status:** Adopted. Paystack runs in **test mode only**: startup refuses a `sk_live_` key and `Billing:LiveCheckoutEnabled`
+  (DEC-040). Automated tests use a labelled in-process Paystack API simulator; the real test-mode run is the owner's
+  (`docs/paystack-sandbox.md`).
+- **Configuration:** `Billing:Provider = paystack`, `Billing:Paystack:SecretKey` (required, `sk_test_…`, from the vault or
+  environment, never the repository), optional `Billing:Paystack:BaseUrl` (default `https://api.paystack.co`) and
+  `Billing:Paystack:WebhookSourceIps` (comma-separated; empty means not enforced). `Billing:ReturnUrl` is the callback URL.
+- **Catalog (D09):** NGN (exponent 2, kobo) and the test currency XTS are accepted; any other currency is 422. Publishing a plan
+  version sets `display_approved` on its NGN prices (publication is the owner-approved display, DEC-067); XTS prices are never
+  approved for display. A provider offers only its own currencies: Paystack NGN, the simulator XTS and NGN; an unsupported price
+  is not offered (404), so nothing is ever sent to Paystack in XTS.
+- **Mapping (adapter):**
+  - Customer `POST /customer` (email, legal name, `metadata.billing_account_id`) → `customer_code`. Price `POST /plan`
+    (name `TI {priceVersionId}`, kobo, `monthly`/`annually`, NGN) → `plan_code`; an existing plan with that name is reused, so a
+    retry creates no second plan.
+  - Checkout `POST /transaction/initialize` (email, amount, plan, reference `ti-cs-{checkoutId}`, callback) →
+    `authorization_url`; the reference is the session reference. Paystack refuses a reused reference, so a checkout whose
+    first call was lost cannot be resumed with the same key: the caller gets 503 with guidance to start a new checkout.
+  - Portal: `GET /subscription/{code}/manage/link` (5 minutes in our record).
+  - Plan change: Paystack cannot reprice a subscription. Scheduling disables renewal of the current subscription
+    (`/subscription/disable` with its email token) and creates the new one with `start_date = effectiveAt`; the new code is
+    stored on the change (`provider_new_subscription_ref`, migration 0021). Cancelling the schedule disables the new one and
+    re-enables the old one. Applying the change moves `cp.subscription` to the new code. Events for an open change's new
+    subscription belong to the tenant (no quarantine).
+  - Cancel: `/subscription/disable`; resume: `/subscription/enable`.
+- **Webhooks (BIL-004):** `x-paystack-signature` = hex HMAC-SHA512 of the raw body with the secret key, compared in constant
+  time; Paystack signs no timestamp, so its replay controls are deduplication on a stable event id
+  (`{event}:{data.id}`) and, when configured, the published source IP allowlist. Events used: `charge.success` (initial, our
+  `ti-cs-` reference), `invoice.update` with a paid invoice (renewal), `invoice.payment_failed`, `subscription.disable`,
+  `charge.dispute.create`, `refund.processed`; others are Ignored. Ordering uses the resource's `updatedAt`/`paid_at` in
+  milliseconds as the monotonic revision.
+- **Authoritative resolution (BIL-005):** a provider may need to fetch before an event can be applied. `IBillingWebhooks` gains
+  `ResolveAsync`, called by the processor before it locks the row: Paystack's initial `charge.success` fetches the subscription
+  created for the plan and customer (code, `next_payment_date` as period end). A fetch failure is a normal processing failure
+  with backoff.
+- **Early provider end (provider-neutral):** a `SubscriptionEnded` event for a subscription with a pending cancellation whose
+  paid period has not ended no longer sets `Cancelled` at once (Paystack disables immediately on cancel); it is audited and the
+  subscription stays paid until `period_end`. A new `SubscriptionPeriodEndJob` sets `Cancelled` once `period_end` has passed.
+  Access was already restricted at `period_end` by computation, so this is bookkeeping. An end without a pending cancellation
+  (provider-initiated) still cancels at once. Reconciliation treats "ended at the provider" as consistent with a pending
+  cancellation before `period_end`.
+- **Reconciliation with Paystack:** Paystack has no event-list API, so `ListEventsSince` returns nothing and convergence relies
+  on Paystack's own webhook retries plus the comparison (`FetchSubscription`: active → Active, attention → PastDue,
+  non-renewing → Active with pending cancellation, cancelled/completed → Cancelled), whose differences become operator tasks.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

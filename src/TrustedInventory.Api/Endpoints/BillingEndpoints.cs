@@ -77,7 +77,8 @@ public static class BillingEndpoints
                 while ((read = await http.Request.Body.ReadAsync(chunk, ct)) > 0 && buffer.Length < limit)
                     buffer.Write(chunk, 0, read);
                 var headers = http.Request.Headers;
-                return Results.Ok(await svc.ReceiveAsync(provider, buffer.ToArray(), name => headers.TryGetValue(name, out var v) ? v.ToString() : null, ct));
+                return Results.Ok(await svc.ReceiveAsync(provider, buffer.ToArray(), name => headers.TryGetValue(name, out var v) ? v.ToString() : null,
+                    http.Connection.RemoteIpAddress?.ToString(), ct));
             })
             .WithName("receiveBillingWebhook")
             .AllowAnonymous();

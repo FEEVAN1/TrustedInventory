@@ -85,6 +85,9 @@ public readonly partial record struct Money
     /// <summary>ISO 4217 code reserved for testing; the only currency the simulator accepts (DEC-040, DEC-062).</summary>
     public const string TestCurrency = "XTS";
 
+    /// <summary>The approved currency (owner decision D09, DEC-067): Nigerian naira, exponent 2 (kobo).</summary>
+    public const string Naira = "NGN";
+
     public string Currency { get; }
     public long MinorUnits { get; }
     public int Exponent { get; }
@@ -144,11 +147,13 @@ public static partial class CatalogRules
             throw new DomainException("Trials are 0 to 90 days.");
     }
 
-    /// <summary>While the simulator is the provider, only the test currency can be priced (no live commerce, DEC-040).</summary>
-    public static void ValidatePrice(Money amount, bool simulatorOnly)
+    /// <summary>Prices are in the approved currency NGN (kobo) or the test currency XTS (D09, DEC-067, DEC-068).</summary>
+    public static void ValidatePrice(Money amount)
     {
-        if (simulatorOnly && amount.Currency != Money.TestCurrency)
-            throw new DomainException($"Only the test currency {Money.TestCurrency} can be priced until the owner approves a provider and prices (D09).");
+        if (amount.Currency is not (Money.Naira or Money.TestCurrency))
+            throw new DomainException($"Prices are in {Money.Naira}, or the test currency {Money.TestCurrency} (D09).");
+        if (amount.Currency == Money.Naira && amount.Exponent != 2)
+            throw new DomainException("NGN prices are in kobo: exponent 2.");
         if (amount.MinorUnits == 0)
             throw new DomainException("A purchasable price must be above zero.");
     }

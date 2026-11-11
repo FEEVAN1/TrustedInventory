@@ -86,8 +86,10 @@ services:
       # SIMULATED object store shared by API and worker (DEC-061; production storage is D06).
       Storage__Directory: /data/objects-simulated
       Storage__LinkKey: ${TI_LINK_KEY:?set in .env}
-      # SIMULATED BILLING only (DEC-039, DEC-063): startup refuses any other provider or live checkout.
-      Billing__Provider: simulator
+      # Billing provider (DEC-068): the labelled simulator by default; "paystack" only with a Paystack TEST key for the owner's
+      # test-mode run (docs/paystack-sandbox.md). Startup refuses live keys and live checkout.
+      Billing__Provider: ${TI_BILLING_PROVIDER:-simulator}
+      Billing__Paystack__SecretKey: ${TI_PAYSTACK_SECRET_KEY:-}
       Billing__ReturnUrl: http://localhost:5173/billing/return
       # Simulator webhook signing secret and inbox payload key (DEC-064); both API and worker need them.
       Billing__Simulator__SigningSecret: ${TI_BILLING_SIM_SECRET:?set in .env}

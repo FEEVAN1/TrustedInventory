@@ -272,6 +272,10 @@ public sealed class PlanChangeTests(ApiFixture fx)
         await (await t.Owner.PostJsonAsync("/api/v1/saas/subscription/cancel", new { reason = "Closing for now" }, $"\"{await RevisionAsync(t)}\""))
             .ExpectAsync(HttpStatusCode.OK);
         await DeliverAndProcessAsync(Simulator.EndSubscription(t.SubscriptionRef));
+        // The provider's end does not cut the paid period short; the period-end job records it afterwards (DEC-068).
+        Assert.Equal("Active", await ScalarAsync("SELECT state::text FROM cp.subscription WHERE tenant_id = @t", t.TenantId));
+        await new SubscriptionPeriodEndJob(fx.Factory.Services.GetRequiredService<ControlDataSource>(), new FakeTimeProvider(periodEnd))
+            .EndDueAsync(CancellationToken.None);
         Assert.Equal("Cancelled", await ScalarAsync("SELECT state::text FROM cp.subscription WHERE tenant_id = @t", t.TenantId));
         await (await t.Owner.PostEmptyAsync("/api/v1/saas/subscription/resume", $"\"{await RevisionAsync(t)}\""))
             .ExpectProblemAsync(HttpStatusCode.Conflict, "INVALID_STATE");

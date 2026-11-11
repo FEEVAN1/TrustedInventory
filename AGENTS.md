@@ -22,8 +22,10 @@ SaaS access, billing and lifecycle rules apply to every module.
 5. **Contract first (DEC-003).** Change `docs/openapi.yaml` before changing an endpoint. Enum values
    come from `docs/enums.md`; permission names from `docs/permissions.md`. Every operation declares
    `x-permission` and `x-access`, plus `x-entitlement` / `x-quota` where they apply (DEC-034, DEC-038).
-6. **No live commerce (DEC-039, DEC-040).** Billing runs only against the labelled simulator; never
-   publish prices, charge customers or delete production data from development or tests.
+6. **No live commerce (DEC-039, DEC-040, DEC-067, DEC-068).** Development and automated tests run billing only
+   against the labelled simulators. Paystack (owner decision D09) runs only in test mode, with keys held outside the
+   repository, for the owner's sandbox run; live keys and live checkout stay refused until a live configuration is
+   approved. Never charge customers or delete production data from development or tests.
 
 ## Milestones (spec sections 20 and 31)
 
@@ -38,7 +40,7 @@ SaaS access, billing and lifecycle rules apply to every module.
 | M6 release readiness | Not started | Owner reviews evidence and approves production policies |
 | v3.0 contract pass | **Gate met** (7 Nov 2026): contract lints clean, SaaS schema draft passes 59 checks | SaaS contracts, state matrix, control-plane design; no unresolved isolation or stock conflict |
 | S1 provisioning | **Gate met** (8 Nov 2026, owner sign-off): AT-ONB-01, AT-ONB-02, AT-SAS-01 pass; 133 unit + 103 integration tests on PostgreSQL 16. Partial carry-overs: ONB-004 (sample data M2, screen with first UI), LFC-001 (S2), SOD-6 (S3), SOD-7 (S3/M4) | AT-ONB and AT-SAS pass |
-| S2 commercial control | **In progress** (DEC-062 to DEC-067): slices 1-6 done on the labelled simulator: AT-BIL-01..04 and AT-ENT-01..03 pass, plus the CommercialFlowTests end-to-end lifecycle; 265 unit + 249 integration tests on PostgreSQL 16; migrations 0017-0020. Slice 7 adds the Paystack adapter (owner decision D09: Paystack, NGN, prices in the platform catalog) and an owner-run Paystack test-mode pass; the gate is assessed after it. No live charging: startup refuses any provider but the simulator and live checkout. D10 grace and reminders approved; still open: D09 plan names, quotas, trials and taxes. Partial carry-overs: ENT-003, ENT-004 (devices, M5), ENT-006 (recall and excursion blockers, M5), SOP-003 and AT-SOP-01 (persisted platform alerts, noisy-tenant load test: S3) | AT-BIL and AT-ENT pass in provider sandbox; no live charging |
+| S2 commercial control | **In progress** (DEC-062 to DEC-067): slices 1-6 done on the labelled simulator: AT-BIL-01..04 and AT-ENT-01..03 pass, plus the CommercialFlowTests end-to-end lifecycle; 265 unit + 257 integration tests on PostgreSQL 16; migrations 0017-0021. Slice 7 done (DEC-068, migration 0021): NGN prices set in the platform catalog, and the Paystack adapter in test mode, verified against a labelled Paystack API simulator (PaystackTests). **Waiting for the owner's Paystack test-mode run** (docs/paystack-sandbox.md); the gate is assessed after it. No live charging: startup refuses any provider but the simulator and live checkout. D10 grace and reminders approved; still open: D09 plan names, quotas, trials and taxes. Partial carry-overs: ENT-003, ENT-004 (devices, M5), ENT-006 (recall and excursion blockers, M5), SOP-003 and AT-SOP-01 (persisted platform alerts, noisy-tenant load test: S3) | AT-BIL and AT-ENT pass in provider sandbox; no live charging |
 | S3 lifecycle and service | Not started | AT-LFC and AT-SOP pass; owner approves commercial defaults |
 
 Order: v3.0 contract pass → S1 → M2 → M3 → M4, with S2 and S3 before any commercial activation. R1A

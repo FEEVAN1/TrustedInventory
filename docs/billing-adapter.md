@@ -101,6 +101,31 @@ entitlement snapshots that are missing, expired or for another plan. Each differ
 entitlement stays in force; tenants are **not** restricted because the provider is unreachable (BIL-005,
 SOP-003, AT-SOP-01). Alert when the oldest unprocessed inbox row is older than five minutes.
 
+## Paystack (owner decision D09; test mode only, DEC-068)
+
+`PaystackBillingProvider` implements the same contract against the Paystack API (`Billing:Provider = paystack`,
+`Billing:Paystack:SecretKey` = a `sk_test_` key from the vault or environment). Startup refuses `sk_live_` keys and live checkout.
+
+| Contract | Paystack |
+|----------|----------|
+| `Supports` | NGN only (kobo); XTS prices are never offered |
+| `EnsureCustomer` | `POST /customer` (Paystack keys customers by email) |
+| `EnsurePrice` | an existing plan named `TI {priceVersionId}`, else `POST /plan` (monthly or annually) |
+| `CreateCheckoutSession` | `POST /transaction/initialize` with the plan and reference `ti-cs-{checkoutId}`; a reused reference is refused by Paystack, so a lost first response means a new checkout |
+| `CreatePortalSession` | `GET /subscription/{code}/manage/link` |
+| `ScheduleChange` | creates the target plan's subscription with `start_date` = period end, then disables the current one; the new code is stored on the change and becomes the subscription when the change applies |
+| `CancelScheduledChange` | disables the new subscription and re-enables the old one |
+| `CancelAtPeriodEnd` / `Resume` | `/subscription/disable` / `/subscription/enable` (with the email token) |
+| `FetchSubscription` | `GET /subscription/{code}`: active → Active, attention → PastDue, non-renewing → Active with pending cancellation, otherwise Cancelled |
+| `ListEventsSince` | nothing: Paystack has no event list, so missed webhooks rely on Paystack's retries and the comparison tasks |
+| Webhooks | `x-paystack-signature` = HMAC-SHA512 of the raw body with the secret key; no timestamp, so replay control is the event-id dedupe (`{event}:{data.id}`) and the optional `Billing:Paystack:WebhookSourceIps` allowlist |
+| Events | initial `charge.success` (our reference; the subscription is fetched to learn its code and next payment date), paid `invoice.update`, `invoice.payment_failed`, `subscription.disable`, `charge.dispute.create`, `refund.processed`; others Ignored |
+
+A `subscription.disable` that arrives while a cancelled subscription's paid period still runs, or for a subscription being
+replaced by a scheduled change, does not end service; `SubscriptionPeriodEndJob` records `Cancelled` after `period_end`.
+The owner's test-mode run is described in `docs/paystack-sandbox.md`. Automated tests use a labelled Paystack API simulator in
+the test project.
+
 ## Simulator (development and tests only)
 
 Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` in logs and UI.

@@ -23,6 +23,8 @@ public sealed partial class SimulatedBillingProvider(TimeProvider clock, Simulat
 
     public string Code => BillingOptions.Simulator;
 
+    public bool Supports(string currency) => currency is Domain.Saas.Money.TestCurrency or Domain.Saas.Money.Naira;
+
     // ---- Test console (development and tests only) ----
 
     /// <summary>While set, every adapter call fails as if the provider were unreachable (AT-SOP-01).</summary>
@@ -66,15 +68,15 @@ public sealed partial class SimulatedBillingProvider(TimeProvider clock, Simulat
             new ProviderPortal($"{HostedBase}/portal/{Guid.NewGuid():N}", now + PortalLifetime));
     }
 
-    public Task<string> ScheduleChangeAsync(Guid changeId, string providerSubscriptionRef, string targetPriceRef, DateTimeOffset effectiveAt,
-        CancellationToken ct) =>
+    public Task<ProviderChangeSchedule> ScheduleChangeAsync(Guid changeId, string providerSubscriptionRef, string targetPriceRef,
+        DateTimeOffset effectiveAt, CancellationToken ct) =>
         Once($"change:{changeId}", () =>
         {
             UpdateSubscription(providerSubscriptionRef, s => s with { PendingPriceRef = targetPriceRef, PendingFrom = effectiveAt });
-            return $"sim_sch_{changeId:N}";
+            return new ProviderChangeSchedule($"sim_sch_{changeId:N}", null); // the simulator reprices in place
         });
 
-    public Task CancelScheduledChangeAsync(Guid changeId, string providerSubscriptionRef, CancellationToken ct) =>
+    public Task CancelScheduledChangeAsync(Guid changeId, string providerSubscriptionRef, string? newSubscriptionRef, CancellationToken ct) =>
         Once($"change-cancel:{changeId}", () =>
         {
             UpdateSubscription(providerSubscriptionRef, s => s with { PendingPriceRef = null, PendingFrom = null });

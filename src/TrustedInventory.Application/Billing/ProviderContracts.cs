@@ -6,11 +6,14 @@ namespace TrustedInventory.Application.Billing;
 public sealed record ProviderCustomerRequest(Guid BillingAccountId, string LegalName, string Country, string ContactEmail);
 
 public sealed record ProviderCheckoutRequest(Guid CheckoutSessionId, string ProviderCustomerId, string ProviderPriceRef, string AcceptedPreviewDigest,
-    DateTimeOffset ExpiresAt, string ReturnUrl);
+    DateTimeOffset ExpiresAt, string ReturnUrl, string CustomerEmail, MoneyDto Amount);
 
 public sealed record ProviderCheckout(string SessionRef, string HostedUrl, DateTimeOffset ExpiresAt);
 
 public sealed record ProviderPortal(string Url, DateTimeOffset ExpiresAt);
+
+/// <summary>A scheduled change; providers that cannot reprice a subscription return the replacement subscription (DEC-068).</summary>
+public sealed record ProviderChangeSchedule(string Ref, string? NewSubscriptionRef);
 
 /// <summary>A provider event fetched over the authenticated API (reconciliation catch-up, DEC-066).</summary>
 public sealed record ProviderEventRecord(string EventId, byte[] Body);
@@ -18,10 +21,10 @@ public sealed record ProviderEventRecord(string EventId, byte[] Body);
 public sealed record ProviderEventPage(IReadOnlyList<ProviderEventRecord> Events, string? NextCursor);
 
 /// <summary>The provider's current view of a subscription, for comparison only (BIL-006).</summary>
-public sealed record ProviderSubscriptionState(string Ref, SubscriptionState State, DateTimeOffset PeriodEnd, bool CancelAtPeriodEnd);
+public sealed record ProviderSubscriptionState(string Ref, SubscriptionState State, DateTimeOffset? PeriodEnd, bool CancelAtPeriodEnd);
 
 /// <summary>The provider could not be reached or refused the call; our records stay unchanged (503, DEC-063).</summary>
-public sealed class BillingProviderUnavailableException(string message) : Exception(message);
+public class BillingProviderUnavailableException(string message) : Exception(message);
 
 /// <summary>
 /// Subscription payment provider adapter (DEC-039, DEC-063, docs/billing-adapter.md). Card data stays with the provider
@@ -31,6 +34,9 @@ public interface IBillingProvider
 {
     /// <summary>Provider key stored on every provider-referenced row, e.g. "simulator".</summary>
     string Code { get; }
+
+    /// <summary>Currencies this provider charges; a price in any other is never offered (DEC-068).</summary>
+    bool Supports(string currency);
 
     /// <summary>Key <c>customer:{billingAccountId}</c>.</summary>
     Task<string> EnsureCustomerAsync(ProviderCustomerRequest request, CancellationToken ct);
@@ -46,10 +52,11 @@ public interface IBillingProvider
 
     /// <summary>Key <c>change:{subscriptionChangeId}</c>: the renewal at <paramref name="effectiveAt"/> uses the target price. One schedule
     /// per provider subscription; a newer one replaces it (DEC-065).</summary>
-    Task<string> ScheduleChangeAsync(Guid changeId, string providerSubscriptionRef, string targetPriceRef, DateTimeOffset effectiveAt, CancellationToken ct);
+    Task<ProviderChangeSchedule> ScheduleChangeAsync(Guid changeId, string providerSubscriptionRef, string targetPriceRef, DateTimeOffset effectiveAt,
+        CancellationToken ct);
 
     /// <summary>Key <c>change-cancel:{subscriptionChangeId}</c>: the renewal keeps the current price.</summary>
-    Task CancelScheduledChangeAsync(Guid changeId, string providerSubscriptionRef, CancellationToken ct);
+    Task CancelScheduledChangeAsync(Guid changeId, string providerSubscriptionRef, string? newSubscriptionRef, CancellationToken ct);
 
     /// <summary>Key <c>cancel:{subscriptionId}:{revision}</c>: no renewal after the paid period.</summary>
     Task CancelAtPeriodEndAsync(Guid subscriptionId, long revision, string providerSubscriptionRef, CancellationToken ct);

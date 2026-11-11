@@ -99,6 +99,9 @@ public sealed class CommercialFlowTests(ApiFixture fx)
             .ExpectAsync(HttpStatusCode.OK);
         Assert.True((bool)sub["cancelAtPeriodEnd"]!);
         await DeliverAndProcessAsync(Simulator.EndSubscription(subscriptionRef));
+        Assert.Equal("Active", (string?)(await SubscriptionAsync(owner))["state"]); // paid until period end (DEC-068)
+        await new SubscriptionPeriodEndJob(fx.Factory.Services.GetRequiredService<ControlDataSource>(), new FakeTimeProvider(await PeriodEndAsync(tenant)))
+            .EndDueAsync(CancellationToken.None);
         sub = await SubscriptionAsync(owner);
         Assert.Equal("Cancelled", (string?)sub["state"]);
         Assert.Equal("BillingRestricted", (string?)sub["accessMode"]);

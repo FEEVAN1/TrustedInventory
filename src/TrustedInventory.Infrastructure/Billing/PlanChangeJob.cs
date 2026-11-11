@@ -90,7 +90,7 @@ public sealed partial class PlanChangeJob(ControlDataSource control, TenantJobRu
             return true;
         try
         {
-            await provider.CancelScheduledChangeAsync(info.ChangeId, info.ProviderSubscriptionRef, ct);
+            await provider.CancelScheduledChangeAsync(info.ChangeId, info.ProviderSubscriptionRef, info.NewSubscriptionRef, ct);
             return true;
         }
         catch (BillingProviderUnavailableException)
@@ -137,9 +137,11 @@ public sealed partial class PlanChangeJob(ControlDataSource control, TenantJobRu
         if (wanted == SubscriptionChangeState.Applied)
         {
             var newRevision = (await Sql.ScalarAsync<long?>(conn, tx, """
-                UPDATE cp.subscription SET plan_version_id = @plan, price_version_id = @price, revision = revision + 1, updated_at = @now
+                UPDATE cp.subscription SET plan_version_id = @plan, price_version_id = @price, revision = revision + 1, updated_at = @now,
+                       provider_subscription_ref = coalesce(@newRef, provider_subscription_ref)
                 WHERE id = @s RETURNING revision
-                """, ct, ("plan", info.Target.PlanVersionId), ("price", info.TargetPriceVersionId), ("now", now), ("s", info.SubscriptionId)))!.Value;
+                """, ct, ("plan", info.Target.PlanVersionId), ("price", info.TargetPriceVersionId), ("now", now), ("s", info.SubscriptionId),
+                ("newRef", (object?)info.NewSubscriptionRef ?? DBNull.Value)))!.Value;
             var version = await EntitlementSnapshots.ReplaceAsync(conn, tx, info.TenantId, newRevision, info.Target.PlanVersionId, now, ct);
             await Sql.ExecAsync(conn, tx, """
                 UPDATE cp.subscription_change SET state = 'Applied', applied_at = @now, updated_at = @now, version = version + 1 WHERE id = @id
@@ -195,7 +197,7 @@ public sealed partial class PlanChangeJob(ControlDataSource control, TenantJobRu
     }
 
     private sealed record ChangeInfo(Guid ChangeId, Guid TenantId, Guid SubscriptionId, string Lifecycle, bool SecuritySuspended,
-        string? ProviderSubscriptionRef, Guid TargetPriceVersionId, PlanTerms Current, PlanTerms Target, bool FirstPeriodPaid);
+        string? ProviderSubscriptionRef, Guid TargetPriceVersionId, PlanTerms Current, PlanTerms Target, bool FirstPeriodPaid, string? NewSubscriptionRef);
 
     private async Task<ChangeInfo?> LoadAsync(Guid changeId, CancellationToken ct)
     {
@@ -203,7 +205,8 @@ public sealed partial class PlanChangeJob(ControlDataSource control, TenantJobRu
             SELECT c.id, c.tenant_id, s.id, coalesce(t.lifecycle::text, 'Ready'), t.security_suspended_at IS NOT NULL, s.provider_subscription_ref,
                    c.target_price_version_id, coalesce(e.plan_version_id, s.plan_version_id), coalesce(e.features, '{}'), coalesce(e.limits, '{}')::text,
                    p.id, p.features, p.quotas::text,
-                   EXISTS (SELECT 1 FROM cp.invoice i WHERE i.subscription_id = s.id AND i.status = 'Paid' AND i.period_start >= c.effective_at)
+                   EXISTS (SELECT 1 FROM cp.invoice i WHERE i.subscription_id = s.id AND i.status = 'Paid' AND i.period_start >= c.effective_at),
+                   c.provider_new_subscription_ref
             FROM cp.subscription_change c
             JOIN cp.subscription s ON s.id = c.subscription_id
             JOIN ti.tenant t ON t.id = c.tenant_id
@@ -218,7 +221,7 @@ public sealed partial class PlanChangeJob(ControlDataSource control, TenantJobRu
         return new ChangeInfo(r.GetGuid(0), r.GetGuid(1), r.GetGuid(2), r.GetString(3), r.GetBoolean(4), r.IsDBNull(5) ? null : r.GetString(5), r.GetGuid(6),
             new PlanTerms(r.GetGuid(7), PlanChangeStore.Features(r.GetFieldValue<string[]>(8)), PlanChangeStore.Limits(r.GetString(9))),
             new PlanTerms(r.GetGuid(10), PlanChangeStore.Features(r.GetFieldValue<string[]>(11)), PlanChangeStore.Limits(r.GetString(12))),
-            r.GetBoolean(13));
+            r.GetBoolean(13), r.IsDBNull(14) ? null : r.GetString(14));
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Plan change {ChangeId}: {Outcome}")]
