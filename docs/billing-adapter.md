@@ -1,8 +1,9 @@
 # Billing adapter
 
 How TrustedInventory talks to a subscription payment provider (spec v3.0 section 25, DEC-039). The
-provider is an **owner decision (D09)**; until it is made, the only implementation is the **simulator**
-described below, and live checkout is disabled by configuration. Schema: `db/design/saas-schema-draft.sql`
+provider is **Paystack** (owner decision D09, DEC-067), currency NGN in kobo, prices set by platform billing operators in
+the plan catalog. Until the Paystack adapter (S2 slice 7) and an approved live configuration exist, the only implementation is
+the **simulator** described below, and live checkout is disabled by configuration. Schema: `db/design/saas-schema-draft.sql`
 (schema `cp`); flows: `docs/migration-design.md` §10.
 
 ## Principles
