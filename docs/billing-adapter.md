@@ -30,7 +30,8 @@ derived from our own record id, so a retried call never creates a second provide
 | `CreateCheckoutSession` | customer, provider price ref, accepted preview digest, success/cancel URLs from the redirect allowlist | `providerSessionRef`, `hostedUrl`, `expiresAt` | `checkout:{checkoutSessionId}` |
 | `CreatePortalSession` | customer, return URL from the allowlist | short-lived `url` | `portal:{billingAccountId}:{minute}` |
 | `ScheduleChange` | provider subscription ref, target price ref, effective date | provider change ref | `change:{subscriptionChangeId}` |
-| `CancelAtPeriodEnd` / `Resume` | provider subscription ref | provider state | `cancel:{subscriptionId}:{revision}` |
+| `CancelScheduledChange` | provider subscription ref | — | `change-cancel:{subscriptionChangeId}` |
+| `CancelAtPeriodEnd` / `Resume` | provider subscription ref | provider state | `cancel:{subscriptionId}:{revision}` / `resume:{subscriptionId}:{revision}` |
 | `VerifyWebhook` | raw body bytes, headers | verified event envelope or rejection | — |
 | `FetchSubscription` / `FetchInvoice` | provider ref | authoritative current resource incl. provider revision | — |
 | `ListChangedSince` | cursor | page of subscriptions and invoices (reconciliation) | — |
@@ -76,9 +77,16 @@ Never log full payloads; logs carry the event id, type, tenant id (once resolved
 | Initial invoice paid for a checkout | Subscription `Trialing → Active`, period set, new entitlement snapshot; checkout `Completed` |
 | Renewal invoice paid | Period advanced; `PastDue → Active`; grace cleared |
 | Renewal payment failed | `Active → PastDue` once; `grace_end = due date + 7 days` (D10). Repeated failures do not extend grace (BIL-007) |
-| Subscription cancelled by provider at period end | `Cancelled` after `period_end` (access becomes restricted by computation, not by job) |
 | Dispute, chargeback, refund | Payment/refund rows and an **operator review task**; no automatic restriction or deletion (BIL-008) |
-| Scheduled change applied | Re-check target limits; apply or mark the change `Blocked` with blockers (ENT-006) |
+| Subscription deleted by the provider (after a cancellation) | `Cancelled`; any open change cancelled (DEC-065); access was already restricted from `period_end` by computation, not by this event |
+
+## Plan changes (DEC-065)
+
+A change takes effect at the current `period_end`. It is not a webhook effect: the worker's `PlanChangeJob` (every
+`Worker:PlanChangeIntervalSeconds`, default 60) rechecks each due change: stock blockers in the tenant's transaction, then the
+quota blockers again under the tenant's usage counter locks. A blocked change is cancelled at the provider, marked `Blocked`
+with its blockers and the owner is notified; an upgrade waits for the paid invoice of its first period; otherwise the
+subscription moves to the target plan and price with a new entitlement snapshot.
 
 ## Reconciliation
 

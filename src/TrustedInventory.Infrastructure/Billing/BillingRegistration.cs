@@ -49,6 +49,7 @@ public static class BillingRegistration
         services.AddSingleton<IWebhookInbox, WebhookInbox>();
         services.AddSingleton<BillingEventJob>();
         services.AddSingleton<ICheckoutStore, CheckoutStore>();
+        services.AddSingleton<IPlanChangeStore, PlanChangeStore>();
         return services;
     }
 }

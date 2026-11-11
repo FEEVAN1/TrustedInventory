@@ -22,6 +22,9 @@ builder.Services.AddHostedService(sp => new ScheduledJob<ExportGenerationJob>(sp
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.BillingEventJob>(sp,
     sp.GetRequiredService<WorkerOptions>().BillingEventInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<BillingNoticeRelayJob>(sp, sp.GetRequiredService<WorkerOptions>().BillingNoticeInterval));
+// Scheduled plan changes at their boundary (DEC-065).
+builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.PlanChangeJob>(sp,
+    sp.GetRequiredService<WorkerOptions>().PlanChangeInterval));
 // Resumes signups whose inline provisioning stopped part-way (ONB-002).
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Saas.ProvisioningSweepJob>(sp,
     builder.Configuration.GetValue("Worker:ProvisioningInterval", TimeSpan.FromSeconds(30))));

@@ -84,3 +84,57 @@ public static class BillingEventRules
         };
     }
 }
+
+/// <summary>One reason a plan change cannot proceed (contract schema Blocker).</summary>
+public sealed record ChangeBlocker(string Code, QuotaKey? Quota, long? Used, long? Limit, string Detail);
+
+/// <summary>Plan change rules (ENT-005, ENT-006, DEC-065).</summary>
+public static class PlanChangeRules
+{
+    public const string MedicalFeature = "medical_storage";
+
+    /// <summary>
+    /// An upgrade only adds: no feature removed, no limit lowered, something raised or added. It waits for the verified
+    /// payment of its first period (ENT-005); anything else applies at the boundary once it fits.
+    /// </summary>
+    public static bool IsUpgrade(IReadOnlySet<string> currentFeatures, IReadOnlyDictionary<QuotaKey, long> currentLimits,
+        IReadOnlySet<string> targetFeatures, IReadOnlyDictionary<QuotaKey, long> targetLimits)
+    {
+        if (!currentFeatures.IsSubsetOf(targetFeatures))
+            return false;
+        var raised = targetFeatures.Count > currentFeatures.Count;
+        foreach (var quota in Enum.GetValues<QuotaKey>())
+        {
+            var current = currentLimits.GetValueOrDefault(quota);
+            var target = targetLimits.GetValueOrDefault(quota);
+            if (target < current)
+                return false;
+            raised |= target > current;
+        }
+        return raised;
+    }
+
+    public static bool RemovesMedical(IReadOnlySet<string> currentFeatures, IReadOnlySet<string> targetFeatures) =>
+        currentFeatures.Contains(MedicalFeature) && !targetFeatures.Contains(MedicalFeature);
+
+    /// <summary>Every quota whose current usage would exceed the target limit (a missing limit is 0). Never trims usage.</summary>
+    public static IReadOnlyList<ChangeBlocker> QuotaBlockers(IReadOnlyDictionary<QuotaKey, long> usage, IReadOnlyDictionary<QuotaKey, long> targetLimits)
+    {
+        var blockers = new List<ChangeBlocker>();
+        foreach (var quota in Enum.GetValues<QuotaKey>())
+        {
+            var used = usage.GetValueOrDefault(quota);
+            var limit = targetLimits.GetValueOrDefault(quota);
+            if (used > limit)
+                blockers.Add(new ChangeBlocker("QUOTA_EXCEEDED", quota, used, limit,
+                    $"{used} in use but the new plan allows {limit}. Reduce usage before the change takes effect; nothing is removed automatically."));
+        }
+        return blockers;
+    }
+
+    /// <summary>The provider ended the subscription (cancelled at period end): Cancelled, if the event is newer.</summary>
+    public static SubscriptionFacts? Ended(SubscriptionFacts s, long revision) =>
+        BillingEventRules.IsNewer(revision, s.ProviderRevision) && s.State is SubscriptionState.Active or SubscriptionState.PastDue
+            ? s with { State = SubscriptionState.Cancelled, ProviderRevision = revision }
+            : null;
+}

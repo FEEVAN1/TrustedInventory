@@ -25,6 +25,9 @@ public sealed record SimSubscription(string Ref, string CustomerRef, string Pric
 {
     public string? OpenInvoiceRef { get; init; }
     public DateTimeOffset? OpenInvoicePeriodEnd { get; init; }
+    public string? PendingPriceRef { get; init; }
+    public DateTimeOffset? PendingFrom { get; init; }
+    public bool CancelAtPeriodEnd { get; init; }
 }
 
 /// <summary>Wire format of simulator events. Real providers get their own parser once D09 is decided.</summary>
@@ -132,6 +135,7 @@ public sealed partial class SimulatedBillingProvider
             "charge.dispute.created" => BillingEventKind.DisputeOpened,
             "charge.dispute.funds_withdrawn" => BillingEventKind.ChargebackRecorded,
             "charge.refunded" => BillingEventKind.PaymentRefunded,
+            "customer.subscription.deleted" => BillingEventKind.SubscriptionEnded,
             _ => BillingEventKind.Unsupported,
         };
         var invoice = d.Invoice is { } i
@@ -150,6 +154,7 @@ public sealed partial class SimulatedBillingProvider
                     && invoice.PeriodStart is not null && invoice.PeriodEnd > invoice.PeriodStart)),
             BillingEventKind.DisputeOpened or BillingEventKind.ChargebackRecorded => d.Customer is not null && dispute is not null,
             BillingEventKind.PaymentRefunded => d.Customer is not null && payment?.RefundOfRef is not null,
+            BillingEventKind.SubscriptionEnded => d.Customer is not null && d.Subscription is not null && d.SubscriptionRevision is not null,
             _ => true,
         };
         if (!complete)
@@ -214,7 +219,11 @@ public sealed partial class SimulatedBillingProvider
         var now = clock.GetUtcNow();
         var invoice = Invoice(price, sub.PeriodEnd, periodEnd, InvoiceStatus.Paid, now, initial: false, invoiceRef, dueAt: sub.PeriodEnd);
         var payment = Payment(sub.CustomerRef, PaymentStatus.Succeeded, invoice.Total, now);
-        _subscriptions[sub.Ref] = sub with { PeriodStart = sub.PeriodEnd, PeriodEnd = periodEnd, OpenInvoiceRef = null, OpenInvoicePeriodEnd = null };
+        _subscriptions[sub.Ref] = sub with
+        {
+            PeriodStart = sub.PeriodEnd, PeriodEnd = periodEnd, OpenInvoiceRef = null, OpenInvoicePeriodEnd = null, PriceRef = price.Ref,
+            PendingPriceRef = price.Ref == sub.PendingPriceRef ? null : sub.PendingPriceRef, PendingFrom = price.Ref == sub.PendingPriceRef ? null : sub.PendingFrom,
+        };
         return Build("invoice.paid", new SimEventData(sub.CustomerRef, sub.Ref, NextRevision(), Invoice: invoice, Payment: payment));
     }
 
@@ -236,6 +245,19 @@ public sealed partial class SimulatedBillingProvider
             throw new InvalidOperationException("No simulated payment with that reference.");
         var refund = new SimPayment($"sim_re_{Guid.NewGuid():N}", PaymentStatus.Refunded, payment.Amount, clock.GetUtcNow(), paymentRef);
         return Build("charge.refunded", new SimEventData(customer, Payment: refund));
+    }
+
+    /// <summary>The paid period ends after a cancellation: the provider ends the subscription.</summary>
+    public SimEvent EndSubscription(string subscriptionRef)
+    {
+        var sub = _subscriptions.GetValueOrDefault(subscriptionRef) ?? throw new InvalidOperationException("No simulated subscription with that reference.");
+        return Build("customer.subscription.deleted", new SimEventData(sub.CustomerRef, sub.Ref, NextRevision()));
+    }
+
+    private void UpdateSubscription(string reference, Func<SimSubscription, SimSubscription> change)
+    {
+        if (_subscriptions.TryGetValue(reference, out var sub))
+            _subscriptions[reference] = change(sub);
     }
 
     /// <summary>Any event, for unknown-reference and unsupported-type cases.</summary>
@@ -275,7 +297,8 @@ public sealed partial class SimulatedBillingProvider
     private (SimSubscription Sub, SimPrice Price, string InvoiceRef, DateTimeOffset PeriodEnd) OpenRenewal(string subscriptionRef)
     {
         var sub = _subscriptions.GetValueOrDefault(subscriptionRef) ?? throw new InvalidOperationException("No simulated subscription with that reference.");
-        var price = PriceOf(sub.PriceRef);
+        // A scheduled change takes effect with the renewal that starts at or after its date (DEC-065).
+        var price = PriceOf(sub.PendingPriceRef is { } pending && sub.PendingFrom <= sub.PeriodEnd ? pending : sub.PriceRef);
         if (sub.OpenInvoiceRef is null)
         {
             sub = sub with { OpenInvoiceRef = $"sim_in_{Guid.NewGuid():N}", OpenInvoicePeriodEnd = Advance(sub.PeriodEnd, price.Interval) };

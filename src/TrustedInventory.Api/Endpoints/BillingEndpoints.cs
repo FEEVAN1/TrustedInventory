@@ -31,6 +31,31 @@ public static class BillingEndpoints
             .WithName("createCheckout").RequirePermission(Permissions.BillingManage);
         tenant.MapGet("/saas/checkout/{id:guid}", (CheckoutService svc, Guid id, CancellationToken ct) => svc.GetAsync(id, ct))
             .WithName("getCheckout").RequirePermission(Permissions.BillingManage);
+        tenant.MapPost("/saas/subscription/change/preview", (PlanChangeService svc, SubscriptionChangePreviewRequest body, CancellationToken ct) =>
+                svc.PreviewAsync(body, ct))
+            .WithName("previewSubscriptionChange").RequirePermission(Permissions.BillingManage);
+        tenant.MapPost("/saas/subscription/change", async (HttpContext http, PlanChangeService svc, SubscriptionChangeRequest body, CancellationToken ct) =>
+            {
+                var key = Conventions.IdempotencyKey(http);
+                var (change, revision) = await svc.ChangeAsync(key, Conventions.IfMatch(http), body, ct);
+                Conventions.SetETag(http, revision);
+                return Results.Accepted((string?)null, change);
+            })
+            .WithName("changeSubscription").RequirePermission(Permissions.BillingManage);
+        tenant.MapPost("/saas/subscription/cancel", async (HttpContext http, PlanChangeService svc, CancelSubscriptionRequest body, CancellationToken ct) =>
+            {
+                var subscription = await svc.CancelAsync(Conventions.IfMatch(http), body, ct);
+                Conventions.SetETag(http, subscription.Version);
+                return Results.Ok(subscription);
+            })
+            .WithName("cancelSubscription").RequirePermission(Permissions.SubscriptionCancel);
+        tenant.MapPost("/saas/subscription/resume", async (HttpContext http, PlanChangeService svc, CancellationToken ct) =>
+            {
+                var subscription = await svc.ResumeAsync(Conventions.IfMatch(http), ct);
+                Conventions.SetETag(http, subscription.Version);
+                return Results.Ok(subscription);
+            })
+            .WithName("resumeSubscription").RequirePermission(Permissions.SubscriptionCancel);
         tenant.MapPost("/saas/billing-portal", async (CheckoutService svc, CancellationToken ct) =>
                 Results.Created((string?)null, await svc.PortalAsync(ct)))
             .WithName("createBillingPortalSession").RequirePermission(Permissions.BillingManage);

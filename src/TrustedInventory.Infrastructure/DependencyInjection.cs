@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0018_billing_events";
+    public const string Required = "0019_plan_changes";
 }
 
 public static class DependencyInjection

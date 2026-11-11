@@ -87,6 +87,14 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 - `Failed` events retry with backoff up to 10 attempts; `last_error` holds the exception type only. A row at 10 attempts
   needs an operator (console and `WebhookBacklog` alert arrive with S2 slice 5).
 
+### Plan changes and cancellation (draft, S2; simulator only)
+- A change is effective at the current period end. `PlanChangeJob` (`Worker:PlanChangeIntervalSeconds`, default 60) applies
+  it, blocks it (usage or medical stock rose: the owner gets a `PlanChangeBlocked` notice) or, for an upgrade, waits for the
+  paid invoice of the new period (DEC-065). A blocked change is never forced: the tenant reduces usage and requests it again.
+- A change left `Pending` (provider unreachable when it was requested) completes when the same request is retried.
+- Cancellation keeps all data. Access becomes billing-restricted at period end by computation; the provider's end event
+  later sets the subscription `Cancelled`.
+
 ### Stuck outbox (draft)
 - **Symptoms:** rising outbox age, or `OutboxDeadLetter` alerts.
 - Leases expire on their own: a crashed worker's batch is picked up by another after `lease_expires_at`.

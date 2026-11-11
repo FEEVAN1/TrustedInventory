@@ -26,6 +26,8 @@ public sealed record WorkerOptions
     public TimeSpan BillingEventInterval { get; init; } = TimeSpan.FromSeconds(5);
     /// <summary>Billing notice relay to tenant outboxes (DEC-064).</summary>
     public TimeSpan BillingNoticeInterval { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Scheduled plan changes (ENT-006, DEC-065).</summary>
+    public TimeSpan PlanChangeInterval { get; init; } = TimeSpan.FromMinutes(1);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -46,6 +48,7 @@ public sealed record WorkerOptions
             ExportInterval = Seconds(config, "Worker:ExportIntervalSeconds", d.ExportInterval),
             BillingEventInterval = Seconds(config, "Worker:BillingEventIntervalSeconds", d.BillingEventInterval),
             BillingNoticeInterval = Seconds(config, "Worker:BillingNoticeIntervalSeconds", d.BillingNoticeInterval),
+            PlanChangeInterval = Seconds(config, "Worker:PlanChangeIntervalSeconds", d.PlanChangeInterval),
         };
     }
 

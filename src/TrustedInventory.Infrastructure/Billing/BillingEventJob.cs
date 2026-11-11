@@ -176,6 +176,7 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
                 BillingEventKind.InvoicePaid or BillingEventKind.InvoicePaymentFailed => await InvoiceAsync(ct),
                 BillingEventKind.DisputeOpened or BillingEventKind.ChargebackRecorded => await DisputeAsync(ct),
                 BillingEventKind.PaymentRefunded => await RefundAsync(ct),
+                BillingEventKind.SubscriptionEnded => await EndedAsync(ct),
                 _ => (WebhookProcessingState.Ignored, _tenant, null),
             };
         }
@@ -258,18 +259,7 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
             }
 
             // A new current entitlement snapshot from the purchased plan (ENT-002); the trial snapshot is closed.
-            await ExecAsync("""
-                UPDATE cp.entitlement_snapshot SET is_current = false, effective_to = GREATEST(@now, effective_from + interval '1 millisecond')
-                WHERE tenant_id = @t AND is_current
-                """, ("t", _tenant), ("now", now));
-            var version = await RowAsync("""
-                INSERT INTO cp.entitlement_snapshot (tenant_id, subscription_revision, entitlement_version, plan_version_id, features, limits,
-                                                     effective_from, is_current)
-                SELECT @t, @rev, coalesce((SELECT max(entitlement_version) FROM cp.entitlement_snapshot WHERE tenant_id = @t), 0) + 1,
-                       p.id, p.features, p.quotas, @now, true
-                FROM cp.plan_version p WHERE p.id = @plan
-                RETURNING entitlement_version
-                """, r => r.GetInt32(0), ("t", _tenant), ("rev", revision!.Value), ("plan", plan), ("now", now));
+            var version = await EntitlementSnapshots.ReplaceAsync(conn, tx, _tenant, revision!.Value, plan, now, ct);
 
             Audit.Add(new AuditEntry("SubscriptionActivated", "Subscription", sub.Id, (int)revision.Value, null,
                 new { state = sub.Facts.State.ToString() },
@@ -387,6 +377,33 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
                     providerEventId = ev.EventId,
                 }));
             return id;
+        }
+
+        /// <summary>The provider ended the subscription after a cancellation (DEC-065). Access was already restricted by computation.</summary>
+        private async Task<(WebhookProcessingState, Guid?, string?)> EndedAsync(CancellationToken ct)
+        {
+            var sub = await SubscriptionAsync(ct) ?? throw new InvalidOperationException("The workspace has no subscription (SAS-001).");
+            if (sub.Facts.ProviderSubscriptionRef != ev.SubscriptionRef)
+            {
+                await TaskAsync(ReconciliationTaskKind.UnknownBillingReference, _tenant, $"unknown-subscription:{provider}:{ev.SubscriptionRef}",
+                    $"Event {ev.EventId} ({ev.EventType}) names a provider subscription this workspace is not linked to.", ct);
+                return (WebhookProcessingState.Quarantined, _tenant, "UNKNOWN_REFERENCE");
+            }
+            var next = PlanChangeRules.Ended(sub.Facts, ev.SubscriptionRevision!.Value);
+            if (next is null)
+                return (WebhookProcessingState.Processed, _tenant, null);
+            var revision = await RowAsync("""
+                UPDATE cp.subscription SET state = 'Cancelled', cancelled_at = @now, grace_end = NULL, provider_revision = @rev, revision = revision + 1,
+                       updated_at = @now
+                WHERE id = @id RETURNING revision
+                """, r => r.GetInt64(0), ("now", now), ("rev", next.ProviderRevision!.Value), ("id", sub.Id));
+            await ExecAsync("""
+                UPDATE cp.subscription_change SET state = 'Cancelled', updated_at = @now, version = version + 1
+                WHERE subscription_id = @id AND state IN ('Pending','Scheduled')
+                """, ("now", now), ("id", sub.Id));
+            Audit.Add(new AuditEntry("SubscriptionEnded", "Subscription", sub.Id, (int)revision!.Value, null, new { state = sub.Facts.State.ToString() },
+                new { state = "Cancelled", providerEventId = ev.EventId }));
+            return (WebhookProcessingState.Processed, _tenant, null);
         }
 
         // ---------------------------------------------------------------------------------------------------------

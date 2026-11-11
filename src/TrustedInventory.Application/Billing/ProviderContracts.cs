@@ -35,4 +35,17 @@ public interface IBillingProvider
 
     /// <summary>Key <c>portal:{billingAccountId}:{minute}</c>.</summary>
     Task<ProviderPortal> CreatePortalSessionAsync(Guid billingAccountId, string providerCustomerId, string returnUrl, CancellationToken ct);
+
+    /// <summary>Key <c>change:{subscriptionChangeId}</c>: the renewal at <paramref name="effectiveAt"/> uses the target price. One schedule
+    /// per provider subscription; a newer one replaces it (DEC-065).</summary>
+    Task<string> ScheduleChangeAsync(Guid changeId, string providerSubscriptionRef, string targetPriceRef, DateTimeOffset effectiveAt, CancellationToken ct);
+
+    /// <summary>Key <c>change-cancel:{subscriptionChangeId}</c>: the renewal keeps the current price.</summary>
+    Task CancelScheduledChangeAsync(Guid changeId, string providerSubscriptionRef, CancellationToken ct);
+
+    /// <summary>Key <c>cancel:{subscriptionId}:{revision}</c>: no renewal after the paid period.</summary>
+    Task CancelAtPeriodEndAsync(Guid subscriptionId, long revision, string providerSubscriptionRef, CancellationToken ct);
+
+    /// <summary>Key <c>resume:{subscriptionId}:{revision}</c>: withdraws a pending cancellation.</summary>
+    Task ResumeAsync(Guid subscriptionId, long revision, string providerSubscriptionRef, CancellationToken ct);
 }

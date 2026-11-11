@@ -22,6 +22,7 @@ public enum BillingEventKind
     DisputeOpened,
     ChargebackRecorded,
     PaymentRefunded,
+    SubscriptionEnded,
     Unsupported,
 }
 

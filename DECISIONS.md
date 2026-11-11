@@ -1123,6 +1123,53 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   events (`SimEvent`: body bytes and signature header) for tests to deliver; `Sign(body, at)` and `Forge` exercise replay
   and forgery. Nothing is charged.
 
+## DEC-065 Plan changes, cancellation and resume (S2, ENT-005, ENT-006, BIL-008, AT-ENT-02)
+- **Status:** Adopted (simulator only). Recall and excursion blockers arrive with M5's tables; telemetry removal is
+  covered by the `active_devices` quota until M5 adds devices.
+- **Who and when:** `previewSubscriptionChange` and `changeSubscription` need `billing.manage` and an `Active`
+  subscription with no pending cancellation. `Trialing` and `Cancelled` buy through checkout; `PastDue` settles dues
+  first; a pending cancellation is resumed first (all 409 `INVALID_STATE`). The target price must be active and in a
+  published public plan or the contracted plan (else 404) and differ from the current price.
+- **Effective date (ENT-005):** every change takes effect at the current `period_end`: the next full billing cycle, no
+  proration. The preview states the amount and that date. `previewDigest` = SHA-256 of the RFC 8785 JSON of tenant,
+  subscription, current and target price, target plan, amount, exponent, interval, `effectiveAt` and the no-proration
+  wording; a renewal in between changes the date and so the digest (409 `INVALID_STATE`, preview again).
+- **Blockers (ENT-006, AT-ENT-02):** computed in a **tenant** transaction (`ti_app`; the control role still reads no
+  stock, SAS-004): `QUOTA_EXCEEDED` for every quota whose current usage exceeds the target limit (with quota, used,
+  limit); when the target drops `medical_storage`: `MEDICAL_STOCK_ON_HAND` (on-hand Medical buckets),
+  `MEDICAL_RESERVATIONS` (Active or Picked reservations of Medical products) and `MEDICAL_IN_TRANSIT` (dispatched,
+  not fully received transfer lines of Medical products). The preview lists them; `changeSubscription` refuses with
+  409 `DOWNGRADE_BLOCKED` and `Problem.blockers`. Nothing is ever deleted or deactivated to make a change fit.
+- **Scheduling:** `Idempotency-Key` and `If-Match` (subscription revision) are required. The same key with the same
+  body returns the same change (202 again, checked before If-Match so a retry after a lost response works); a different
+  body is 409 `IDEMPOTENCY_MISMATCH`. Under the billing account and subscription locks the store cancels any other open
+  change, inserts the new one `Pending` (key and acceptance evidence: who, when, digest), bumps the subscription
+  revision and audits `SubscriptionChangeRequested`. Then the provider is told (`ScheduleChange`, key `change:{id}`) and
+  the row becomes `Scheduled` with the provider reference. A provider failure is 503 and leaves the `Pending` row,
+  which the same key completes. Migration 0019 adds `idempotency_key` (unique per tenant) and `provider_change_ref`.
+- **Applying (worker `PlanChangeJob`, ENT-006 recheck):** for each `Scheduled` change whose `effective_at` has passed
+  it recomputes the blockers in the tenant's transaction, then in a control transaction locks the subscription, the
+  change and the tenant's usage counters (the rows `QuotaGate` locks, so no quota reservation can slip between the
+  recheck and the new snapshot) and rechecks the quota blockers against them.
+  - Blocked → the provider schedule is cancelled (key `change-cancel:{id}`), the change becomes `Blocked` with its
+    blockers, `SubscriptionChangeBlocked` is audited and a `PlanChangeBlocked` notice goes to the owner. The old plan
+    stays. A provider failure leaves the change for the next run.
+  - An upgrade (any limit raised or feature added, none removed) waits for the verified **paid** invoice of the period
+    starting at `effective_at` (ENT-005); other changes apply at the boundary.
+  - Applied → subscription plan and price become the target, revision + 1, a new current entitlement snapshot,
+    `SubscriptionChangeApplied` audited, `PlanChangeApplied` notice. A deleted tenant's change is `Cancelled`.
+  Medical facts are not lockable from the control plane; a medical receipt between the tenant recheck and the apply is
+  still governed by feature gating and the safety rules (safety never consults entitlements).
+- **Cancel and resume (BIL-008):** `subscription.cancel` (owner), `If-Match`. Cancel needs `Active` or `PastDue`; the
+  provider is told first (`cancel:{subscriptionId}:{revision}`), then `cancel_at_period_end` is set, the revision
+  bumped, an open change cancelled (also at the provider) and `SubscriptionCancellationRequested` audited with the
+  reason. Repeating it changes nothing. Service continues to `period_end`; from then access is `BillingRestricted` by
+  computation (DEC-033) without waiting for any event. The provider's `customer.subscription.deleted` sets `Cancelled`
+  (`SubscriptionEnded`). Resume clears only a still-pending cancellation before `period_end`
+  (`resume:{subscriptionId}:{revision}`); otherwise 409 `INVALID_STATE` and a new checkout is needed. Data is kept.
+- **Simulator:** `ScheduleChange` makes the next renewal invoice use the target price; `CancelScheduledChange`,
+  `CancelAtPeriodEnd`, `Resume`; console `EndSubscription` sends `customer.subscription.deleted`.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

@@ -66,6 +66,35 @@ public sealed partial class SimulatedBillingProvider(TimeProvider clock, Simulat
             new ProviderPortal($"{HostedBase}/portal/{Guid.NewGuid():N}", now + PortalLifetime));
     }
 
+    public Task<string> ScheduleChangeAsync(Guid changeId, string providerSubscriptionRef, string targetPriceRef, DateTimeOffset effectiveAt,
+        CancellationToken ct) =>
+        Once($"change:{changeId}", () =>
+        {
+            UpdateSubscription(providerSubscriptionRef, s => s with { PendingPriceRef = targetPriceRef, PendingFrom = effectiveAt });
+            return $"sim_sch_{changeId:N}";
+        });
+
+    public Task CancelScheduledChangeAsync(Guid changeId, string providerSubscriptionRef, CancellationToken ct) =>
+        Once($"change-cancel:{changeId}", () =>
+        {
+            UpdateSubscription(providerSubscriptionRef, s => s with { PendingPriceRef = null, PendingFrom = null });
+            return "cancelled";
+        });
+
+    public Task CancelAtPeriodEndAsync(Guid subscriptionId, long revision, string providerSubscriptionRef, CancellationToken ct) =>
+        Once($"cancel:{subscriptionId}:{revision}", () =>
+        {
+            UpdateSubscription(providerSubscriptionRef, s => s with { CancelAtPeriodEnd = true, PendingPriceRef = null, PendingFrom = null });
+            return "cancel";
+        });
+
+    public Task ResumeAsync(Guid subscriptionId, long revision, string providerSubscriptionRef, CancellationToken ct) =>
+        Once($"resume:{subscriptionId}:{revision}", () =>
+        {
+            UpdateSubscription(providerSubscriptionRef, s => s with { CancelAtPeriodEnd = false });
+            return "resume";
+        });
+
     private Task<T> Once<T>(string key, Func<T> create) where T : notnull
     {
         Interlocked.Increment(ref _calls);

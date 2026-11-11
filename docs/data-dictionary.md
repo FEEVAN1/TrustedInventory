@@ -423,7 +423,7 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | billing_account | One per tenant | `tenant_id` unique; `(provider, provider_customer_id)` unique | SELECT own row **without** `tax_reference` |
 | subscription | One per tenant | `tenant_id` unique; state-dependent CHECKs (Trialing needs trial dates, Active needs price and period, PastDue needs grace_end); `revision` bumps on every change | SELECT own |
 | checkout_session | Hosted checkout attempts | One open per tenant; `(tenant_id, idempotency_key)` unique; HTTPS URL only; Completed ⇔ completed_at | SELECT own |
-| subscription_change | Scheduled upgrade/downgrade | One Pending/Scheduled per subscription; Blocked needs blockers | SELECT own |
+| subscription_change | Scheduled upgrade/downgrade at the current period end; `idempotency_key` and `provider_change_ref` (0019, DEC-065) | One Pending/Scheduled per subscription; Blocked needs blockers; key unique per tenant | SELECT own |
 | entitlement_snapshot | Features + limits in force | Exactly one `is_current` per tenant; `(tenant_id, entitlement_version)` unique | SELECT own |
 | invoice | Provider invoice snapshot; `lines` hold `{description, quantity, unitAmount, discount, tax, subtotal, total}` in minor units; `issued_at` (0017) | `(provider, provider_invoice_ref)` unique; `total = subtotal − discount + tax`; Paid ⇔ paid_at | SELECT own |
 | payment | Payment and refund records | `(provider, provider_payment_ref)` unique; refunds reference the original | SELECT own |
@@ -431,7 +431,7 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | billing_task | Operator tasks: reconciliation differences, unknown references, disputes, refunds, chargebacks (0017) | `dedupe_key` unique (one task per cause); Resolved needs resolved_at, resolved_by and resolution | none |
 | billing_sync_state | Reconciliation cursor per provider (0017) | provider is the key | none |
 | catalog_event | Who created, priced or published a plan version and why (0017) | Append-only (trigger); a price event names its price | none |
-| billing_notice | Notices from verified billing events (SubscriptionActivated, PaymentFailed, PaymentRecovered), relayed to the tenant outbox by the worker (0018, DEC-064) | `dedupe_key` unique; immutable except `relayed_at`, set once | SELECT own; UPDATE `relayed_at` only |
+| billing_notice | Notices from verified billing events (SubscriptionActivated, PaymentFailed, PaymentRecovered; PlanChangeBlocked and PlanChangeApplied from 0019), relayed to the tenant outbox by the worker (0018, DEC-064) | `dedupe_key` unique; immutable except `relayed_at`, set once | SELECT own; UPDATE `relayed_at` only |
 | provisioning_job | Resumable signup provisioning | `signup_key` unique; tenant id allocated up front; Ready ⇔ ready_at | none |
 | terms_acceptance | Terms/privacy/subscription-terms evidence | Append-only | none |
 | deletion_record | Closure, deletion register | One open per tenant; Deleted needs approval and backup expiry | none |

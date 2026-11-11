@@ -26,6 +26,7 @@ public static class WorkerRegistration
         services.AddSingleton<ReservationExpiryJob>();
         services.AddSingleton<ExportGenerationJob>();
         services.AddSingleton<BillingNoticeRelayJob>();
+        services.AddSingleton<Billing.PlanChangeJob>();
         return services;
     }
 }
