@@ -12,6 +12,14 @@ public sealed record ProviderCheckout(string SessionRef, string HostedUrl, DateT
 
 public sealed record ProviderPortal(string Url, DateTimeOffset ExpiresAt);
 
+/// <summary>A provider event fetched over the authenticated API (reconciliation catch-up, DEC-066).</summary>
+public sealed record ProviderEventRecord(string EventId, byte[] Body);
+
+public sealed record ProviderEventPage(IReadOnlyList<ProviderEventRecord> Events, string? NextCursor);
+
+/// <summary>The provider's current view of a subscription, for comparison only (BIL-006).</summary>
+public sealed record ProviderSubscriptionState(string Ref, SubscriptionState State, DateTimeOffset PeriodEnd, bool CancelAtPeriodEnd);
+
 /// <summary>The provider could not be reached or refused the call; our records stay unchanged (503, DEC-063).</summary>
 public sealed class BillingProviderUnavailableException(string message) : Exception(message);
 
@@ -48,4 +56,10 @@ public interface IBillingProvider
 
     /// <summary>Key <c>resume:{subscriptionId}:{revision}</c>: withdraws a pending cancellation.</summary>
     Task ResumeAsync(Guid subscriptionId, long revision, string providerSubscriptionRef, CancellationToken ct);
+
+    /// <summary>Events after <paramref name="cursor"/> (null: from the start), oldest first. Read-only.</summary>
+    Task<ProviderEventPage> ListEventsSinceAsync(string? cursor, int limit, CancellationToken ct);
+
+    /// <summary>The authoritative current subscription, or null when the provider does not know it. Read-only.</summary>
+    Task<ProviderSubscriptionState?> FetchSubscriptionAsync(string providerSubscriptionRef, CancellationToken ct);
 }

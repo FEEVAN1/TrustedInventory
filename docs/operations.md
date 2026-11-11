@@ -95,6 +95,18 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 - Cancellation keeps all data. Access becomes billing-restricted at period end by computation; the provider's end event
   later sets the subscription `Cancelled`.
 
+### Billing provider outage and reconciliation (draft, S2; simulator only)
+- **During an outage** tenants keep their last verified access: nothing reads the provider to decide access. Webhooks are still
+  stored. Checkout, portal, plan changes and cancellation answer 503; the same request (same Idempotency-Key) completes later.
+- A reconciliation run that cannot reach the provider records `last_error = PROVIDER_UNAVAILABLE` in `cp.billing_sync_state`
+  and logs `[BILLING ALERT] BillingReconciliation`. After recovery, run reconciliation (or wait for the daily run): it catches
+  up from its cursor and the processor applies the missed events.
+- `[BILLING ALERT] WebhookBacklog`: an event older than five minutes is unapplied, or one used all 10 attempts. Check
+  `listWebhookEvents?state=Failed`; fix the cause; an exhausted event is replayed only by an audited operator procedure.
+- Reconciliation tasks (`SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`, plus quarantine, dispute, refund and
+  chargeback tasks) are resolved in `resolveReconciliationTask` with a resolution; resolving never changes stock or access.
+- Persisted platform alerts and dashboards arrive with S3 (SOP-003).
+
 ### Stuck outbox (draft)
 - **Symptoms:** rising outbox age, or `OutboxDeadLetter` alerts.
 - Leases expire on their own: a crashed worker's batch is picked up by another after `lease_expires_at`.
@@ -119,4 +131,4 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 | Recall initiation | M5 |
 | Ledger reconciliation failure | M2 |
 | Controlled export retention and orphan-object cleanup | S3 |
-| Billing provider outage, webhook backlog, tenant closure and deletion | S2 / S3 |
+| Tenant closure and deletion; persisted platform alerts | S3 |

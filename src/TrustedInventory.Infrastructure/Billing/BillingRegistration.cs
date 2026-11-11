@@ -46,7 +46,11 @@ public static class BillingRegistration
         services.AddSingleton<SimulatedBillingProvider>();
         services.AddSingleton<IBillingProvider>(sp => sp.GetRequiredService<SimulatedBillingProvider>());
         services.AddSingleton<IBillingWebhooks>(sp => sp.GetRequiredService<SimulatedBillingProvider>());
-        services.AddSingleton<IWebhookInbox, WebhookInbox>();
+        services.AddSingleton<WebhookInbox>();
+        services.AddSingleton<IWebhookInbox>(sp => sp.GetRequiredService<WebhookInbox>());
+        services.AddSingleton<IBillingConsoleStore, BillingConsoleStore>();
+        services.AddSingleton<BillingReconciliationJob>();
+        services.AddSingleton<BillingReminderJob>();
         services.AddSingleton<BillingEventJob>();
         services.AddSingleton<ICheckoutStore, CheckoutStore>();
         services.AddSingleton<IPlanChangeStore, PlanChangeStore>();

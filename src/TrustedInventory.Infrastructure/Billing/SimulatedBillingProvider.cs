@@ -95,6 +95,30 @@ public sealed partial class SimulatedBillingProvider(TimeProvider clock, Simulat
             return "resume";
         });
 
+    public Task<ProviderEventPage> ListEventsSinceAsync(string? cursor, int limit, CancellationToken ct) =>
+        Read(() =>
+        {
+            var after = cursor is null ? 0 : long.Parse(cursor, System.Globalization.CultureInfo.InvariantCulture);
+            List<(long Seq, SimEvent Event)> page;
+            lock (_log)
+                page = _log.Where(e => e.Seq > after).OrderBy(e => e.Seq).Take(limit).ToList();
+            return new ProviderEventPage(page.Select(e => new ProviderEventRecord(e.Event.EventId, e.Event.Body)).ToList(),
+                page.Count == 0 ? cursor : page[^1].Seq.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        });
+
+    public Task<ProviderSubscriptionState?> FetchSubscriptionAsync(string providerSubscriptionRef, CancellationToken ct) =>
+        Read(() => _subscriptions.TryGetValue(providerSubscriptionRef, out var s)
+            ? new ProviderSubscriptionState(s.Ref, s.Status, s.PeriodEnd, s.CancelAtPeriodEnd)
+            : null);
+
+    private Task<T> Read<T>(Func<T> read)
+    {
+        Interlocked.Increment(ref _calls);
+        if (Outage)
+            throw new BillingProviderUnavailableException("[SIMULATED BILLING] outage");
+        return Task.FromResult(read());
+    }
+
     private Task<T> Once<T>(string key, Func<T> create) where T : notnull
     {
         Interlocked.Increment(ref _calls);

@@ -33,8 +33,8 @@ derived from our own record id, so a retried call never creates a second provide
 | `CancelScheduledChange` | provider subscription ref | — | `change-cancel:{subscriptionChangeId}` |
 | `CancelAtPeriodEnd` / `Resume` | provider subscription ref | provider state | `cancel:{subscriptionId}:{revision}` / `resume:{subscriptionId}:{revision}` |
 | `VerifyWebhook` | raw body bytes, headers | verified event envelope or rejection | — |
-| `FetchSubscription` / `FetchInvoice` | provider ref | authoritative current resource incl. provider revision | — |
-| `ListChangedSince` | cursor | page of subscriptions and invoices (reconciliation) | — |
+| `FetchSubscription` | provider subscription ref | current state, period end, pending cancellation (comparison) | — |
+| `ListEventsSince` | cursor | page of provider events, oldest first (reconciliation catch-up) | — |
 
 `VerifyWebhook` rules (BIL-004):
 - Verify the provider signature over the **raw request body** exactly as received, before any parsing.
@@ -90,10 +90,13 @@ subscription moves to the target plan and price with a new entitlement snapshot.
 
 ## Reconciliation
 
-A daily job (and one after any provider outage) lists provider subscriptions and invoices changed since
-its last cursor and compares them with `cp.subscription`, `cp.invoice` and current entitlement snapshots.
-Differences are corrected through the same apply path as webhooks and recorded as audit events; anything
-it cannot resolve becomes a `BillingReconciliation` alert. During a provider outage the last verified
+`BillingReconciliationJob` (daily, `Worker:BillingReconciliationIntervalSeconds`; DEC-066) first lists the provider's events
+after its cursor (`ListEventsSince`) and stores each in the inbox (`received_via = Reconciliation`, same dedupe), so missed
+webhooks are applied by the same processor with the same rules. It then fetches each linked subscription
+(`FetchSubscription`) and compares state, period end and pending cancellation, and scans for unpaid past-due invoices and
+entitlement snapshots that are missing, expired or for another plan. Each difference opens one operator task
+(`SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`); nothing is corrected silently. Operators work the tasks in
+`listReconciliationTasks` / `resolveReconciliationTask` and review quarantined events in `listWebhookEvents`. During a provider outage the last verified
 entitlement stays in force; tenants are **not** restricted because the provider is unreachable (BIL-005,
 SOP-003, AT-SOP-01). Alert when the oldest unprocessed inbox row is older than five minutes.
 
@@ -111,7 +114,8 @@ Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` 
 - Catalog prices without a provider reference are registered on first checkout as `sim_price_{priceVersionId}`.
 - Test console actions (also callable from integration tests):
   - `PayCheckout`, `FailCheckout`, `PayRenewal`, `FailRenewal`, `Dispute` (or chargeback), `Refund`; `Resend` repeats an
-    event under a new id. Each returns a signed `SimEvent` (exact bytes and signature header).
+    event under a new id; `EndSubscription` ends a cancelled subscription. Every event is kept in the simulator's event log,
+    delivered or not, which is what reconciliation reads. Each returns a signed `SimEvent` (exact bytes and signature header).
   - **Deliver events out of order**, **duplicate** an event, **forge** a signature, send an **unknown
     reference**.
   - **Outage**: make every adapter call fail until cleared, to test retained access and reconciliation.
@@ -138,8 +142,8 @@ refuses any other provider and live checkout switched on. `Billing:ReturnUrl` (a
 | Billing sandbox run (simulator now; real provider sandbox once chosen) | S2 suite |
 | Signed-webhook replay, duplicate and forgery | AT-BIL-01, AT-BIL-02 (`WebhookTests`, passing on the simulator) |
 | Out-of-order events cannot regress a paid period | AT-BIL-02 |
-| Provider outage keeps last verified access; reconciliation converges | AT-SOP-01 |
+| Provider outage keeps last verified access; reconciliation converges | AT-SOP-01 (`ReconciliationTests`, passing on the simulator) |
 | Trial and grace boundaries restrict without workers; safety still works | AT-BIL-03 |
 | Payment during security suspension, payment after deletion | AT-BIL-04 |
-| Concurrent quota reservations | AT-ENT-01, AT-ENT-03 |
-| Invoice reconciliation | S2 reconciliation tests |
+| Concurrent quota reservations | AT-ENT-01, AT-ENT-03 (`QuotaRaceTests`, `PlanChangeTests`) |
+| Invoice reconciliation | `ReconciliationTests` |

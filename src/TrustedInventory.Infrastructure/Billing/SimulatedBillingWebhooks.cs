@@ -28,6 +28,7 @@ public sealed record SimSubscription(string Ref, string CustomerRef, string Pric
     public string? PendingPriceRef { get; init; }
     public DateTimeOffset? PendingFrom { get; init; }
     public bool CancelAtPeriodEnd { get; init; }
+    public SubscriptionState Status { get; init; } = SubscriptionState.Active;
 }
 
 /// <summary>Wire format of simulator events. Real providers get their own parser once D09 is decided.</summary>
@@ -65,6 +66,8 @@ public sealed partial class SimulatedBillingProvider
     private readonly ConcurrentDictionary<string, SimSubscription> _subscriptions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (string Customer, SimPayment Payment)> _payments = new(StringComparer.Ordinal);
     private long _revision;
+    private long _sequence;
+    private readonly List<(long Seq, SimEvent Event)> _log = [];
 
     // ---- Verification (IBillingWebhooks, BIL-004) ----
 
@@ -206,6 +209,7 @@ public sealed partial class SimulatedBillingProvider
     public SimEvent FailRenewal(string subscriptionRef)
     {
         var (sub, price, invoiceRef, periodEnd) = OpenRenewal(subscriptionRef);
+        _subscriptions[sub.Ref] = sub with { Status = SubscriptionState.PastDue };
         var now = clock.GetUtcNow();
         var invoice = Invoice(price, sub.PeriodEnd, periodEnd, InvoiceStatus.Open, now, initial: false, invoiceRef, dueAt: sub.PeriodEnd);
         var payment = Payment(sub.CustomerRef, PaymentStatus.Failed, invoice.Total, now);
@@ -221,7 +225,7 @@ public sealed partial class SimulatedBillingProvider
         var payment = Payment(sub.CustomerRef, PaymentStatus.Succeeded, invoice.Total, now);
         _subscriptions[sub.Ref] = sub with
         {
-            PeriodStart = sub.PeriodEnd, PeriodEnd = periodEnd, OpenInvoiceRef = null, OpenInvoicePeriodEnd = null, PriceRef = price.Ref,
+            PeriodStart = sub.PeriodEnd, PeriodEnd = periodEnd, OpenInvoiceRef = null, OpenInvoicePeriodEnd = null, PriceRef = price.Ref, Status = SubscriptionState.Active,
             PendingPriceRef = price.Ref == sub.PendingPriceRef ? null : sub.PendingPriceRef, PendingFrom = price.Ref == sub.PendingPriceRef ? null : sub.PendingFrom,
         };
         return Build("invoice.paid", new SimEventData(sub.CustomerRef, sub.Ref, NextRevision(), Invoice: invoice, Payment: payment));
@@ -251,7 +255,16 @@ public sealed partial class SimulatedBillingProvider
     public SimEvent EndSubscription(string subscriptionRef)
     {
         var sub = _subscriptions.GetValueOrDefault(subscriptionRef) ?? throw new InvalidOperationException("No simulated subscription with that reference.");
+        _subscriptions[sub.Ref] = sub with { Status = SubscriptionState.Cancelled };
         return Build("customer.subscription.deleted", new SimEventData(sub.CustomerRef, sub.Ref, NextRevision()));
+    }
+
+    /// <summary>Every event the provider produces is in its event log, delivered or not (the reconciliation source).</summary>
+    private SimEvent Logged(SimEvent e)
+    {
+        lock (_log)
+            _log.Add((++_sequence, e));
+        return e;
     }
 
     private void UpdateSubscription(string reference, Func<SimSubscription, SimSubscription> change)
@@ -265,7 +278,7 @@ public sealed partial class SimulatedBillingProvider
     {
         var id = $"evt_sim_{Guid.NewGuid():N}";
         var body = JsonSerializer.SerializeToUtf8Bytes(new SimEventBody(id, type, clock.GetUtcNow(), data), Wire);
-        return Sign(id, type, body, clock.GetUtcNow(), signing.Current);
+        return Logged(Sign(id, type, body, clock.GetUtcNow(), signing.Current));
     }
 
     /// <summary>The provider sends the same event content again under a new event id (a resend, not a byte-for-byte duplicate).</summary>
@@ -273,7 +286,7 @@ public sealed partial class SimulatedBillingProvider
     {
         var body = JsonSerializer.Deserialize<SimEventBody>(original.Body, Wire)!;
         var id = $"evt_sim_{Guid.NewGuid():N}";
-        return Sign(id, body.Type, JsonSerializer.SerializeToUtf8Bytes(body with { Id = id }, Wire), clock.GetUtcNow(), signing.Current);
+        return Logged(Sign(id, body.Type, JsonSerializer.SerializeToUtf8Bytes(body with { Id = id }, Wire), clock.GetUtcNow(), signing.Current));
     }
 
     /// <summary>Re-signs the same bytes at another time or with another secret (replay window and forgery tests).</summary>

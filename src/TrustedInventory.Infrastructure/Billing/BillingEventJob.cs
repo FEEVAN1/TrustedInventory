@@ -45,6 +45,28 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
         }
         foreach (var id in due)
             await ProcessAsync(id, ct);
+
+        var backlog = await BacklogAsync(ct);
+        if ((backlog.OldestPending is { } oldest && clock.GetUtcNow() - oldest > BacklogAge) || backlog.Exhausted > 0)
+            BillingAlerts.Raise(log, "WebhookBacklog",
+                $"Oldest unapplied billing event received {backlog.OldestPending:O}; {backlog.Exhausted} events exhausted their retries (SOP-003).");
+    }
+
+    /// <summary>Alert threshold for the oldest unapplied event (SOP-003).</summary>
+    public static readonly TimeSpan BacklogAge = TimeSpan.FromMinutes(5);
+
+    /// <summary>The oldest event still to apply and the events that used all their attempts (DEC-066).</summary>
+    public async Task<WebhookBacklog> BacklogAsync(CancellationToken ct)
+    {
+        await using var cmd = control.Source.CreateCommand("""
+            SELECT min(received_at) FILTER (WHERE processing_state IN ('Received','Failed') AND attempts < @max),
+                   count(*) FILTER (WHERE processing_state = 'Failed' AND attempts >= @max)
+            FROM cp.webhook_inbox
+            """);
+        cmd.Parameters.AddWithValue("max", MaxAttempts);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        await r.ReadAsync(ct);
+        return new WebhookBacklog(r.IsDBNull(0) ? null : r.GetFieldValue<DateTimeOffset>(0), r.GetInt64(1));
     }
 
     /// <summary>Processes one inbox row if it is still due. Returns the state it ended in, or null when skipped.</summary>
@@ -534,6 +556,8 @@ public sealed partial class BillingEventJob(ControlDataSource control, IBillingW
         private sealed record Jsonb(string Json);
     }
 }
+
+public sealed record WebhookBacklog(DateTimeOffset? OldestPending, long Exhausted);
 
 public enum BillingNoticeKind
 {

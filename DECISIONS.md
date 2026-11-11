@@ -1170,6 +1170,41 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Simulator:** `ScheduleChange` makes the next renewal invoice use the target price; `CancelScheduledChange`,
   `CancelAtPeriodEnd`, `Resume`; console `EndSubscription` sends `customer.subscription.deleted`.
 
+## DEC-066 Reconciliation, provider outage, billing consoles, reminders and quota races (S2, BIL-005, BIL-006, BIL-007, SOP-003, AT-SOP-01, AT-ENT-01, AT-ENT-03)
+- **Status:** Adopted (simulator only). Reminder days 0, 3 and 6 are the BIL-007 proposal (D10). Persisted platform alert
+  records and the monitoring dashboard are S3 (SOP-003); this slice raises the alerts as structured `[BILLING ALERT]` error
+  logs and makes the evidence visible in the consoles below. This narrows what DEC-064 deferred to "slice 5".
+- **Reconciliation (BIL-006, worker `BillingReconciliationJob`, daily by default and on demand after an outage):**
+  1. *Catch up:* the adapter lists provider events after the stored cursor (`ListEventsSince`, `cp.billing_sync_state`). Each
+     one goes into the inbox through the same insert as a webhook (`received_via = 'Reconciliation'`, deduplicated on
+     `(provider, event_id)`), then the normal processor applies it. Missed or late webhooks therefore converge through the
+     one apply path, with the same ordering, ownership and precedence rules (DEC-064). Events fetched over the provider's
+     authenticated API carry no webhook signature; they are never accepted from a caller.
+  2. *Compare:* for every provider-linked subscription of a non-deleted tenant it fetches the provider's current subscription
+     (`FetchSubscription`) and compares state, period end and pending cancellation. A difference that the events did not
+     resolve opens one `SubscriptionMismatch` task per subscription revision. Open or uncollectible invoices past their due
+     date open one `UnpaidInvoice` task each. A subscription whose current entitlement snapshot is missing, expired or for
+     another plan opens an `EntitlementMismatch` task and an `EntitlementMismatch` alert. Nothing is corrected silently.
+  3. The cursor, `last_run_at`, `last_success_at` and `last_error` are recorded.
+- **Provider outage (BIL-005, SOP-003, AT-SOP-01):** access never depends on the provider: it is computed from our last
+  verified state, so tenants are not restricted while the provider is down. Webhooks are still stored (the inbox needs no
+  provider). A run that cannot reach the provider keeps its cursor, records `last_error`, raises a `BillingReconciliation`
+  alert and changes nothing; the next run catches up. Commands that need the provider (checkout, portal, changes, cancel)
+  answer 503 and keep their retry path (DEC-063, DEC-065).
+- **Webhook backlog (SOP-003):** each `BillingEventJob` pass raises a `WebhookBacklog` alert when the oldest unapplied event is
+  older than five minutes or an event has exhausted its 10 attempts.
+- **Reminders (BIL-007):** `BillingReminderJob` (hourly) adds a `PaymentReminder` notice for each `PastDue` subscription on day 3
+  and day 6 after the due date (`grace_end − 7 days`), one per day per grace period; day 0 is the `PaymentFailed` notice. They
+  reach the tenant through the notice relay (DEC-064). Migration 0020 adds the notice kind and `webhook_inbox.received_via`.
+- **Consoles (PlatformBilling, `Platform:BillingSubjects`, SOD-8):** `listReconciliationTasks` (status and kind filters, newest
+  first, keyset cursor), `resolveReconciliationTask` (resolution 1–1000 characters; records who and when; 409 if already
+  resolved; audited in the tenant's chain when the task names a tenant; it never changes stock or access) and
+  `listWebhookEvents` (metadata only: state, retries, failure code; payloads stay encrypted).
+- **Quota races (AT-ENT-01, AT-ENT-03):** no new mechanism: `QuotaGate` locks the counter row before reading the limit
+  (DEC-038) and plan changes recheck under the same locks (DEC-065). Tests run concurrent requests for the final warehouse
+  slot and concurrent attachment uploads against the byte limit. Uploads reserve bytes inside the upload transaction, so a
+  failed upload releases them by rolling back; expiring upload reservations arrive only if resumable uploads are added.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

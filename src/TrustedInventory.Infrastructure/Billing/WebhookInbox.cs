@@ -56,9 +56,19 @@ public sealed class InboxCipher
 /// </summary>
 public sealed class WebhookInbox(ControlDataSource control, IBillingWebhooks webhooks, InboxCipher cipher, TimeProvider clock) : IWebhookInbox
 {
-    public async Task<bool> StoreAsync(string provider, WebhookEnvelope envelope, byte[] rawBody, CancellationToken ct)
+    public Task<bool> StoreAsync(string provider, WebhookEnvelope envelope, byte[] rawBody, CancellationToken ct) =>
+        InsertAsync(provider, rawBody, "Webhook", ct);
+
+    /// <summary>
+    /// An event fetched from the provider's authenticated API by reconciliation (DEC-066): same row, same dedupe, same processor. It
+    /// is never reachable from a caller, so it needs no webhook signature.
+    /// </summary>
+    public Task<bool> StoreFetchedAsync(string provider, byte[] rawBody, CancellationToken ct) => InsertAsync(provider, rawBody, "Reconciliation", ct);
+
+    private async Task<bool> InsertAsync(string provider, byte[] rawBody, string via, CancellationToken ct)
     {
         var parsed = webhooks.Parse(rawBody);
+        var envelope = new WebhookEnvelope(parsed.EventId, parsed.EventType, parsed.CreatedAt);
         // References and type only: no amounts, names or emails (section 27).
         var redacted = JsonSerializer.Serialize(new
         {
@@ -75,8 +85,8 @@ public sealed class WebhookInbox(ControlDataSource control, IBillingWebhooks web
             await using var conn = await control.Source.OpenConnectionAsync(ct);
             await using var cmd = new NpgsqlCommand("""
                 INSERT INTO cp.webhook_inbox (provider, event_id, event_type, provider_created_at, received_at, raw_body_digest, payload_encrypted,
-                                              payload_redacted, next_attempt_at)
-                VALUES (@p, @e, @type, @created, @now, @digest, @payload, @redacted, @now)
+                                              payload_redacted, next_attempt_at, received_via)
+                VALUES (@p, @e, @type, @created, @now, @digest, @payload, @redacted, @now, @via)
                 ON CONFLICT (provider, event_id) DO NOTHING
                 """, conn);
             var now = clock.GetUtcNow();
@@ -85,6 +95,7 @@ public sealed class WebhookInbox(ControlDataSource control, IBillingWebhooks web
             cmd.Parameters.AddWithValue("type", envelope.EventType);
             cmd.Parameters.AddWithValue("created", (object?)envelope.CreatedAt ?? DBNull.Value);
             cmd.Parameters.AddWithValue("now", now);
+            cmd.Parameters.AddWithValue("via", via);
             cmd.Parameters.AddWithValue("digest", SHA256.HashData(rawBody));
             cmd.Parameters.AddWithValue("payload", cipher.Encrypt(provider, envelope.EventId, rawBody));
             cmd.Parameters.Add(new NpgsqlParameter("redacted", NpgsqlDbType.Jsonb) { Value = redacted });

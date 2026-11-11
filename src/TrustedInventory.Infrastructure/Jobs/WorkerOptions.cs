@@ -28,6 +28,10 @@ public sealed record WorkerOptions
     public TimeSpan BillingNoticeInterval { get; init; } = TimeSpan.FromSeconds(30);
     /// <summary>Scheduled plan changes (ENT-006, DEC-065).</summary>
     public TimeSpan PlanChangeInterval { get; init; } = TimeSpan.FromMinutes(1);
+    /// <summary>Provider reconciliation (BIL-006, DEC-066): daily; run sooner after an outage by restarting or lowering it.</summary>
+    public TimeSpan BillingReconciliationInterval { get; init; } = TimeSpan.FromHours(24);
+    /// <summary>Payment reminders on days 3 and 6 (BIL-007, DEC-066).</summary>
+    public TimeSpan BillingReminderInterval { get; init; } = TimeSpan.FromHours(1);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -49,6 +53,8 @@ public sealed record WorkerOptions
             BillingEventInterval = Seconds(config, "Worker:BillingEventIntervalSeconds", d.BillingEventInterval),
             BillingNoticeInterval = Seconds(config, "Worker:BillingNoticeIntervalSeconds", d.BillingNoticeInterval),
             PlanChangeInterval = Seconds(config, "Worker:PlanChangeIntervalSeconds", d.PlanChangeInterval),
+            BillingReconciliationInterval = Seconds(config, "Worker:BillingReconciliationIntervalSeconds", d.BillingReconciliationInterval),
+            BillingReminderInterval = Seconds(config, "Worker:BillingReminderIntervalSeconds", d.BillingReminderInterval),
         };
     }
 

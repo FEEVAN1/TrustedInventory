@@ -123,6 +123,21 @@ public static class BillingEndpoints
                 return Results.Ok(published.Plan);
             })
             .WithName("publishPlanVersion").RequirePermission(Permissions.PlatformBillingManage);
+
+        // Billing consoles (DEC-066): PlatformBilling only.
+        var console = app.MapGroup("/platform/v1/billing")
+            .RequireAuthorization(p => PlatformEndpoints.PlatformPolicy(p, PlatformEndpoints.BillingKey));
+        console.MapGet("/reconciliation-tasks", (HttpContext http, BillingConsoleService svc, [AsParameters] ListQuery q,
+                [FromQuery] ReconciliationTaskStatus? status, [FromQuery] ReconciliationTaskKind? kind, CancellationToken ct) =>
+                svc.ListTasksAsync(PlatformEndpoints.Caller(http), status, kind, q.ToPage(), ct))
+            .WithName("listReconciliationTasks").RequirePermission(Permissions.PlatformBillingManage);
+        console.MapPost("/reconciliation-tasks/{id:guid}/resolve", (HttpContext http, BillingConsoleService svc, Guid id,
+                ResolveReconciliationTaskRequest body, CancellationToken ct) => svc.ResolveAsync(PlatformEndpoints.Caller(http), id, body, ct))
+            .WithName("resolveReconciliationTask").RequirePermission(Permissions.PlatformBillingManage);
+        console.MapGet("/webhook-events", (HttpContext http, BillingConsoleService svc, [AsParameters] ListQuery q,
+                [FromQuery] WebhookProcessingState? state, CancellationToken ct) =>
+                svc.ListWebhookEventsAsync(PlatformEndpoints.Caller(http), state, q.ToPage(), ct))
+            .WithName("listWebhookEvents").RequirePermission(Permissions.PlatformBillingManage);
         return app;
     }
 }
