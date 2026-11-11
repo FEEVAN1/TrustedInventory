@@ -139,7 +139,7 @@ refuses any other provider and live checkout switched on. `Billing:ReturnUrl` (a
 
 | Evidence | Test |
 |----------|------|
-| Billing sandbox run (simulator now; real provider sandbox once chosen) | S2 suite |
+| Billing sandbox run (simulator now; real provider sandbox once chosen, D09) | S2 suite; `CommercialFlowTests` end-to-end lifecycle; startup refuses live providers and live checkout |
 | Signed-webhook replay, duplicate and forgery | AT-BIL-01, AT-BIL-02 (`WebhookTests`, passing on the simulator) |
 | Out-of-order events cannot regress a paid period | AT-BIL-02 |
 | Provider outage keeps last verified access; reconciliation converges | AT-SOP-01 (`ReconciliationTests`, passing on the simulator) |
