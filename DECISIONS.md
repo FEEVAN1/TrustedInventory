@@ -1205,6 +1205,25 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   slot and concurrent attachment uploads against the byte limit. Uploads reserve bytes inside the upload transaction, so a
   failed upload releases them by rolling back; expiring upload reservations arrive only if resumable uploads are added.
 
+## DEC-067 Owner decisions D09 (provider, currency, prices) and D10 (grace and reminders) (S2, owner, 11 Nov 2026)
+- **Status:** Adopted (owner). Still open: D09 plan names, quotas, per-plan trials and taxes; D10 90-day export window and
+  retention-over-deletion.
+- **Provider (D09):** Paystack. The simulator stays the only provider in development and automated tests (AGT-004); Paystack
+  runs in **test mode** until a production configuration with live keys is separately approved. No Paystack key is ever in the
+  repository: test and live secrets come from the vault or the environment.
+- **Currency (D09):** NGN, exponent 2 (kobo). XTS remains the test currency for fixtures. The catalog accepts NGN and XTS; it
+  refuses every other currency.
+- **Prices (D09):** configurable by platform billing operators through the existing plan catalog API (DEC-062), with no code or
+  deployment change. Publishing a plan version is the approval to show its prices (`display_approved` set at publication).
+  Prices stay immutable once referenced, and invoices keep the price they were issued at (ENT-001).
+- **Grace and reminders (D10, BIL-007):** the 7-day past-due grace from the due date and reminders on day 0, 3 and 6 are approved
+  as implemented (DEC-064, DEC-066).
+- **S2 gate:** stays open. Slice 7 adds the Paystack adapter: HMAC-SHA512 webhook verification over the raw body
+  (`x-paystack-signature`), Paystack's replay controls (event dedupe; published source IPs), amounts in kobo, plan changes as
+  disable-at-period-end plus a new subscription, and reconciliation by comparing subscriptions and transactions. It is built and
+  tested against a labelled Paystack-format simulator in the repository, then run once against Paystack test mode by the owner
+  with test keys held outside the repository. S2 closes when that sandbox run passes.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which
@@ -1228,5 +1247,5 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 | D06 hosting | Managed PostgreSQL, encrypted object storage | Region, provider, failover, recovery budget |
 | D07 integrations | Simulator only | Real sensors, gateway transport, GS1 samples |
 | D08 operational limits | Zero over-receipt, 24 h reservation expiry, online-only mutations | Suitability |
-| D09 SaaS commercial | 14-day trial, flat recurring subscription, fixture plans, simulator provider (DEC-039, DEC-040) | Plan names, quotas, currency, prices, taxes, payment provider |
-| D10 SaaS lifecycle | 7-day past-due grace, 90-day export window, retention overrides deletion | Approve before launch |
+| D09 SaaS commercial | **Partly decided (DEC-067):** Paystack (test mode until live keys are approved), NGN, prices configurable in the platform catalog. Default still in force: 14-day trial, flat recurring subscription, fixture plans | Plan names, quotas, per-plan trials, taxes |
+| D10 SaaS lifecycle | **Partly decided (DEC-067):** 7-day past-due grace and reminders on day 0, 3 and 6 approved. Default still in force: 90-day export window, retention overrides deletion | 90-day export window, retention over deletion |
