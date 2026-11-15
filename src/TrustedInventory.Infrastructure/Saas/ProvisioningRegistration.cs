@@ -28,6 +28,13 @@ public static class ProvisioningRegistration
         services.AddSingleton<IProvisioningEngine, ProvisioningEngine>();
         services.AddSingleton<IPlanCatalog, PlanCatalog>();
         services.AddSingleton<ProvisioningSweepJob>();
+        // Closure and lifecycle (DEC-070). The export window is the D10 proposed default until the owner approves it.
+        services.AddSingleton(new LifecycleOptions
+        {
+            ExportWindowDays = Bounded(config, "Lifecycle:ExportWindowDays", 1, 3650, Domain.Saas.ClosureRules.DefaultExportWindowDays),
+            BackupRetentionDays = Bounded(config, "Lifecycle:BackupRetentionDays", 1, 3650, 35),
+        });
+        services.AddSingleton<IClosureStore, ClosureStore>();
         return services;
     }
 

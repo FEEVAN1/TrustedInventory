@@ -8098,6 +8098,29 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /service-status:
+    get:
+      operationId: getServiceStatus
+      tags:
+        - Plans
+      summary: Service status and support contact
+      description: Public. Overall and per-component status and where to get support; nothing about any customer (SOP-006, DEC-074).
+      x-permission: none
+      x-access: none
+      x-requirements:
+        - SOP-006
+      security: []
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceStatus"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /saas/plans:
     get:
       operationId: listPlans
@@ -9359,6 +9382,308 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/tenants/{id}/retention-hold:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: setTenantRetentionHold
+      tags:
+        - PlatformOperations
+      summary: Set or clear a retention or legal hold
+      description: Reasoned and audited in the tenant's chain with the instruction reference. A hold blocks deletion, never closure or export (LFC-004, DEC-070).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - LFC-004
+        - AT-LFC-01
+        - AUD-001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetentionHoldRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/tenants/{id}/closure/withdraw:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: withdrawTenantClosure
+      tags:
+        - PlatformOperations
+      summary: Withdraw an open closure
+      description: Sets the open closure record Withdrawn and the tenant back to Ready, with a reason, audited in the tenant's chain. The subscription stays cancelled at period end; the owner may resume it (docs/tenant-offboarding.md, DEC-070).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - LFC-002
+        - AUD-001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawClosureRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/tenants/{id}/deletion/approve:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: approveTenantDeletion
+      tags:
+        - PlatformOperations
+      summary: Approve an owner-requested deletion
+      description: Records the approval on the open closure (ExportWindow, owner asked for deletion, no retention hold; a hold is 409 RETENTION_BLOCKED). The deletion job runs only after the export window ends and rechecks safety obligations; cp.purge_tenant() checks the approval again in the database (LFC-004, DEC-072).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - LFC-004
+        - AT-LFC-01
+        - AUD-001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveDeletionRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/health:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: getPlatformHealth
+      tags:
+        - PlatformOperations
+      summary: Platform service signals
+      description: Aggregates only (counts, ages, latencies); no tenant name, data or stock (SOP-003, SOP-006, DEC-074).
+      x-permission: platform.health.read
+      x-access: platform
+      x-requirements:
+        - SOP-003
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformHealth"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/alerts:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: listPlatformAlerts
+      tags:
+        - PlatformOperations
+      summary: List platform alerts
+      description: Persisted alerts raised by the monitor (webhook backlog over five minutes, entitlement mismatch, provisioning failures, reconciliation backlog, unpaid invoices); closed automatically when the condition clears (SOP-003, DEC-074).
+      x-permission: platform.health.read
+      x-access: platform
+      x-requirements:
+        - SOP-003
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Sort"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PlatformAlertStatus"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAlertPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/alerts/{id}/acknowledge:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: acknowledgePlatformAlert
+      tags:
+        - PlatformOperations
+      summary: Acknowledge a platform alert
+      description: Records who acknowledged it, when and why; the alert closes itself when the condition clears (SOP-003).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - SOP-003
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcknowledgeAlertRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAlert"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /platform/v1/provisioning-jobs:
     servers:
       - url: /
@@ -10312,6 +10637,24 @@ components:
         - shortages
         - status
         - version
+    AcknowledgeAlertRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      required:
+        - note
+      additionalProperties: false
+    ApproveDeletionRequest:
+      type: object
+      properties:
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - reason
+      additionalProperties: false
     Approval:
       type: object
       description: Never contains credentials (section 08).
@@ -11043,6 +11386,10 @@ components:
           anyOf:
             - $ref: "#/components/schemas/Uuid"
             - type: "null"
+        outstandingInvoiceCount:
+          type: integer
+          minimum: 0
+          description: Unpaid invoices found at closure; they never block closure and stay payable (LFC-002).
         blockers:
           type: array
           items:
@@ -11055,6 +11402,7 @@ components:
         - requestedDeletion
         - exportWindowEndsAt
         - archiveExportId
+        - outstandingInvoiceCount
         - blockers
     ClosureRequest:
       type: object
@@ -13574,6 +13922,180 @@ components:
         - Published
         - Retired
       description: Published versions are immutable once referenced (ENT-001).
+    PlatformHealth:
+      type: object
+      description: Platform service signals; aggregates only (SOP-003).
+      properties:
+        measuredAt:
+          $ref: "#/components/schemas/Timestamp"
+        signupsLast24h:
+          type: integer
+          minimum: 0
+          description: Provisioning jobs started in the last 24 hours.
+        signupsReadyLast24h:
+          type: integer
+          minimum: 0
+          description: Of those, Ready.
+        signupsFailedLast24h:
+          type: integer
+          minimum: 0
+          description: Of those, Failed.
+        provisioningP50Seconds:
+          type:
+            - number
+            - "null"
+          description: Median signup-to-Ready latency, last 24 hours.
+        provisioningP95Seconds:
+          type:
+            - number
+            - "null"
+          description: 95th percentile signup-to-Ready latency.
+        trialsEndingWithin3Days:
+          type: integer
+          minimum: 0
+          description: Trials ending in the next three days.
+        trialsEndedRestricted:
+          type: integer
+          minimum: 0
+          description: Ready workspaces whose trial ended without payment.
+        webhookBacklog:
+          type: integer
+          minimum: 0
+          description: Inbox events not yet applied.
+        oldestWebhookAgeSeconds:
+          type:
+            - number
+            - "null"
+          description: Age of the oldest unapplied inbox event.
+        entitlementMismatchTasks:
+          type: integer
+          minimum: 0
+          description: Open entitlement mismatch tasks.
+        openReconciliationTasks:
+          type: integer
+          minimum: 0
+          description: Open billing reconciliation tasks.
+        staleReconciliationTasks:
+          type: integer
+          minimum: 0
+          description: Tasks open for more than a day.
+        unpaidInvoices:
+          type: integer
+          minimum: 0
+          description: Open invoices.
+        seatCounterDivergences:
+          type: integer
+          minimum: 0
+          description: Workspaces whose seat counter differs from active memberships (quota reconciliation).
+        openAlerts:
+          type: integer
+          minimum: 0
+          description: Alerts not closed.
+      required:
+        - measuredAt
+        - signupsLast24h
+        - signupsReadyLast24h
+        - signupsFailedLast24h
+        - provisioningP50Seconds
+        - provisioningP95Seconds
+        - trialsEndingWithin3Days
+        - trialsEndedRestricted
+        - webhookBacklog
+        - oldestWebhookAgeSeconds
+        - entitlementMismatchTasks
+        - openReconciliationTasks
+        - staleReconciliationTasks
+        - unpaidInvoices
+        - seatCounterDivergences
+        - openAlerts
+      additionalProperties: false
+    PlatformAlert:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        kind:
+          type: string
+          enum:
+            - WebhookBacklog
+            - EntitlementMismatch
+            - ProvisioningFailures
+            - ReconciliationBacklog
+            - UnpaidInvoices
+        severity:
+          type: string
+          enum:
+            - Warning
+            - Critical
+        status:
+          $ref: "#/components/schemas/PlatformAlertStatus"
+        detail:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Counts and ages only.
+        openedAt:
+          $ref: "#/components/schemas/Timestamp"
+        lastSeenAt:
+          $ref: "#/components/schemas/Timestamp"
+        acknowledgedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        acknowledgedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        acknowledgement:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        closedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        version:
+          type: integer
+          minimum: 1
+      required:
+        - id
+        - kind
+        - severity
+        - status
+        - detail
+        - openedAt
+        - lastSeenAt
+        - acknowledgedBy
+        - acknowledgedAt
+        - acknowledgement
+        - closedAt
+        - version
+      additionalProperties: false
+    PlatformAlertPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAlert"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+          description: Opaque; null on the last page.
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
+    PlatformAlertStatus:
+      type: string
+      enum:
+        - Open
+        - Acknowledged
+        - Closed
     PlatformTenant:
       type: object
       description: "Platform operations view: lifecycle, plan and provisioning metadata. No stock (section 29)."
@@ -15462,6 +15984,26 @@ components:
         - reason
         - at
         - by
+    RetentionHoldRequest:
+      type: object
+      properties:
+        hold:
+          type: boolean
+          description: true sets the hold, false clears it.
+        reason:
+          $ref: "#/components/schemas/Reason"
+        reference:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+          description: Instruction reference (legal hold notice, retention policy clause); required when setting a hold.
+      required:
+        - hold
+        - reason
+        - reference
+      additionalProperties: false
     SecuritySuspensionRequest:
       type: object
       properties:
@@ -15469,6 +16011,56 @@ components:
           $ref: "#/components/schemas/Reason"
       required:
         - reason
+      additionalProperties: false
+    ServiceStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - Operational
+            - Degraded
+            - Unavailable
+        checkedAt:
+          $ref: "#/components/schemas/Timestamp"
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                maxLength: 50
+              status:
+                type: string
+                enum:
+                  - Operational
+                  - Degraded
+                  - Unavailable
+            required:
+              - name
+              - status
+            additionalProperties: false
+        support:
+          type: object
+          properties:
+            contact:
+              type: string
+              maxLength: 255
+            statusPageUrl:
+              type:
+                - string
+                - "null"
+              maxLength: 2000
+          required:
+            - contact
+            - statusPageUrl
+          additionalProperties: false
+      required:
+        - status
+        - checkedAt
+        - components
+        - support
       additionalProperties: false
     Serial:
       type: object
@@ -17450,6 +18042,14 @@ components:
         - Quarantined
         - Failed
       description: "Quarantined: references an unknown billing account (AT-BIL-02)."
+    WithdrawClosureRequest:
+      type: object
+      properties:
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - reason
+      additionalProperties: false
     Zone:
       type: object
       description: "Operating range null = uncontrolled ambient. Compatibility rule: DEC-012."

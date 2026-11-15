@@ -26,6 +26,16 @@ public sealed class SimulatedFileObjectStore(string directory) : IObjectStore
         return File.Exists(path) ? await File.ReadAllBytesAsync(path, ct) : null;
     }
 
+    public Task<int> DeleteTenantAsync(Guid tenantId, CancellationToken ct)
+    {
+        var root = Path.Combine(directory, tenantId.ToString("D"));
+        if (!Directory.Exists(root))
+            return Task.FromResult(0);
+        var count = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Count();
+        Directory.Delete(root, recursive: true);
+        return Task.FromResult(count);
+    }
+
     private string PathFor(string key)
     {
         var parts = key.Split('/');

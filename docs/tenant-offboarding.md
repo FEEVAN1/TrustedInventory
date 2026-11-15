@@ -107,3 +107,22 @@ recovery or drill, AT-OPS-01) must, **before any tenant access is opened**:
 
 Destructive deletion is never run as an automated acceptance test against shared or production data
 (section 30); tests use throwaway databases.
+
+## As built (S3, DEC-070 to DEC-072)
+
+| Step | Route or command | Notes |
+|------|------------------|-------|
+| Close | `POST /api/v1/saas/closure` (owner, `tenant.close`, Idempotency-Key, re-auth ≤ 5 min, `confirmation = "CLOSE <slug>"`) | 202 `ExportWindow` with `archiveExportId` and `outstandingInvoiceCount`; 409 `RETENTION_BLOCKED` with blockers (medical stock on hand or in transit, stock in `Hold` or `Recalled`; recalls and excursions join with M5). After archiving, the route is refused by the access gate (recovery `view-closure`); read the status instead |
+| Status | `GET /api/v1/saas/closure` (owner) | Latest record, including `Blocked` with its blockers and `Withdrawn` |
+| Archive | `POST /api/v1/exports` with `type = TenantArchive` (owner) | ZIP; layout in DEC-071; queued automatically by closure |
+| Retention hold | `POST /platform/v1/tenants/{id}/retention-hold` (`hold`, `reason`, `reference`, If-Match) | Blocks deletion approval and deletion; never closure or export |
+| Withdraw | `POST /platform/v1/tenants/{id}/closure/withdraw` (`reason`, If-Match) | Tenant back to `Ready`; the subscription stays cancelled at period end until the owner resumes it |
+| Approve deletion | `POST /platform/v1/tenants/{id}/deletion/approve` (`reason`, If-Match) | Needs the owner's deletion request and no hold |
+| Delete | Worker `TenantDeletionJob` (every 15 minutes, `Worker:DeletionInterval`) | After `exportWindowEndsAt`; rechecks safety obligations (blocked: record `Blocked`, nothing removed); `cp.purge_tenant()` runs as the NOLOGIN role `ti_purger` and checks the approval in the database |
+| Register | `TrustedInventory.Migrator export-deletion-register [file]` (live, `TI_CONTROL_CONNECTION`) | Keep the file with each backup set |
+| Restore replay | `TrustedInventory.Migrator replay-deletions [file]` (restored environment, API and workers stopped) | Exits 1 if any deleted tenant still has members or live rows; open access only after exit 0 |
+
+Settings: `Lifecycle:ExportWindowDays` (default 90, D10 proposed) and `Lifecycle:BackupRetentionDays` (default 35, D06
+proposed; sets `backup_expiry_at`). Neither is approved yet. Deletion without the owner's request needs an approved retention
+policy, which does not exist, so it is refused. Clusters bootstrapped before S3 must run `db/bootstrap/0002_purge.sql` once as a
+superuser (the migrator's `bootstrap` command does it) before applying migration 0023.

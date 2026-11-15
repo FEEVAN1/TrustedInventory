@@ -11,8 +11,8 @@ public class BackgroundWorkTests
     {
         [BackgroundJob.OutboxDelivery] = "YYYYYN",
         [BackgroundJob.IdempotencyCleanup] = "YYYYYN",
-        [BackgroundJob.AuditCheckpoint] = "YYYYYN", // Deleted: deletion evidence only, arrives with S3
-        [BackgroundJob.LedgerReconciliation] = "YYYYYN", // same document row as checkpoints
+        [BackgroundJob.AuditCheckpoint] = "YYYYYY", // Deleted: signs the retained chain (deletion evidence, DEC-072)
+        [BackgroundJob.LedgerReconciliation] = "YYYYYN",
         [BackgroundJob.ReservationExpiry] = "YYYYYN",
         [BackgroundJob.ExportGeneration] = "YYYYYN",
         [BackgroundJob.BillingNotices] = "YYYYYN", // row "Billing reminders and reconciliation"

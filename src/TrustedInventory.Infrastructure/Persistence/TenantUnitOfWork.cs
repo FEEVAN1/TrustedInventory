@@ -14,18 +14,26 @@ using TrustedInventory.Infrastructure.Audit;
 namespace TrustedInventory.Infrastructure.Persistence;
 
 /// <summary>Connection pool for the runtime role ti_app (TEN-002). Never the migration or platform identity.</summary>
-public sealed class AppDataSource(NpgsqlDataSource source)
+public sealed class AppDataSource(NpgsqlDataSource source) : IAsyncDisposable, IDisposable
 {
     public NpgsqlDataSource Source { get; } = source;
+
+    public ValueTask DisposeAsync() => Source.DisposeAsync();
+
+    public void Dispose() => Source.Dispose();
 }
 
 /// <summary>
 /// Connection pool for ti_platform: tenant provisioning tables only, no stock privileges (TEN-004). Used for
 /// platform administration and by jobs to enumerate tenant ids before opening per-tenant ti_app transactions.
 /// </summary>
-public sealed class PlatformDataSource(NpgsqlDataSource source)
+public sealed class PlatformDataSource(NpgsqlDataSource source) : IAsyncDisposable, IDisposable
 {
     public NpgsqlDataSource Source { get; } = source;
+
+    public ValueTask DisposeAsync() => Source.DisposeAsync();
+
+    public void Dispose() => Source.Dispose();
 }
 
 /// <summary>

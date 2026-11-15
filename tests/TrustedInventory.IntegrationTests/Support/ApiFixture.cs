@@ -70,6 +70,9 @@ public sealed class ApiFixture : IAsyncLifetime
             web.UseSetting("Auth:Audience", TestTokens.Audience);
             web.UseSetting("Platform:AdministratorSubjects:0", SeedData.PlatformAdmin);
             web.UseSetting("RateLimit:PermitsPerMinute", "100000");
+            web.UseSetting("RateLimit:HumanPerMinute", "100000");
+            web.UseSetting("RateLimit:ServicePerMinute", "100000");
+            web.UseSetting("RateLimit:PerIdentityPerMinute", "100000");
             web.UseSetting("Storage:Directory", Path.Combine(Path.GetTempPath(), "ti-objects-simulated-" + Guid.NewGuid().ToString("N")));
             web.UseSetting("Storage:LinkKey", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 201)).ToArray()));
             web.ConfigureServices(services =>
@@ -101,6 +104,28 @@ public sealed class ApiFixture : IAsyncLifetime
     }
 
     public HttpClient Anonymous() => Factory.CreateClient();
+
+    /// <summary>Backup of the whole database with pg_dump inside the container (AT-LFC-02, AT-OPS-01 drills on throwaway data).</summary>
+    public async Task BackupAsync(string name)
+    {
+        var result = await _db.ExecAsync(["pg_dump", "-U", "postgres", "-d", "trustedinventory", "-Fc", "-f", $"/tmp/{name}.dump"]);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"pg_dump failed: {result.Stderr}");
+    }
+
+    /// <summary>Restores a backup into a new database in the same cluster (same roles); returns its connection string for <paramref name="user"/>.</summary>
+    public async Task<string> RestoreAsync(string name, string database, string user, string password)
+    {
+        var create = await _db.ExecAsync(["createdb", "-U", "postgres", database]);
+        if (create.ExitCode != 0)
+            throw new InvalidOperationException($"createdb failed: {create.Stderr}");
+        var restore = await _db.ExecAsync(["pg_restore", "-U", "postgres", "-d", database, "--exit-on-error", $"/tmp/{name}.dump"]);
+        if (restore.ExitCode != 0)
+            throw new InvalidOperationException($"pg_restore failed: {restore.Stderr}");
+        return new NpgsqlConnectionStringBuilder(SuperuserConnection) { Database = database, Username = user, Password = password }.ConnectionString;
+    }
+
+    public const string ControlRolePassword = ControlPassword;
 
     private string Connection(string user, string password) =>
         new NpgsqlConnectionStringBuilder(SuperuserConnection) { Username = user, Password = password }.ConnectionString;

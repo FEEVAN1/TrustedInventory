@@ -112,7 +112,7 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
   `listWebhookEvents?state=Failed`; fix the cause; an exhausted event is replayed only by an audited operator procedure.
 - Reconciliation tasks (`SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`, plus quarantine, dispute, refund and
   chargeback tasks) are resolved in `resolveReconciliationTask` with a resolution; resolving never changes stock or access.
-- Persisted platform alerts and dashboards arrive with S3 (SOP-003).
+- The platform monitor (worker, every minute) raises the same conditions as persisted alerts; see Platform alerts below.
 
 ### Stuck outbox (draft)
 - **Symptoms:** rising outbox age, or `OutboxDeadLetter` alerts.
@@ -122,12 +122,46 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
   `next_attempt_at` through an audited operator procedure. Consumers deduplicate on `event_id`, so a
   replay is safe.
 
-### Tenant suspension (draft; replaced by the v3.0 lifecycle matrix)
-- A platform administrator suspends or reactivates a tenant through `/platform/tenants/{id}/suspend` and
-  `/reactivate`. Both are audited in the tenant's own chain.
-- While suspended, tenant users can read but every mutation returns 403.
-- Spec v3.0 section 26 replaces this with reason-specific restrictions (billing versus security). This
-  runbook is rewritten in S3.
+### Security suspension (draft, v3.0)
+- Platform operations suspend or lift a suspension through `POST /platform/v1/tenants/{id}/security-suspension` and `/lift`
+  (reason, If-Match), audited in the tenant chain. People see only their restriction; device ingestion and safety workers
+  continue. Payment never lifts it (BIL-007). Export during a suspension needs a security review.
+
+### Platform alerts and signals (draft, S3, SOP-003)
+- `GET /platform/v1/health`: signups, provisioning latency, trials ending, webhook backlog, reconciliation tasks, unpaid invoices,
+  seat-counter divergence, open alerts. Aggregates only.
+- `GET /platform/v1/alerts?status=Open`: `WebhookBacklog` and `EntitlementMismatch` are Critical (page the on-call operator);
+  `ProvisioningFailures`, `ReconciliationBacklog` and `UnpaidInvoices` are Warning (next business day).
+- Acknowledge with `POST /platform/v1/alerts/{id}/acknowledge` (note, If-Match). Do not close alerts by hand: the monitor closes
+  an alert when its condition clears. A provider outage raises `WebhookBacklog`; tenants keep access (DEC-066).
+- Seat-counter divergence (in `ReconciliationBacklog`): compare `ti.usage_counter` with active memberships for the tenant and
+  correct the counter through an audited operator procedure; quotas are enforced against the counter.
+
+### Rate limits and noisy tenants (draft, S3, SOP-001)
+- 429 `RATE_LIMITED` with Retry-After: per person per tenant (`RateLimit:HumanPerMinute`, 120), per service identity per tenant
+  (`RateLimit:ServicePerMinute`, 600), per identity overall (`RateLimit:PerIdentityPerMinute`, 1200), per address for anonymous
+  calls (`RateLimit:PermitsPerMinute`, 600). Proposed values; owner approval pending.
+- Exports: two unfinished per tenant; the worker serves tenants in turn. A tenant at its limit is not a platform incident.
+
+### Workspace closure and deletion (draft, S3, LFC-002 to LFC-004)
+- Follow `docs/tenant-offboarding.md` ("As built"). Closure is the owner's action; platform operations only set or clear
+  retention holds, withdraw a closure on the owner's documented request, and approve an owner-requested deletion.
+- Before approving: confirm the owner's request through the support channel, check the closure record has no blockers and that
+  no hold or legal instruction applies. Approval never shortens the export window.
+- A deletion that stops (`Blocked`) needs the customer's QA to resolve the stock; nothing is overridden. A record left
+  `DeletionPending` by a crash resumes on the next run.
+- Never run deletion against production from development or tests (section 30).
+
+### Backup restore and the deletion register (draft, S3; full drill in M6)
+1. Export the register from the live control plane: `TrustedInventory.Migrator export-deletion-register register.json`.
+2. Restore into an isolated environment with API and workers stopped.
+3. Run `TrustedInventory.Migrator replay-deletions register.json` against the restored database (`TI_CONTROL_CONNECTION`). It
+   must exit 0.
+4. Only then start workers and the API. Record the run (register size, verification lines) in the recovery log.
+
+### Orphaned objects (S3)
+- Deleting a tenant removes its whole storage prefix (`IObjectStore.DeleteTenantAsync`), including objects whose rows were never
+  written. A sweep of live tenants' prefixes is left to M6 with the production object store.
 
 ### Not yet written
 | Runbook | Milestone |
@@ -137,5 +171,3 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 | Telemetry outage | M5 |
 | Recall initiation | M5 |
 | Ledger reconciliation failure | M2 |
-| Controlled export retention and orphan-object cleanup | S3 |
-| Tenant closure and deletion; persisted platform alerts | S3 |

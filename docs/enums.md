@@ -69,6 +69,10 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | InvitationStatus | `Pending`, `Accepted`, `Revoked`, `Expired` | ONB-005 |
 | WebhookProcessingState | `Received`, `Processed`, `Ignored`, `Quarantined`, `Failed` | Quarantined: unknown billing reference (AT-BIL-02) |
 | ClosureStatus | `Requested`, `ExportWindow`, `Blocked`, `DeletionPending`, `Deleted`, `Withdrawn` | LFC-002 |
+| ClosureBlocker code | `MEDICAL_STOCK_ON_HAND`, `MEDICAL_IN_TRANSIT`, `ACTIVE_HOLDS` (recall and excursion codes join with M5) | 409 `RETENTION_BLOCKED` blockers (DEC-070) |
+| PlatformAlertKind | `WebhookBacklog`, `EntitlementMismatch`, `ProvisioningFailures`, `ReconciliationBacklog`, `UnpaidInvoices` | SOP-003, DEC-074 |
+| PlatformAlertStatus | `Open`, `Acknowledged`, `Closed` | Closed only by the monitor when the condition clears |
+| ServiceStatus | `Operational`, `Degraded`, `Unavailable` | `GET /service-status` (SOP-006) |
 | FeatureKey | `core_inventory`, `service_api`, `advanced_reporting`, `medical_storage`, `telemetry` | Wire values as written (ENT-002) |
 | QuotaKey | `active_seats`, `active_warehouses`, `active_skus`, `active_devices`, `attachment_bytes` | ENT-002, ENT-003 |
 | OwnershipTransferStatus | `Pending`, `Accepted`, `Cancelled`, `Expired` | ONB-006 |

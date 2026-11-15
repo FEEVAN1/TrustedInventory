@@ -394,7 +394,8 @@ PostgreSQL 16). Real migrations arrive in S1/S2 (DEC-032). Decisions: DEC-033 to
 | slug | text | no (after 0005) | Lowercase DNS-label style, globally unique (`lower(slug)` index); navigation only (SAS-003) |
 | home_region | text | no (after 0005) | Explicit at provisioning (SAS-002) |
 | ready_at, archived_at, deletion_requested_at, deleted_at | timestamptz | yes | Ready requires ready_at |
-| retention_hold | boolean | no | Blocks deletion (LFC-004) |
+| retention_hold | boolean | no | Blocks deletion approval and deletion (LFC-004); never closure or export |
+| retention_hold_reason, retention_hold_reference | text | yes | Reason and instruction reference of the hold (0022, DEC-070); reason required while held |
 | security_suspended_at, security_suspension_reason, security_suspended_by | | yes | All or none; set by platform operations |
 | provisioning_job_id | uuid | yes | FK `cp.provisioning_job` |
 
@@ -434,7 +435,8 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | billing_notice | Notices from verified billing events (SubscriptionActivated, PaymentFailed, PaymentRecovered; PlanChangeBlocked and PlanChangeApplied from 0019; PaymentReminder from 0020), relayed to the tenant outbox by the worker (0018, DEC-064) | `dedupe_key` unique; immutable except `relayed_at`, set once | SELECT own; UPDATE `relayed_at` only |
 | provisioning_job | Resumable signup provisioning | `signup_key` unique; tenant id allocated up front; Ready ⇔ ready_at | none |
 | terms_acceptance | Terms/privacy/subscription-terms evidence | Append-only | none |
-| deletion_record | Closure, deletion register | One open per tenant; Deleted needs approval and backup expiry | none |
+| deletion_record | Closure, deletion register; `idempotency_key`, `outstanding_invoice_count`, `archive_export_id`, `version` (0022); `scope` records rows and objects removed and what was retained (DEC-072) | One open per tenant; key unique per tenant; Deleted needs approval, completed_at and backup expiry; Blocked needs hold_results | SELECT own (`tenant_read`, 0022) |
+| platform_alert | Persisted platform alerts (0024, DEC-074): kind, severity, status, counts-only detail, opened/last seen, acknowledgement | One non-closed alert per `dedupe_key`; Closed ⇔ closed_at; acknowledgement needs who and when | none |
 
 Money columns everywhere: `bigint` minor units + `char(3)` currency + `smallint` exponent (BIL-001).
 
@@ -454,3 +456,4 @@ flag for the tenant selector.
 | `ti_control` | yes | All `cp` tables (no DELETE; no UPDATE on terms_acceptance); `ti.tenant`, `membership`, `role_grant`, `audit_stream`, `usage_counter` (S/I/U); `audit_event` (S/I); `invitation` (S/U). **No** catalog, location or stock privileges. |
 | `cp_access_reader` | no | Owns `cp.tenant_access()`; SELECT on tenant, subscription, entitlement_snapshot |
 | `ti_platform` | yes | Unchanged; no USAGE on schema `cp` |
+| `ti_purger` | no | Owns `cp.purge_tenant(tenant)` and `cp.replay_deletion(...)` only (bootstrap 0002, migration 0023, DEC-072). SELECT and DELETE on every tenant table except `audit_event`, `audit_checkpoint`, `audit_stream`; SELECT/UPDATE on `ti.tenant`; SELECT/INSERT/UPDATE on `cp.deletion_record`. The functions check the approved `DeletionPending` state in the database; append-only triggers allow DELETE only for this role with the purge marker of the row's tenant. `ti_control` has EXECUTE on both functions and nothing else new. |

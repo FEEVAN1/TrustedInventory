@@ -32,6 +32,12 @@ builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infras
     sp.GetRequiredService<WorkerOptions>().BillingReminderInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.SubscriptionPeriodEndJob>(sp,
     sp.GetRequiredService<WorkerOptions>().SubscriptionPeriodEndInterval));
+// Platform signals and alerts (SOP-003, DEC-074).
+builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Organization.PlatformMonitorJob>(sp,
+    builder.Configuration.GetValue("Worker:MonitorInterval", TimeSpan.FromMinutes(1))));
+// Approved deletions after the export window (LFC-004, DEC-072).
+builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Saas.TenantDeletionJob>(sp,
+    builder.Configuration.GetValue("Worker:DeletionInterval", TimeSpan.FromMinutes(15))));
 // Resumes signups whose inline provisioning stopped part-way (ONB-002).
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Saas.ProvisioningSweepJob>(sp,
     builder.Configuration.GetValue("Worker:ProvisioningInterval", TimeSpan.FromSeconds(30))));

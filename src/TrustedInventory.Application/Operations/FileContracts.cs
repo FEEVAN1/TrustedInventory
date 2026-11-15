@@ -6,6 +6,9 @@ public interface IObjectStore
     Task PutAsync(string key, byte[] content, CancellationToken ct);
 
     Task<byte[]?> GetAsync(string key, CancellationToken ct);
+
+    /// <summary>Removes every object under the tenant's prefix (approved deletion, LFC-004). Returns how many objects were removed.</summary>
+    Task<int> DeleteTenantAsync(Guid tenantId, CancellationToken ct);
 }
 
 /// <summary>What a download link points at (DEC-061).</summary>

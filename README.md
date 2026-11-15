@@ -15,7 +15,12 @@ unpick, dispatch with in-transaction rechecks and rework tasks, and the reservat
 independent approvals with re-authentication, adjustments, bin and warehouse transfers, blind counts with bin
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
 storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrive with M5.
-**S2 (commercial control) in progress:** complete on the labelled simulator, and the Paystack adapter (owner decision D09: Paystack, NGN, prices set in the platform catalog) works in test mode against a labelled Paystack API simulator. The owner's Paystack test-mode run (`docs/paystack-sandbox.md`) comes next. Against the labelled provider simulator: the platform plan catalog; subscription and invoice reads; consented hosted checkout and the billing portal; signed webhooks into an encrypted inbox and the worker that applies them (activation, renewal, past-due grace, disputes and refunds, with security suspension and deletion taking precedence); plan changes at the next billing cycle with downgrade blockers for usage and medical stock; cancellation at period end and resume; daily reconciliation, retained access during a provider outage, payment reminders and the platform billing consoles. Nothing can charge: startup refuses live Paystack keys and live checkout. Passing builds and tests are not evidence that product requirements are met; see
+**S3 (lifecycle and service) code complete; its gate waits for the owner to approve the commercial defaults** (DEC-069 to
+DEC-074): workspace closure with re-authentication and safety blockers, retention holds and withdrawal, the owner-only tenant
+archive export, approved deletion through a database-checked purge role with retained audit evidence, the deletion register and
+its replay after a backup restore, tenant-aware rate limits, export concurrency and fair export scheduling, persisted platform
+alerts and health signals, the public service status, and per-recipient billing notices.
+**S2 (commercial control) stays open:** complete on the labelled simulator, and the Paystack adapter (owner decision D09: Paystack, NGN, prices set in the platform catalog) works in test mode against a labelled Paystack API simulator. The owner's Paystack test-mode run (`docs/paystack-sandbox.md`) is set aside for now (DEC-069). Against the labelled provider simulator: the platform plan catalog; subscription and invoice reads; consented hosted checkout and the billing portal; signed webhooks into an encrypted inbox and the worker that applies them (activation, renewal, past-due grace, disputes and refunds, with security suspension and deletion taking precedence); plan changes at the next billing cycle with downgrade blockers for usage and medical stock; cancellation at period end and resume; daily reconciliation, retained access during a provider outage, payment reminders and the platform billing consoles. Nothing can charge: startup refuses live Paystack keys and live checkout. Passing builds and tests are not evidence that product requirements are met; see
 `docs/requirement-test-matrix.csv`.
 
 ## Layout
@@ -27,7 +32,7 @@ storage and malware scanning are labelled simulators. Recall, excursion and tele
 | `src/TrustedInventory.Infrastructure` | EF Core mapping, tenant unit of work (RLS context), audit chain, idempotency, jobs |
 | `src/TrustedInventory.Api` | HTTP API (`/api/v1`), authentication, tenant context, health checks |
 | `src/TrustedInventory.Worker` | Outbox delivery, idempotency cleanup, daily audit checkpoints |
-| `src/TrustedInventory.Migrator` | Applies `db/migrations` (`migrate`), dev cluster setup (`bootstrap`), synthetic seed (`seed`) |
+| `src/TrustedInventory.Migrator` | Applies `db/migrations` (`migrate`), dev cluster setup (`bootstrap`), synthetic seed (`seed`), deletion register export and replay after a restore (`export-deletion-register`, `replay-deletions`) |
 | `db/bootstrap`, `db/migrations` | Cluster bootstrap (superuser, once) and versioned SQL migrations (DEC-025) |
 | `db/design/` | M0 draft schema and RLS smoke test (design artefacts, superseded by migrations) |
 | `deploy/` | Dockerfiles, Keycloak development realm, stack verification script |

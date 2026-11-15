@@ -45,17 +45,29 @@ public sealed class CreateExportValidator : AbstractValidator<CreateExport>
 public sealed class ExportService(ITenantUnitOfWork uow, ICallerAccessor callers, ICursorCodec cursors, IObjectStore store, IDownloadLinks links,
     IValidator<CreateExport> validator)
 {
+    /// <summary>Proposed runtime budget (SOP-001, DEC-073): two unfinished exports per tenant.</summary>
+    public const int MaxConcurrent = 2;
+
     public Task<ExportJobDto> CreateAsync(CreateExport cmd, CancellationToken ct)
     {
         var caller = callers.Caller;
         caller.Require(Permissions.ExportsCreate);
         validator.ValidateOrThrow(cmd);
-        if (cmd.Type is ExportType.Traceability or ExportType.TenantArchive)
-            throw AppException.Validation("type", cmd.Type == ExportType.Traceability
-                ? "Traceability exports arrive with the medical milestone (M5)."
-                : "The tenant archive arrives with lifecycle and offboarding (S3).");
+        if (cmd.Type == ExportType.Traceability)
+            throw AppException.Validation("type", "Traceability exports arrive with the medical milestone (M5).");
+        // The tenant archive holds every record of the workspace: owner only, at creation and again at download (LFC-003).
+        if (cmd.Type == ExportType.TenantArchive && !caller.IsOwner)
+            throw AppException.Forbidden("Only the workspace owner can export the tenant archive.");
         return uow.WriteAsync(async (s, c) =>
         {
+            // SOP-001: counted under a tenant-scoped advisory lock so two concurrent requests cannot both pass. The archive export a
+            // workspace closure queues is created separately and never refused (DEC-070).
+            var lockKey = $"exports:{caller.TenantId:N}";
+            await s.Db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))", c);
+            var active = await s.Db.Set<ExportJob>().CountAsync(j => j.Status == ExportStatus.Queued || j.Status == ExportStatus.Running, c);
+            if (active >= MaxConcurrent)
+                throw AppException.RateLimited(
+                    $"Your workspace already has {active} exports in progress (limit {MaxConcurrent}). Retry when one completes.", TimeSpan.FromSeconds(60));
             var filter = JsonSerializer.SerializeToNode(cmd.Filters, JsonDefaults.Options)!;
             var job = ExportJob.Queue(caller.TenantId, cmd.Type, filter.ToJsonString(), SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson.Serialize(filter))),
                 caller.Subject, s.Now);
@@ -95,6 +107,8 @@ public sealed class ExportService(ITenantUnitOfWork uow, ICallerAccessor callers
         return uow.WriteAsync(async (s, c) =>
         {
             var job = await s.Db.Set<ExportJob>().AsNoTracking().SingleOrDefaultAsync(j => j.Id == id, c) ?? throw AppException.NotFound("Export");
+            if (job.Type == ExportType.TenantArchive && !caller.IsOwner)
+                throw AppException.NotFound("Export");
             if (job.Status != ExportStatus.Completed || job.RetainUntil <= s.Now)
                 throw AppException.InvalidState($"The export is {job.Status}; only a completed, retained export can be downloaded.");
             var expires = s.Now + IDownloadLinks.MaxLifetime;
@@ -116,10 +130,14 @@ public sealed class ExportService(ITenantUnitOfWork uow, ICallerAccessor callers
             var job = await s.Db.Set<ExportJob>().AsNoTracking().SingleOrDefaultAsync(j => j.Id == id, c);
             if (job is not { Status: ExportStatus.Completed, ObjectKey: { } key } || job.RetainUntil <= s.Now)
                 throw AppException.NotFound("Download");
+            if (job.Type == ExportType.TenantArchive && !caller.IsOwner)
+                throw AppException.NotFound("Download");
             var content = await store.GetAsync(key, c) ?? throw AppException.NotFound("Download");
             s.Audit(new AuditEntry("ExportDownloaded", "ExportJob", id, job.Version, null, null, new { exportId = id, bytes = content.Length }));
             await s.Db.SaveChangesAsync(c);
-            return new DownloadedFile($"export-{job.Type}-{id:N}.jsonl", "application/x-ndjson", content);
+            return job.Type == ExportType.TenantArchive
+                ? new DownloadedFile($"tenant-archive-{id:N}.zip", "application/zip", content)
+                : new DownloadedFile($"export-{job.Type}-{id:N}.jsonl", "application/x-ndjson", content);
         }, ct);
     }
 

@@ -5,9 +5,9 @@ public enum BackgroundJob
 {
     OutboxDelivery,
     IdempotencyCleanup,
-    /// <summary>Row "Ledger reconciliation, audit verification and checkpoints".</summary>
+    /// <summary>Row "Audit checkpoints": also for Deleted tenants, whose retained chain is deletion evidence (DEC-072).</summary>
     AuditCheckpoint,
-    /// <summary>Same row: recomputes bucket projections from the movement ledger (STK-004, DEC-049).</summary>
+    /// <summary>Row "Ledger reconciliation and audit verification": recomputes bucket projections from the ledger (STK-004, DEC-049).</summary>
     LedgerReconciliation,
     /// <summary>Row "Reservation expiry (releases stock, never consumes it)" (STK-008, DEC-055).</summary>
     ReservationExpiry,
@@ -25,8 +25,9 @@ public static class BackgroundWork
 {
     public static bool Runs(BackgroundJob job, AccessMode mode) => job switch
     {
-        // Deleted: no work. Checkpoints keep deletion evidence only, which arrives with the deletion flow (S3).
-        BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup or BackgroundJob.AuditCheckpoint
+        // Deleted: only audit checkpoints, which sign the retained chain (deletion evidence, DEC-072). No other work.
+        BackgroundJob.AuditCheckpoint => true,
+        BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup
             or BackgroundJob.LedgerReconciliation or BackgroundJob.ReservationExpiry or BackgroundJob.ExportGeneration
             or BackgroundJob.BillingNotices => mode != AccessMode.Deleted,
         _ => false,
@@ -37,11 +38,12 @@ public static class BackgroundWork
     /// SAS-004). Valid because every row is identical across Normal, BillingRestricted and SecuritySuspended; a unit
     /// test enforces that, so a job that breaks it must read billing state instead.
     /// </summary>
-    public static bool RunsFor(BackgroundJob job, TenantLifecycle lifecycle) => Runs(job, lifecycle switch
+    public static bool RunsFor(BackgroundJob job, TenantLifecycle lifecycle) => lifecycle switch
     {
-        TenantLifecycle.Provisioning => AccessMode.Provisioning,
-        TenantLifecycle.Ready => AccessMode.Normal,
-        TenantLifecycle.Archived or TenantLifecycle.DeletionPending => AccessMode.Closed,
-        _ => AccessMode.Deleted, // Deleted, and any unknown value, fails closed
-    });
+        TenantLifecycle.Provisioning => Runs(job, AccessMode.Provisioning),
+        TenantLifecycle.Ready => Runs(job, AccessMode.Normal),
+        TenantLifecycle.Archived or TenantLifecycle.DeletionPending => Runs(job, AccessMode.Closed),
+        TenantLifecycle.Deleted => Runs(job, AccessMode.Deleted),
+        _ => false, // any unknown value fails closed: no work at all
+    };
 }

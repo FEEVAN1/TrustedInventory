@@ -51,6 +51,19 @@ public sealed partial class AuditCheckpointJob(
             head = (byte[])reader[1];
         }
 
+        // A deleted tenant keeps its audit chain as deletion evidence (DEC-072): it is checkpointed once more after the deletion
+        // events, then only if the retained chain ever changes.
+        await using (var covered = new NpgsqlCommand("""
+            SELECT (SELECT lifecycle::text FROM ti.tenant WHERE id = @t) = 'Deleted'
+               AND EXISTS (SELECT 1 FROM ti.audit_checkpoint WHERE sequence = @seq)
+            """, conn, tx))
+        {
+            covered.Parameters.AddWithValue("t", tenantId);
+            covered.Parameters.AddWithValue("seq", sequence);
+            if (await covered.ExecuteScalarAsync(ct) is true)
+                return false;
+        }
+
         var signature = AuditCheckpointSigner.Sign(signing.Key, tenantId, date, sequence, head);
         var record = new AuditCheckpointRecord(tenantId, date, sequence, Convert.ToHexStringLower(head),
             Convert.ToHexStringLower(signature), signing.KeyId);

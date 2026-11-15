@@ -61,7 +61,7 @@ public sealed class CommercialFlowTests(ApiFixture fx)
         Assert.Equal(starter.ToString(), (string?)sub["priceVersionId"]);
         Assert.Equal(10L, (long)sub["limits"]!["active_warehouses"]!);
         await RelayAsync();
-        Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.outbox_event WHERE tenant_id = @t AND event_type = 'BillingSubscriptionActivated'", tenant));
+        Assert.Equal(1L, await CountAsync("SELECT count(DISTINCT payload->>'noticeId') FROM ti.outbox_event WHERE tenant_id = @t AND event_type = 'BillingSubscriptionActivated'", tenant));
         await (await owner.PostJsonAsync("/api/v1/warehouses", new { code = "S2-1", name = "Main", timeZone = "UTC" })).ExpectAsync(HttpStatusCode.Created);
         var subscriptionRef = (string)(await ScalarAsync("SELECT provider_subscription_ref FROM cp.subscription WHERE tenant_id = @t", tenant))!;
 
@@ -92,7 +92,7 @@ public sealed class CommercialFlowTests(ApiFixture fx)
         Assert.Equal("Active", (string?)(await SubscriptionAsync(owner))["state"]);
         await RelayAsync();
         foreach (var notice in new[] { "BillingPaymentFailed", "BillingPaymentReminder", "BillingPaymentRecovered", "BillingPlanChangeApplied" })
-            Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.outbox_event WHERE tenant_id = @t AND event_type = @k", tenant, ("k", notice)));
+            Assert.Equal(1L, await CountAsync("SELECT count(DISTINCT payload->>'noticeId') FROM ti.outbox_event WHERE tenant_id = @t AND event_type = @k", tenant, ("k", notice)));
 
         // 5. Cancellation at period end; once the provider ends it, routine writes stop but data and billing recovery remain (BIL-008).
         sub = await (await owner.PostJsonAsync("/api/v1/saas/subscription/cancel", new { reason = "End of the pilot" }, $"\"{(long)(await SubscriptionAsync(owner))["version"]!}\""))

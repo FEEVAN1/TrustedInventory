@@ -1269,6 +1269,144 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   on Paystack's own webhook retries plus the comparison (`FetchSubscription`: active → Active, attention → PastDue,
   non-renewing → Active with pending cancellation, cancelled/completed → Cancelled), whose differences become operator tasks.
 
+## DEC-069 S3 starts while the S2 gate waits for the owner's Paystack run (owner instruction, 13 Nov 2026; AGT-001)
+- **Status:** Adopted (owner). The owner set the Paystack test-mode run aside and asked for the remaining modules to be built.
+- **Conflict:** AGT-001 allows only the current milestone. S2 is code-complete; its gate waits only on the owner's sandbox run,
+  which needs nothing new from the code.
+- **Resolution:** S3 (lifecycle and service) is the current milestone from today. S2 stays **open**, not met: its gate is assessed
+  after the Paystack run, and no commercial activation happens before both S2 and S3 pass (section 31). After S3 the order is
+  M5 then M6, one milestone at a time. No control is weakened: the simulator stays the only provider in development and tests,
+  and startup still refuses live keys and live checkout (DEC-040, DEC-068).
+
+## DEC-070 S3 lifecycle and service: plan, closure and platform lifecycle controls (S3, LFC-001, LFC-002, AT-LFC-01)
+- **Status:** Adopted. Proposed defaults (D10: 90-day export window, retention over deletion) stay configurable and unapproved.
+- **Slices:** (1) closure request and status, retention hold, closure withdrawal (migration 0022); (2) tenant archive export
+  (LFC-003); (3) approved deletion, deletion register and restore replay (LFC-004, AT-LFC-02); (4) tenant-aware rate limits,
+  export concurrency, fair worker scheduling, noisy-tenant test (SOP-001, SOP-002, AT-SOP-01); (5) persisted platform alerts,
+  service status and support routes, notice targeting (SOP-003, SOP-006, SUI-002); (6) gate evidence, runbooks, handoff docs.
+  Browser evidence for section 29 screens (SUI-001, SUI-003 browser) needs the web app, which is still a placeholder; it moves
+  to the M6 UI work and is listed as a carry-over, not claimed.
+- **Closure (`POST /saas/closure`, LFC-002):** owner only (`tenant.close` and the TenantOwner role), re-authentication within
+  5 minutes (SOD-7), `confirmation` must equal `CLOSE <slug>`, Idempotency-Key required. Steps:
+  1. Safety blockers, read in a tenant transaction (`ti_app`; the control role reads no stock, SAS-004): medical stock on hand,
+     medical stock in transit, stock on hand in `Hold` or `Recalled`. Recalls and excursions join this list when M5 creates
+     them. Any blocker: the open closure record is `Blocked` with `hold_results`, the response is 409 `RETENTION_BLOCKED` with
+     the blockers, and nothing else changes; safety work continues.
+  2. Outstanding billing: unpaid invoices are counted and returned (`outstandingInvoiceCount`); they never block closure and the
+     billing category stays open while closing.
+  3. A paid subscription not yet cancelled is cancelled at period end through the provider first (same path as
+     `cancelSubscription`, DEC-065), so nothing renews after closure.
+  4. One `ti_control` transaction: lock the tenant row, require `Ready`; the closure record becomes `ExportWindow` with
+     `export_window_ends_at = max(now, paid or trial end) + Lifecycle:ExportWindowDays` (default 90, D10 proposed);
+     `ti.tenant.lifecycle = Archived`, `archived_at`, and `deletion_requested_at` when `requestedDeletion`; audit events in the
+     tenant's chain.
+  5. A `TenantArchive` export is queued in a tenant transaction and linked to the record (`archiveExportId`).
+  A retry with the same key returns the same record and resumes any step not finished; another key while a closure is open is
+  409 `INVALID_STATE`. Legal hold blocks deletion, not closure.
+- **Status (`GET /saas/closure`):** the latest record, owner only (setup-status category; Closed mode allows it to the owner).
+- **Platform lifecycle controls (PlatformOperations, audited in the tenant's chain, If-Match on the tenant version):**
+  `POST /platform/v1/tenants/{id}/retention-hold` sets or clears `retention_hold` with a reason and instruction reference;
+  `POST /platform/v1/tenants/{id}/closure/withdraw` sets the open record `Withdrawn` and the tenant back to `Ready`
+  (`archived_at` and `deletion_requested_at` cleared). The subscription stays cancelled at period end; the owner can resume it.
+- **Migration 0022:** `cp.deletion_record.idempotency_key` (unique per tenant), `outstanding_invoice_count`,
+  `archive_export_id`, `version`; `ti.tenant.retention_hold_reason`, `retention_hold_reference`; `ti_app` may read its own
+  tenant's deletion record (`tenant_read` policy, like other cp reads).
+- **Retry after archiving (as built):** once the workspace is Archived the access gate refuses `requestClosure` (ownership
+  category is not allowed in Closed mode), even for the same Idempotency-Key, with recovery `view-closure`; the client reads
+  `GET /saas/closure`. So the archive export is queued **before** the archiving transaction and its id is written in that same
+  transaction; a retry while the workspace is still Ready (a Blocked attempt) replays from the record.
+
+## DEC-071 Tenant archive export (S3 slice 2, LFC-003, AT-LFC-02)
+- **Status:** Adopted.
+- **Who:** `type = TenantArchive` on `POST /exports` is owner only, checked at creation, at link issue and again at download
+  (a non-owner gets 403 at creation and 404 for the link or file). Closure queues one automatically (DEC-070).
+- **Format:** one ZIP (`application/zip`, object key `…/exports/{id}.zip`): `tenant.json`; `data/{table}.jsonl` for each tenant
+  table in `TenantArchive.Tables`; `lineage/lots.jsonl` (per lot: receipt lines, movements, shipment lines); `audit/events.jsonl`
+  with previous and event hashes, and `audit/integrity.json` (stream range, last hash, hash rule, signed checkpoints) so the
+  chain can be verified offline; `attachments/manifest.json` and the bytes of **clean** attachments only; `manifest.json` with
+  tenant id, generation time, filter and a SHA-256, size and row count per file. The export job's own manifest signs the ZIP
+  digest as for other exports (DEC-061).
+- **Scope:** every query runs in the tenant's own `ti_app` transaction, so RLS confines it to that tenant (TEN-003); nothing is
+  read from the control plane, so provider payloads and tax references cannot appear. Columns holding token or
+  re-authentication digests (`token_hash`, `reauth_reference`) are dropped. Tables left out, each with a reason, are listed in
+  `TenantArchive.Excluded` (`invitation`: token digests; `idempotency_record`, `outbox_event`, usage counters: internal).
+  A schema test fails when a tenant table is in neither list.
+- **Links:** the existing signed links (15 minutes, bound to tenant, caller and export, DEC-061). After deletion the files are
+  removed with the tenant's storage prefix, so any link fails (DEC-072).
+
+## DEC-072 Approved deletion, the deletion register and restore replay (S3 slice 3, LFC-004, AT-LFC-01, AT-LFC-02)
+- **Status:** Adopted. Destructive deletion runs only against throwaway test databases (section 30). Backup retention is the
+  proposed D06 schedule (`Lifecycle:BackupRetentionDays`, default 35) until the owner approves one.
+- **Conflict (AGT-003):** the ledger, document operations, pick confirmations, shipments and audit tables are append-only, and
+  no runtime role may delete tenant data; LFC-004 requires removing eligible live data. **Resolution:** a separate NOLOGIN role
+  `ti_purger` (bootstrap `0002_purge.sql`) owns `cp.purge_tenant(tenant)`, the only path that deletes live rows. The function
+  checks in the database that the tenant is `DeletionPending`, has an approved `DeletionPending` record and no retention hold,
+  then deletes every tenant table except the audit evidence, in passes until foreign keys allow. The append-only and
+  draft-only triggers allow DELETE only for `ti_purger` with the purge marker set for that row's tenant; `audit_event` and
+  `audit_checkpoint` stay undeletable by anyone (and `ti_purger` has no grant on them). `ti_app` gains nothing; `ti_control`
+  gains only EXECUTE on the two functions. Audit history is kept, so the control is narrowed, not weakened.
+- **Approval:** `POST /platform/v1/tenants/{id}/deletion/approve` (platform operations, reason, If-Match): the closure must be in
+  its export window with the owner's deletion request and no retention hold (hold: 409 `RETENTION_BLOCKED`). Without the
+  owner's request, deletion needs an approved retention policy (D10), which does not exist yet, so it is refused.
+- **Deletion job (worker, every 15 minutes):** for an approved record whose window has ended: recheck safety blockers in the
+  tenant transaction (any blocker: record `Blocked`, nothing removed); then `DeletionPending` (tenant and record, audited);
+  `cp.purge_tenant()` (memberships, role grants and invitations go with the data, so no token gives access); remove the tenant's
+  storage prefix (`IObjectStore.DeleteTenantAsync`, which also clears orphaned objects, the M4 carry-over); then `Deleted` with
+  `completed_at`, `backup_expiry_at = now + BackupRetentionDays` and a `scope` listing rows and objects removed and what was
+  retained. Each step is idempotent; a record left `DeletionPending` resumes at the purge.
+- **Retained, with restricted access:** the tenant row (deletion evidence), `audit_event`, `audit_checkpoint`, `audit_stream`,
+  control-plane billing records, and the deletion record. No blanket seven-year purge; legal holds prevail.
+- **Deletion register and restore (AT-LFC-02):** the register is the set of `Deleted` records. The migrator gains
+  `export-deletion-register [file]` (live control plane) and `replay-deletions [file]` (restored environment, API and workers
+  stopped). Replay calls `cp.replay_deletion()` per entry: marks the tenant `DeletionPending` under the register's approval
+  (withdrawing any older open record restored from the backup), purges, marks `Deleted`, then verifies no membership, grant,
+  invitation or usage row remains and exits non-zero otherwise. The test restores a real `pg_dump` taken before the deletion.
+
+## DEC-073 Tenant-aware rate limits, export concurrency and fair worker scheduling (S3 slice 4, SOP-001, SOP-002, AT-SOP-01)
+- **Status:** Adopted. Budgets are the spec's proposed runtime budgets, configurable, until the owner approves them.
+- **Request budgets:** fixed one-minute windows, no queueing. Each person in each tenant: `RateLimit:HumanPerMinute` (120). Each
+  service identity (token with a `client_id` claim) in each tenant: `RateLimit:ServicePerMinute` (600). Anonymous calls per
+  client address: `RateLimit:PermitsPerMinute` (600). Chained with an overall budget per identity across all tenant headers,
+  `RateLimit:PerIdentityPerMinute` (1200), so cycling made-up tenant ids buys nothing.
+- **Why the subject is in every key:** the limiter runs before membership is checked, so the tenant header is not yet trusted.
+  Keying by tenant alone would let a forged header spend another tenant's budget. With the subject in the key, a forged header
+  only moves the caller into another partition of their own. Consequence: the 600/min service budget is per service identity
+  per tenant, not a tenant aggregate; an aggregate needs validated membership and is left for M5, where service principals and
+  device ingestion arrive (telemetry gets its own budget then, per SOP-001).
+- **No database work for rejected requests:** the limiter runs after authentication and before tenant context, so a 429 opens no
+  connection and no transaction. Throttled requests are not usage (nothing is billed per request).
+- **Exports:** at most `ExportService.MaxConcurrent` (2) unfinished exports per tenant, counted under a transaction-scoped
+  advisory lock; the third is 429 `RATE_LIMITED` with Retry-After. The archive queued by closure is never refused.
+- **Fair worker scheduling:** the export worker serves tenants round-robin, one export per tenant per pass, up to 50 per run.
+  Other per-tenant jobs already process each tenant in bounded batches.
+- **Evidence:** ten tenants, one sending 150 concurrent requests against a budget of 30: exactly 30 served and 120 rejected with
+  Retry-After, while all 90 requests of the other nine tenants succeed. The full section 18 workload test (50 users, 1M
+  movements) on staging remains M6 evidence (NFR-PERF); SOP-002 stays Partial until then.
+- **Connection pools are closed with their host (found by this slice):** `AppDataSource`, `PlatformDataSource` and
+  `ControlDataSource` now dispose their Npgsql pools, so a stopped host (or a test host) no longer leaves idle connections
+  that count against the database connection limit. Before this, extra test hosts could exhaust the limit and later tests failed
+  with 500s depending on order.
+
+## DEC-074 Platform alerts, service status and billing notice recipients (S3 slice 5, SOP-003, SOP-006, SUI-002)
+- **Status:** Adopted.
+- **Signals (`GET /platform/v1/health`, platform.health.read):** signups in 24 hours (started, Ready, Failed), signup-to-Ready
+  latency p50/p95, trials ending within three days, Ready workspaces whose trial ended unpaid, webhook backlog and oldest age,
+  open entitlement mismatch tasks, open and day-old reconciliation tasks, open invoices, seat counters that differ from active
+  memberships (quota reconciliation), open alerts. Aggregates only; no tenant name, data or stock (SOP-006, SAS-004).
+- **Alerts (migration 0024, `cp.platform_alert`):** the worker's monitor (every minute) evaluates the signals: webhook backlog
+  older than five minutes and any entitlement mismatch are Critical; provisioning failures, reconciliation backlog (tasks open
+  over a day or counter divergence) and unpaid invoices are Warning. One open alert per kind; a present signal refreshes it, a
+  cleared one closes it. Operators list alerts and acknowledge them with a note (If-Match); the row records who and when.
+  A provider outage raises the backlog alert but never restricts tenants (DEC-066).
+- **Service status (`GET /api/v1/service-status`, public):** overall and per-component status from the readiness checks, and the
+  support contact (`Support:Contact`, `Support:StatusPageUrl`; "Not configured" until set). The customer SLA remains a
+  commercial decision. Problem responses already carry trace ids for support (SOP-006).
+- **Billing notices (SUI-002):** the relay writes one outbox message per notice and recipient: each active TenantOwner and
+  BillingAdministrator (by subject; delivery resolves the verified address at the identity provider) and the billing contact
+  address. The event id is a SHA-256-derived UUID of notice and recipient, so a repeated relay collides on the outbox's unique
+  event id instead of sending twice. No notification preferences exist, so nothing can suppress required notices; warehouse
+  users never see the messages.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which
@@ -1289,8 +1427,8 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 | D03 approval | Two distinct people + signer re-auth; role bundles in `docs/permissions.md` | Authorized roles, delegated cover |
 | D04 medical policies | Product-specific limits, immediate excursion hold, 300 s staleness | QA-approved profiles, device validation |
 | D05 retention | Seven years | Jurisdictions, record classes, legal holds, deletion |
-| D06 hosting | Managed PostgreSQL, encrypted object storage | Region, provider, failover, recovery budget |
+| D06 hosting | Managed PostgreSQL, encrypted object storage; backup retention 35 days proposed (`Lifecycle:BackupRetentionDays`, DEC-072) | Region, provider, failover, recovery budget, backup schedule |
 | D07 integrations | Simulator only | Real sensors, gateway transport, GS1 samples |
-| D08 operational limits | Zero over-receipt, 24 h reservation expiry, online-only mutations | Suitability |
+| D08 operational limits | Zero over-receipt, 24 h reservation expiry, online-only mutations; request budgets 120/min per person per tenant and 600/min per service identity, two concurrent exports (DEC-073) | Suitability |
 | D09 SaaS commercial | **Partly decided (DEC-067):** Paystack (test mode until live keys are approved), NGN, prices configurable in the platform catalog. Default still in force: 14-day trial, flat recurring subscription, fixture plans | Plan names, quotas, per-plan trials, taxes |
 | D10 SaaS lifecycle | **Partly decided (DEC-067):** 7-day past-due grace and reminders on day 0, 3 and 6 approved. Default still in force: 90-day export window, retention overrides deletion | 90-day export window, retention over deletion |

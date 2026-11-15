@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0021_paystack";
+    public const string Required = "0024_platform_alerts";
 }
 
 public static class DependencyInjection
@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddSingleton(_ => new ControlDataSource(BuildDataSource(controlConnection)));
         services.AddSingleton<Application.Organization.IPlatformDirectory, Organization.PlatformDirectory>();
         services.AddSingleton<Application.Organization.IWorkspaceStatusReader, Organization.WorkspaceStatusReader>();
+        services.AddSingleton<Application.Organization.IPlatformMonitorStore, Organization.PlatformMonitorStore>();
         services.AddSingleton<ICursorCodec>(new HmacCursorCodec(cursorKey));
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IMembershipDirectory, MembershipDirectory>();

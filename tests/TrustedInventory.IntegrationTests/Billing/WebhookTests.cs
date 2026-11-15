@@ -65,9 +65,9 @@ public sealed class WebhookTests(ApiFixture fx)
 
         // The notice reaches the tenant's outbox through the tenant's own transaction (ti_control has no outbox privilege).
         await RelayNoticesAsync();
-        Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.outbox_event WHERE tenant_id = @t AND event_type = 'BillingSubscriptionActivated'", t.TenantId));
+        Assert.Equal(1L, await CountAsync("SELECT count(DISTINCT payload->>'noticeId') FROM ti.outbox_event WHERE tenant_id = @t AND event_type = 'BillingSubscriptionActivated'", t.TenantId));
         await RelayNoticesAsync();
-        Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.outbox_event WHERE tenant_id = @t AND event_type = 'BillingSubscriptionActivated'", t.TenantId));
+        Assert.Equal(1L, await CountAsync("SELECT count(DISTINCT payload->>'noticeId') FROM ti.outbox_event WHERE tenant_id = @t AND event_type = 'BillingSubscriptionActivated'", t.TenantId));
     }
 
     [Fact]

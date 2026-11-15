@@ -93,7 +93,7 @@ public sealed class ExportJob : TenantEntity
         Status = ExportStatus.Completed;
         StreamFromSeq = from;
         StreamToSeq = to;
-        ObjectKey = $"{TenantId:D}/exports/{Id:D}.jsonl";
+        ObjectKey = $"{TenantId:D}/exports/{Id:D}.{(Type == ExportType.TenantArchive ? "zip" : "jsonl")}";
         Manifest = manifestJson;
         CompletedAt = now;
         RetainUntil = now + Retention;

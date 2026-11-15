@@ -30,14 +30,8 @@ builder.Services.AddSingleton<TrustedInventory.Application.Administration.IReaut
 // Rate limit per authenticated principal, else per client address (section 06).
 builder.Services.AddRateLimiter(o =>
 {
-    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            http.User.FindFirst("sub")?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = config.GetValue("RateLimit:PermitsPerMinute", 600),
-                Window = TimeSpan.FromMinutes(1),
-            }));
+    // Tenant-aware budgets (SOP-001, DEC-073).
+    o.GlobalLimiter = TenantRateLimits.Create(config);
     o.OnRejected = (ctx, _) =>
     {
         ctx.HttpContext.Response.Headers.RetryAfter = "60";
@@ -86,6 +80,7 @@ api.MapIdentityEndpoints();   // GET /me: authenticated, no tenant context
 api.MapSaasSignupEndpoints(); // signup, provisioning status, public plans: before any tenant exists
 api.MapInvitationAcceptance(); // POST /invitations/accept: authenticated, not yet a member
 api.MapBillingWebhookEndpoints(); // POST /webhooks/billing/{provider}: signature-authenticated, no token or tenant (DEC-064)
+api.MapServiceStatusEndpoints(); // GET /service-status: public status and support contact (SOP-006)
 app.MapPlatformEndpoints();   // /platform/v1/*: platform operations console, no tenant context (DEC-037)
 app.MapPlatformBillingEndpoints(); // /platform/v1/plan-versions: plan catalog for platform billing (DEC-062)
 

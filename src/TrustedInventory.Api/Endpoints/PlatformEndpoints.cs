@@ -4,6 +4,7 @@ using TrustedInventory.Api.Http;
 using TrustedInventory.Api.Security;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Organization;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
@@ -40,6 +41,28 @@ public static class PlatformEndpoints
                 SecuritySuspensionRequest body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.LiftAsync(Caller(http), id, Conventions.IfMatch(http), body, ct)))
             .WithName("liftTenantSecuritySuspension").RequirePermission(Permissions.PlatformTenantsManage);
+        // Lifecycle controls (DEC-070): retention hold and closure withdrawal, audited in the tenant chain.
+        tenants.MapPost("/{id:guid}/retention-hold", async (HttpContext http, ClosureService closure, PlatformTenantService svc, Guid id,
+                RetentionHoldRequest body, CancellationToken ct) =>
+            {
+                await closure.SetRetentionHoldAsync(Caller(http), id, Conventions.IfMatch(http), body, ct);
+                return Conventions.Ok(http, await svc.GetAsync(Caller(http), id, ct));
+            })
+            .WithName("setTenantRetentionHold").RequirePermission(Permissions.PlatformTenantsManage);
+        tenants.MapPost("/{id:guid}/closure/withdraw", async (HttpContext http, ClosureService closure, PlatformTenantService svc, Guid id,
+                WithdrawClosureRequest body, CancellationToken ct) =>
+            {
+                await closure.WithdrawAsync(Caller(http), id, Conventions.IfMatch(http), body, ct);
+                return Conventions.Ok(http, await svc.GetAsync(Caller(http), id, ct));
+            })
+            .WithName("withdrawTenantClosure").RequirePermission(Permissions.PlatformTenantsManage);
+        tenants.MapPost("/{id:guid}/deletion/approve", async (HttpContext http, ClosureService closure, PlatformTenantService svc, Guid id,
+                ApproveDeletionRequest body, CancellationToken ct) =>
+            {
+                await closure.ApproveDeletionAsync(Caller(http), id, Conventions.IfMatch(http), body, ct);
+                return Conventions.Ok(http, await svc.GetAsync(Caller(http), id, ct));
+            })
+            .WithName("approveTenantDeletion").RequirePermission(Permissions.PlatformTenantsManage);
 
         var jobs = platform.MapGroup("/provisioning-jobs");
         jobs.MapGet("", (HttpContext http, PlatformTenantService svc, [AsParameters] ListQuery q, [FromQuery] ProvisioningStatusFilter? status,
@@ -53,6 +76,18 @@ public static class PlatformEndpoints
                 return Results.Accepted(value: await svc.RetryProvisioningJobAsync(Caller(http), id, ct));
             })
             .WithName("retryProvisioningJob").RequirePermission(Permissions.PlatformTenantsManage);
+
+        // Service signals and persisted alerts (SOP-003, DEC-074): counts, ages and latencies only.
+        // Health and alert reads admit platform operations and platform billing (platform.health.read, docs/permissions.md).
+        var health = app.MapGroup("/platform/v1").RequireAuthorization(p => PlatformPolicy(p, AdministratorsKey, BillingKey));
+        health.MapGet("/health", (HttpContext http, PlatformMonitorService svc, CancellationToken ct) => svc.GetHealthAsync(Caller(http), ct))
+            .WithName("getPlatformHealth").RequirePermission(Permissions.PlatformHealthRead);
+        health.MapGet("/alerts", (HttpContext http, PlatformMonitorService svc, [AsParameters] ListQuery q, [FromQuery] PlatformAlertStatus? status,
+                CancellationToken ct) => svc.ListAsync(Caller(http), status, q.ToPage(), ct))
+            .WithName("listPlatformAlerts").RequirePermission(Permissions.PlatformHealthRead);
+        platform.MapPost("/alerts/{id:guid}/acknowledge", async (HttpContext http, PlatformMonitorService svc, Guid id, AcknowledgeAlertRequest body,
+                CancellationToken ct) => Conventions.Ok(http, await svc.AcknowledgeAsync(Caller(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("acknowledgePlatformAlert").RequirePermission(Permissions.PlatformTenantsManage);
 
         return app;
     }

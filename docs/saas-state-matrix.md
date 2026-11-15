@@ -108,9 +108,14 @@ is never reported as a stock shortage (section 29).
 | Telemetry evaluation, stale detection, excursion holds | ✓ | ✓ | ✓ | ✓ ⁵ | ✗ |
 | Reservation expiry (releases stock, never consumes it) | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Export generation (exports already requested; new requests follow the `export` row) | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Ledger reconciliation, audit verification and checkpoints | ✓ | ✓ | ✓ | ✓ | ✗ (deletion evidence only) |
+| Ledger reconciliation and audit verification | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Audit checkpoints (sign the chain head) | ✓ | ✓ | ✓ | ✓ | ✓ (retained chain only, as deletion evidence; DEC-072) |
 | Idempotency cleanup | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Billing reminders and reconciliation | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Approved deletion (control plane; owner request, platform approval, export window ended, no hold, no safety obligation) | ✗ | ✗ | ✗ | ✓ | ✗ |
+
+Approved deletion is a control-plane job, not a per-tenant worker row in `BackgroundWork`: it acts only on `Archived` or
+`DeletionPending` tenants, and `cp.purge_tenant()` checks the approval again in the database (DEC-072).
 
 ## Evidence
 

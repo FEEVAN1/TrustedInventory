@@ -94,6 +94,13 @@ services:
       # Simulator webhook signing secret and inbox payload key (DEC-064); both API and worker need them.
       Billing__Simulator__SigningSecret: ${TI_BILLING_SIM_SECRET:?set in .env}
       Billing__InboxKey: ${TI_INBOX_KEY:?set in .env}
+      # S3 lifecycle and service (DEC-070, DEC-072, DEC-073, DEC-074): proposed defaults until the owner approves them.
+      Lifecycle__ExportWindowDays: "90"
+      Lifecycle__BackupRetentionDays: "35"
+      RateLimit__HumanPerMinute: "120"
+      RateLimit__ServicePerMinute: "600"
+      RateLimit__PerIdentityPerMinute: "1200"
+      Support__Contact: ${TI_SUPPORT_CONTACT:-Not configured}
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api
       Auth__RequireHttpsMetadata: "false"

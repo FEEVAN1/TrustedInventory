@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using TrustedInventory.Api.Http;
 using TrustedInventory.Api.Security;
 using TrustedInventory.Application.Billing;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
@@ -59,6 +60,15 @@ public static class BillingEndpoints
         tenant.MapPost("/saas/billing-portal", async (CheckoutService svc, CancellationToken ct) =>
                 Results.Created((string?)null, await svc.PortalAsync(ct)))
             .WithName("createBillingPortalSession").RequirePermission(Permissions.BillingManage);
+        // Workspace closure (LFC-002, DEC-070): owner, re-authenticated, separate from cancelling the subscription.
+        tenant.MapPost("/saas/closure", async (HttpContext http, ClosureService svc, ClosureRequest body, CancellationToken ct) =>
+            {
+                var closure = await svc.RequestAsync(Conventions.IdempotencyKey(http), body, ct);
+                return Results.Accepted("/api/v1/saas/closure", closure);
+            })
+            .WithName("requestClosure").RequirePermission(Permissions.TenantClose);
+        tenant.MapGet("/saas/closure", (ClosureService svc, CancellationToken ct) => svc.GetAsync(ct))
+            .WithName("getClosure").RequirePermission(Permissions.TenantClose);
         return tenant;
     }
 
