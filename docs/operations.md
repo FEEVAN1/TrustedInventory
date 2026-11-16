@@ -163,11 +163,32 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 - Deleting a tenant removes its whole storage prefix (`IObjectStore.DeleteTenantAsync`), including objects whose rows were never
   written. A sweep of live tenants' prefixes is left to M6 with the production object store.
 
+### Recall initiation (draft, M5, DEC-076)
+- QA opens the recall (`POST /recalls`) naming the product and lots or serials (none: every lot). Covered stock that can still move
+  becomes Recalled at once with its reservations; dispatch of picked recalled stock refuses and opens rework tasks.
+- Work the impact list: deallocate or unpick reservations, receive or account for transit, record customer outreach by hand.
+- Disposition recalled stock through `POST /quality/disposition` (QA approval required), then request a RecallClosure approval
+  from an independent QA officer and close. The recall and its history stay; an open recall blocks workspace closure.
+
+### Telemetry outage and stale devices (draft, M5, DEC-077)
+- A StaleDevice alert means a placed device has not reported for 300 s. Monitored stock in its zone is not allocated, picked or
+  dispatched until a device reports again; nothing is released or held by the outage itself.
+- Check the gateway and its credential; if a device is replaced, register the new one in the same zone and retire the old one.
+- Readings delivered late are stored as late; an abnormal late reading opens a historical excursion, holds current stock and flags
+  shipments since it was observed for QA review. Never tell customers goods were blocked unless they were.
+
+### Excursions (draft, M5, DEC-077)
+- An abnormal reading holds Available and Quarantine stock of products on the breached profile in that zone, once, and raises one
+  alert. Acknowledge it; QA decides Release (only if MED-001 passes otherwise), KeepOnHold or Damaged with a signed approval.
+- A return to normal temperature records the end of the excursion but releases nothing.
+
+### Compromised device credential (draft, M5)
+- Rotate the credential (`POST /devices/{id}/rotate-credential`); the old one ends at the first use of the new one or after 24 hours.
+  If the device itself is untrusted, retire it: every credential ends at once and the quota slot is freed.
+- Review readings received since the suspected compromise; a forged reading cannot release stock, only hold it.
+
 ### Not yet written
 | Runbook | Milestone |
 |---------|-----------|
 | Backup restore | M6 |
-| Compromised integration credential | M5 |
-| Telemetry outage | M5 |
-| Recall initiation | M5 |
 | Ledger reconciliation failure | M2 |

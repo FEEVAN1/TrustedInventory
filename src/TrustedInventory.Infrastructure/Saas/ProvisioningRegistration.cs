@@ -35,6 +35,9 @@ public static class ProvisioningRegistration
             BackupRetentionDays = Bounded(config, "Lifecycle:BackupRetentionDays", 1, 3650, 35),
         });
         services.AddSingleton<IClosureStore, ClosureStore>();
+        // Device credentials (TEL-001, DEC-077).
+        services.AddSingleton<Application.Inbound.IDeviceGateway, DeviceGateway>();
+        services.AddSingleton<Application.Inbound.IDeviceCredentials, DeviceCredentials>();
         return services;
     }
 

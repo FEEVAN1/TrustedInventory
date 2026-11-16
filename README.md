@@ -14,7 +14,8 @@ putaway (M2); and outbound orders, FEFO/FIFO/LIFO allocation into reservations, 
 unpick, dispatch with in-transaction rechecks and rework tasks, and the reservation-expiry worker (M3); and
 independent approvals with re-authentication, adjustments, bin and warehouse transfers, blind counts with bin
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
-storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrive with M5.
+storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrived with M5.
+**M5 (medical) code complete; gate not yet assessed** (DEC-075 to DEC-078): QA quality hold, release and disposition with MED-001 eligibility checks, recalls that block stock at once and close only with QA approval, telemetry devices with rotating credentials, excursions with automatic holds, stale-telemetry blocking, late-reading shipment flags, tenant alerts, and lot traceability. Devices are simulated (D07); medical policies (D04) need QA validation.
 **S3 (lifecycle and service) code complete; its gate waits for the owner to approve the commercial defaults** (DEC-069 to
 DEC-074): workspace closure with re-authentication and safety blockers, retention holds and withdrawal, the owner-only tenant
 archive export, approved deletion through a database-checked purge role with retained audit evidence, the deletion register and

@@ -87,6 +87,13 @@ public static class PlanChangeBlockers
         if (transit > 0)
             blockers.Add(new ChangeBlocker("MEDICAL_IN_TRANSIT", null, transit, null,
                 $"{transit} transfer lines with medical stock are in transit. Receive them first."));
+        var recalls = await s.Db.Database.SqlQuery<long>($"""
+            SELECT count(*) AS "Value" FROM ti.recall r JOIN ti.product p ON p.tenant_id = r.tenant_id AND p.id = r.product_id
+            WHERE p.handling_profile = 'Medical' AND r.status = 'Open'
+            """).SingleAsync(c);
+        if (recalls > 0)
+            blockers.Add(new ChangeBlocker("MEDICAL_OPEN_RECALLS", null, recalls, null,
+                $"{recalls} recalls of medical products are open. Close them through QA first (ENT-006)."));
         return blockers;
     }
 

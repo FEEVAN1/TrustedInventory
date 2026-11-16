@@ -234,6 +234,32 @@ public sealed class StockMovement
     /// An approved adjustment (EXC-004, DEC-057): an increase enters the bucket from outside the ledger, a reduction
     /// leaves it. The quantity on the movement is always positive; the type carries the direction.
     /// </summary>
+    /// <summary>
+    /// A quality decision (DEC-075): a status change between buckets (QualityChange) or goods leaving stock (SupplierReturn,
+    /// Disposal). The document is the quality decision or recall that caused it.
+    /// </summary>
+    public static StockMovement Quality(MovementType type, DocumentType document, Guid tenantId, string operationKey, Guid productId, Guid? lotId,
+        Guid? serialId, Guid sourceBucketId, Guid? destinationBucketId, decimal baseQty, Guid documentId, string reason, string actor, DateTimeOffset now,
+        string? correlationId)
+    {
+        var shapeOk = type switch
+        {
+            MovementType.QualityChange => destinationBucketId is { } d && d != sourceBucketId,
+            MovementType.SupplierReturn or MovementType.Disposal => destinationBucketId is null,
+            _ => false,
+        };
+        if (!shapeOk || document is not (DocumentType.QualityDecision or DocumentType.Recall or DocumentType.Excursion))
+            throw new DomainException("Not a valid quality movement.");
+        if (baseQty <= 0)
+            throw new DomainException("A movement quantity must be positive.");
+        return new StockMovement
+        {
+            TenantId = tenantId, MovementType = type, OperationKey = operationKey, ProductId = productId, LotId = lotId, SerialId = serialId,
+            SourceBucketId = sourceBucketId, DestinationBucketId = destinationBucketId, BaseQty = baseQty, DocumentType = document,
+            DocumentId = documentId, Reason = reason, ActorSubject = actor, OccurredAt = now, RecordedAt = now, CorrelationId = correlationId,
+        };
+    }
+
     public static StockMovement Adjustment(Guid tenantId, string operationKey, Guid productId, Guid? lotId, Guid? serialId, Guid bucketId, decimal delta,
         Guid adjustmentId, string reason, string actor, DateTimeOffset now, string? correlationId)
     {

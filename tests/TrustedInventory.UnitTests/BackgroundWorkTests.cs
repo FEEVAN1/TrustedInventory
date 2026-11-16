@@ -16,6 +16,7 @@ public class BackgroundWorkTests
         [BackgroundJob.ReservationExpiry] = "YYYYYN",
         [BackgroundJob.ExportGeneration] = "YYYYYN",
         [BackgroundJob.BillingNotices] = "YYYYYN", // row "Billing reminders and reconciliation"
+        [BackgroundJob.TelemetryEvaluation] = "YYYYYN", // row "Telemetry evaluation, stale detection, excursion holds"
     };
 
     private static readonly AccessMode[] Columns =

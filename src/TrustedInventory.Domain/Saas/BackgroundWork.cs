@@ -15,6 +15,8 @@ public enum BackgroundJob
     ExportGeneration,
     /// <summary>Row "Billing reminders and reconciliation": relays billing notices to the tenant outbox (DEC-064).</summary>
     BillingNotices,
+    /// <summary>Row "Telemetry evaluation, stale detection, excursion holds": stale device alerts (TEL-005, DEC-077).</summary>
+    TelemetryEvaluation,
 }
 
 /// <summary>
@@ -29,7 +31,7 @@ public static class BackgroundWork
         BackgroundJob.AuditCheckpoint => true,
         BackgroundJob.OutboxDelivery or BackgroundJob.IdempotencyCleanup
             or BackgroundJob.LedgerReconciliation or BackgroundJob.ReservationExpiry or BackgroundJob.ExportGeneration
-            or BackgroundJob.BillingNotices => mode != AccessMode.Deleted,
+            or BackgroundJob.BillingNotices or BackgroundJob.TelemetryEvaluation => mode != AccessMode.Deleted,
         _ => false,
     };
 

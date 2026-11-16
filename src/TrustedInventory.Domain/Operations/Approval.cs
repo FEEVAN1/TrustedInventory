@@ -6,6 +6,7 @@ namespace TrustedInventory.Domain.Operations;
 public enum ApprovalSubjectType
 {
     Adjustment, CountVariance, QualityRelease, HoldRelease, ReturnRelease, RecallClosure, TransitDisposition, ExpiryCorrection, ExcursionDisposition,
+    QualityDisposition,
 }
 
 /// <summary>ti.approval_action: what the consuming command does.</summary>

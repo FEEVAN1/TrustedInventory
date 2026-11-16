@@ -1407,6 +1407,115 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   event id instead of sending twice. No notification preferences exist, so nothing can suppress required notices; warehouse
   users never see the messages.
 
+## DEC-075 M5 medical: plan, and quality hold, release and disposition (M5 slice 1, MED-001, MED-002, MED-003, SOD-2, EXC-007)
+- **Status:** Adopted. M5 is the current milestone from 15 Nov 2026 (owner instruction "go ahead with M5"; S2 and S3 gates still
+  open, DEC-069). Medical policies (D04) remain proposed defaults that QA must validate before live use.
+- **Slices:** (1) quality hold, release and disposition with MED-001 eligibility, expiry and shelf-life boundaries; (2) recalls:
+  blocking, impact, outreach, closure (EXC-006, EXC-007, AT-OUT-02), plus recall blockers for closure and downgrades; (3) devices
+  and telemetry ingestion (TEL-001, TEL-002, ENT-003/004 device quota); (4) excursions, holds, stale telemetry blocks, late
+  readings and shipment flags, tenant alerts (TEL-003 to TEL-005, AT-TEL-01/02); (5) traceability export (M4 carry-over),
+  gate evidence and handoff docs.
+- **One bucket per approval (contract change):** an approval binds one subject version and content digest (IAM-003). A quality
+  release therefore binds **one bucket**: `QualityReleaseRequest` takes `bucketId` instead of `bucketIds` (the drafted array would
+  let one signature cover buckets whose contents differ). Subject types: `QualityRelease` (Quarantine → Available) and
+  `HoldRelease` (Hold → Available) bind the bucket at its version with a digest over id, quality, bin, product, lot, serial and
+  on hand; any stock change bumps the bucket version, so a changed bucket makes the approval stale (409 `APPROVAL_STALE`). New
+  subject type `QualityDisposition` binds a bucket for dispositions that need approval. Signers need `approvals.sign.quality`
+  (SOD-2); the requester and anyone who last moved the bucket cannot sign (SOD-1).
+- **Hold (`POST /quality/hold`, safety, idempotent):** each bucket (locked in id order) in `Available` or `Quarantine` moves
+  entirely to the `Hold` bucket of the same bin with one `QualityChange` movement. Reservations on it move with the stock
+  (re-pointed to the Hold bucket): an Active one can no longer be picked, a Picked one cannot be dispatched (existing M3 dispatch
+  recheck and rework task), and the planner deallocates or unpicks, which stays allowed (MED-002). Holding never consumes stock.
+  A bucket under an open reconciliation block is refused (its quantities are under investigation).
+- **Release (`POST /quality/release`, routine-write, idempotent):** source `Quarantine` (QualityRelease) or `Hold` (HoldRelease);
+  `Recalled`, `Damaged` and `Available` cannot be released (EXC-007). MED-001 checks, all at release time and none overridable
+  by the signer: identifiers complete for the tracking mode (lot and expiry for lot tracking and for every medical lot, serial
+  for serial tracking); not expired in the warehouse's time zone (MED-003: derived from the date, not from a status); every
+  receipt line of this lot or serial passed inspection; the bin's zone suits the product's storage profile; no open recall
+  (slice 2) and no open excursion (slice 4) covers it. Failures return 422 `RELEASE_INELIGIBLE` with each reason. The whole
+  bucket moves to the `Available` bucket of the same bin, unreserved.
+- **Disposition (`POST /quality/disposition`, safety, idempotent):** `Damaged` moves the quantity to a Damaged bucket (status
+  change); `Disposal` and `SupplierReturn` post outbound movements that leave the ledger. An approval (`QualityDisposition`) is
+  required for medical stock and for recalled stock (EXC-007). Reserved quantity is never disposed: release the reservation
+  first. Dispositions never make stock available.
+
+## DEC-076 Recalls: immediate blocking, impact, outreach and closure (M5 slice 2, EXC-006, EXC-007, AT-OUT-02)
+- **Status:** Adopted.
+- **Schema (migration 0026):** `ti.recall` (product, `all_lots` when no lot or serial is named, reason, effective time, status,
+  closure approval, reason, actor and time, `last_modified_by`), `ti.recall_item` (exactly one of lot or serial; append-only),
+  `ti.recall_outreach` (append-only log per customer; the latest row is the current status). `ti.recall_covers(product, lot,
+  serial)` answers whether an open recall covers stock. The approved purge (DEC-072) covers the new tables; the tenant archive
+  includes them.
+- **Opening (`POST /recalls`, safety, idempotent):** in the same transaction every covered bucket that is Available, in
+  Quarantine or on Hold moves whole to Recalled with its reservations (DEC-075 mechanism, document type Recall), including staged
+  picked stock and stock in transit bins. So picking refuses (quality changed), dispatch refuses with 409 `STOCK_BLOCKED` and
+  rework tasks (existing M3 path, AT-OUT-02), and allocation also excludes anything an open recall covers, for stock that arrives
+  later (a return of a recalled lot, a transfer receipt). Release eligibility reports `Recalled` (MED-001).
+- **Impact (`GET /recalls/{id}`):** covered buckets with stock (any quality), transfer lines in transit (matched by lot: transfer
+  lines carry no serial), Active or Picked reservations with their orders, and shipment lines with customer and dispatch time for
+  outreach.
+- **Outreach (`POST /recalls/{id}/outreach`, If-Match):** a manual record per customer and status while the recall is open; no
+  automatic messaging in R1.
+- **Closure (`POST /recalls/{id}/close`, recalls.close, idempotent, If-Match):** refused (409 `INVALID_STATE` naming what remains)
+  while covered stock is on hand, in transit or reserved: QA disposes of it through `POST /quality/disposition`, which needs a
+  QualityDisposition approval for recalled stock (DEC-075). Then a `RecallClosure` approval binds the recall version and what
+  remains; the opener and the last editor cannot sign (SOD-1) and the signer needs `approvals.sign.quality` (SOD-2). The recall,
+  its items and outreach history are kept; Recalled buckets keep their status at zero.
+- **Other blockers:** an open recall blocks workspace closure (`OPEN_RECALLS`, DEC-070) and, for medical products, a plan change
+  that removes medical storage (`MEDICAL_OPEN_RECALLS`, ENT-006).
+- **Not yet:** medical customer returns are still released through QA quality release of the quarantine bucket rather than the
+  return inspection (the M4 return path refuses medical release); a recall raised after shipment never claims the goods were
+  blocked (TEL-004 wording applies to recalls as well).
+
+## DEC-077 Devices, telemetry ingestion, excursions and tenant alerts (M5 slices 3-4, TEL-001 to TEL-005, AT-TEL-01, AT-TEL-02, ENT-003, ENT-004)
+- **Status:** Adopted. Thresholds are the proposed D04 defaults (60 s interval, stale after 300 s, 60 s future skew, immediate hold) and
+  need QA validation before live use. Devices remain simulated in development (D07); no real gateway is connected.
+- **Devices (migration 0027):** `ti.device` (external id, name, active, last reading) counted against `active_devices`
+  (atomic quota reservation at creation, released at retirement, ENT-003/004). Zone placement is effective-dated in
+  `ti.device_zone_assignment` (non-overlapping per device, `btree_gist`); moving a device closes the current row and opens a new one,
+  so a reading's zone is the one in force at its `observedAt` (TEL-004).
+- **Credentials (TEL-001):** `POST /devices/{id}/rotate-credential` returns `ti_dev_<credentialId>.<secret>` once (32 random bytes);
+  only a SHA-256 of the secret is stored. The previous credential stays valid until the new one is first used or 24 hours pass.
+  A gateway sends it as a bearer token on `POST /telemetry/readings` only; the JWT handler ignores it and the route is anonymous at
+  that layer. `ti.device_for_credential()` (SECURITY DEFINER, owned by `ti_membership_reader`) is the only lookup without tenant
+  context: it returns the tenant and device for a credential id, and the secret is compared in constant time. The tenant and zone
+  come from the device, never from the body; the request schema has no tenant or zone fields. Then the usual access gate applies
+  (telemetry-ingest category, `telemetry` entitlement). Device traffic has its own rate budget per credential
+  (`RateLimit:DevicePerMinute`, default 120).
+- **Readings (TEL-001, TEL-002):** a duplicate `eventId` per device returns 200 `duplicate: true` with no side effects (unique key).
+  `observedAt` more than 60 s in the future is 422. A reading is **late** when it arrives more than 300 s after `observedAt` or is
+  older than the device's latest observation; it is stored with both times (`processingStatus = LateReviewQueued` when it raises
+  a review). Readings are append-only.
+- **Excursions (TEL-003, AT-TEL-01):** a reading outside the storage profile of any product with stock in the zone opens one
+  excursion per zone and profile (or extends the open one: last abnormal value, max/min), places every Available or Quarantine
+  bucket of those products in the zone on Hold with its reservations (DEC-075, document type Excursion, recorded in
+  `ti.excursion_bucket`), and opens one tenant alert (`ti.alert` type Excursion, deduplicated). A duplicate or a second abnormal
+  reading never holds twice. A normal reading records `endedAt` but never releases stock or resolves the excursion (section 13).
+- **Late readings (TEL-004, AT-TEL-02):** a late abnormal reading opens a historical excursion, holds current stock as above, and
+  flags shipment lines of the affected products dispatched since `observedAt` from that warehouse
+  (`ti.excursion_shipment_flag`) for QA investigation. It never claims dispatched goods were blocked, and a late normal reading
+  never ends or clears anything.
+- **Stale telemetry (TEL-003):** a zone with a current device assignment is stale when no assigned active device reported within
+  300 s. Stock of products whose profile requires monitoring is then not allocated, picked or dispatched (`ti.zone_telemetry_stale`
+  in the allocation query and the pick and dispatch rechecks). The monitor job raises one StaleDevice alert per device.
+- **Resolution (`POST /excursions/{id}/resolve`):** needs an `ExcursionDisposition` approval of the excursion version (QA signs,
+  SOD-2). `Release` returns the held buckets to Available only if each passes MED-001 apart from this excursion (and is refused with
+  `SUBSCRIPTION_RESTRICTED` in restricted modes because it makes stock available); `KeepOnHold` leaves them held; `Damaged` moves
+  them to Damaged. Acknowledgement (`alerts.acknowledge`) records who and when.
+- **Tenant alerts (TEL-005):** `GET /alerts`, `GET /alerts/{id}`, `POST /alerts/{id}/acknowledge` over `ti.alert`, with zone,
+  products, lots and first/last abnormal values in its details. Every new alert is also published to the outbox (`AlertRaised`),
+  whose retries and dead-letter handling already exist; email delivery stays optional and unconfigured.
+
+## DEC-078 Lot traceability and the Traceability export (M5 slice 5, section 02, M4 carry-over)
+- **Status:** Adopted.
+- **Report (`GET /traceability/lots/{id}`, stock.read):** one read-only tenant transaction returns the lot and product; receipts (receipt,
+  line, purchase order, supplier, warehouse, quantity, time, quality at receipt); quality history from `QualityChange` movements (time,
+  bucket, from, to, reason); every movement of the lot; current buckets with stock; quantities in transit; shipments with order,
+  customer, quantity and returned quantity; customer returns; recalls covering the lot; excursions that held it. Every fact comes
+  from the append-only ledger or the documents that reference the lot; nothing is recomputed from current state.
+- **Export (`POST /exports`, type `Traceability`):** requires `filters.lotId` (422 otherwise) and writes the same report as one JSON
+  line with the usual signed manifest (DEC-061).
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which

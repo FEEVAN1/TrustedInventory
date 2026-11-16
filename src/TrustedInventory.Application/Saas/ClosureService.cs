@@ -123,6 +123,9 @@ public static class ClosureBlockers
             """).SingleAsync(c);
         if (transit > 0)
             blockers.Add(new ClosureBlocker("MEDICAL_IN_TRANSIT", transit, $"{transit} transfer lines with medical stock are in transit. Receive them first."));
+        var recalls = await s.Db.Database.SqlQuery<long>($"SELECT count(*) AS \"Value\" FROM ti.recall WHERE status = 'Open'").SingleAsync(c);
+        if (recalls > 0)
+            blockers.Add(new ClosureBlocker("OPEN_RECALLS", recalls, $"{recalls} recalls are open. Disposition the stock and close them through QA first."));
         var held = await s.Db.Database.SqlQuery<long>($"""
             SELECT count(*) AS "Value" FROM ti.stock_bucket WHERE quality_status IN ('Hold','Recalled') AND on_hand_qty > 0
             """).SingleAsync(c);

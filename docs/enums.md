@@ -73,6 +73,10 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | PlatformAlertKind | `WebhookBacklog`, `EntitlementMismatch`, `ProvisioningFailures`, `ReconciliationBacklog`, `UnpaidInvoices` | SOP-003, DEC-074 |
 | PlatformAlertStatus | `Open`, `Acknowledged`, `Closed` | Closed only by the monitor when the condition clears |
 | ServiceStatus | `Operational`, `Degraded`, `Unavailable` | `GET /service-status` (SOP-006) |
+| Problem.ineligibility code | `NotReleasable`, `MissingIdentifiers`, `Expired`, `InspectionNotPassed`, `StorageIncompatible`, `Recalled`, `OpenExcursion` | 422 `RELEASE_INELIGIBLE` (MED-001, DEC-075) |
+| ApprovalSubjectType (added) | `QualityDisposition` | Disposition of one bucket (DEC-075, migration 0025) |
+| ReadingProcessingStatus | `Stored`, `ExcursionOpened`, `LateReviewQueued` | TEL-001 to TEL-004 |
+| ClosureBlocker / downgrade blocker (added) | `OPEN_RECALLS`, `MEDICAL_OPEN_RECALLS` | DEC-076 |
 | FeatureKey | `core_inventory`, `service_api`, `advanced_reporting`, `medical_storage`, `telemetry` | Wire values as written (ENT-002) |
 | QuotaKey | `active_seats`, `active_warehouses`, `active_skus`, `active_devices`, `attachment_bytes` | ENT-002, ENT-003 |
 | OwnershipTransferStatus | `Pending`, `Accepted`, `Cancelled`, `Expired` | ONB-006 |
@@ -114,6 +118,6 @@ Every movement has `base_qty > 0`; direction comes from source/destination, neve
 | 409 | `INSUFFICIENT_STOCK`, `STOCK_BLOCKED`, `INVALID_STATE`, `IDEMPOTENCY_MISMATCH`, `APPROVAL_STALE`, `APPROVAL_SELF`, `COUNT_LOCKED`, `RETRYABLE_CONFLICT`, `TRIAL_NOT_ELIGIBLE`, `PLAN_LIMIT_REACHED`, `DOWNGRADE_BLOCKED`, `RETENTION_BLOCKED` |
 | 412 | `VERSION_CONFLICT` |
 | 428 | `PRECONDITION_REQUIRED` |
-| 422 | `VALIDATION_FAILED`, `OVER_RECEIPT`, `INCOMPATIBLE_BIN`, `BARCODE_CONFLICT`, `UNKNOWN_BARCODE`, `MISSING_MEDICAL_EVIDENCE`, `DUPLICATE_SERIAL`, `RETURN_EXCEEDS_SHIPPED` |
+| 422 | `VALIDATION_FAILED`, `OVER_RECEIPT`, `INCOMPATIBLE_BIN`, `BARCODE_CONFLICT`, `UNKNOWN_BARCODE`, `MISSING_MEDICAL_EVIDENCE`, `RELEASE_INELIGIBLE`, `DUPLICATE_SERIAL`, `RETURN_EXCEEDS_SHIPPED` |
 | 429 | `RATE_LIMITED` |
 | 503 | `SERVICE_UNAVAILABLE` |

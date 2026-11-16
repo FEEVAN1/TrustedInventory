@@ -81,6 +81,7 @@ api.MapSaasSignupEndpoints(); // signup, provisioning status, public plans: befo
 api.MapInvitationAcceptance(); // POST /invitations/accept: authenticated, not yet a member
 api.MapBillingWebhookEndpoints(); // POST /webhooks/billing/{provider}: signature-authenticated, no token or tenant (DEC-064)
 api.MapServiceStatusEndpoints(); // GET /service-status: public status and support contact (SOP-006)
+api.MapTelemetryIngestion(); // POST /telemetry/readings: device credential only (TEL-001, DEC-077)
 app.MapPlatformEndpoints();   // /platform/v1/*: platform operations console, no tenant context (DEC-037)
 app.MapPlatformBillingEndpoints(); // /platform/v1/plan-versions: plan catalog for platform billing (DEC-062)
 
@@ -95,6 +96,7 @@ tenant.MapOutboundEndpoints();
 tenant.MapOperationsEndpoints();
 tenant.MapFileEndpoints();
 tenant.MapBillingEndpoints();
+tenant.MapTelemetryEndpoints();
 
 app.Run();
 

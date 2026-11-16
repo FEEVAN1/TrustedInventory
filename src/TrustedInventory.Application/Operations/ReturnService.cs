@@ -156,7 +156,7 @@ public sealed class ReturnService(
             if (quantity > ret.RemainingToInspect)
                 throw AppException.Validation("quantity", $"Only {Quantity.Format(ret.RemainingToInspect)} of this return remains to inspect.");
             if (cmd.Disposition == ReturnDisposition.Release && product.HandlingProfile == HandlingProfile.Medical)
-                throw AppException.Validation("disposition", "Medical returns are released only through QA quality release with an approval, which arrives with M5.");
+                throw AppException.Validation("disposition", "Medical returns stay in quarantine here; release them through POST /quality/release with a QA approval (DEC-075).");
 
             var source = await s.Db.Set<StockBucket>().AsNoTracking().SingleAsync(b => b.Id == ret.BucketId, c);
             Guid? target = cmd.Disposition switch

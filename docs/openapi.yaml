@@ -6340,7 +6340,7 @@ paths:
       tags:
         - Quality
       summary: Release quarantined or held stock
-      description: Checks MED-001 eligibility for every bucket; a signer cannot override missing evidence. Recalled stock cannot be released.
+      description: Checks MED-001 eligibility (identifiers, expiry in the warehouse time zone, passed inspection, compatible storage, no open recall or excursion); a signer cannot override missing evidence. Recalled, Damaged and Available buckets cannot be released. Ineligible stock is 422 RELEASE_INELIGIBLE with each reason (DEC-075).
       x-permission: quality.release
       x-access: routine-write
       x-entitlement: medical_storage
@@ -10810,6 +10810,7 @@ components:
         - TransitDisposition
         - ExpiryCorrection
         - ExcursionDisposition
+        - QualityDisposition
     Attachment:
       type: object
       description: Downloadable only once scanStatus is Clean.
@@ -12501,6 +12502,7 @@ components:
         - BARCODE_CONFLICT
         - UNKNOWN_BARCODE
         - MISSING_MEDICAL_EVIDENCE
+        - RELEASE_INELIGIBLE
         - DUPLICATE_SERIAL
         - RETURN_EXCEEDS_SHIPPED
         - RATE_LIMITED
@@ -14294,6 +14296,28 @@ components:
           items:
             $ref: "#/components/schemas/Blocker"
           description: Present with DOWNGRADE_BLOCKED or RETENTION_BLOCKED.
+        ineligibility:
+          type: array
+          description: Present with RELEASE_INELIGIBLE; every failed MED-001 check (DEC-075).
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+                enum:
+                  - NotReleasable
+                  - MissingIdentifiers
+                  - Expired
+                  - InspectionNotPassed
+                  - StorageIncompatible
+                  - Recalled
+                  - OpenExcursion
+              detail:
+                type: string
+                maxLength: 500
+            required:
+              - code
+              - detail
       required:
         - type
         - title
@@ -14818,19 +14842,14 @@ components:
       additionalProperties: false
     QualityReleaseRequest:
       type: object
-      description: Quarantine->Available (QualityRelease approval) or Hold->Available (HoldRelease approval). Locks and checks all buckets (MED-001).
+      description: Quarantine->Available (QualityRelease approval) or Hold->Available (HoldRelease approval) of one bucket; the approval binds that bucket's version and content (MED-001, DEC-075).
       properties:
-        bucketIds:
-          type: array
-          items:
-            $ref: "#/components/schemas/Uuid"
-          uniqueItems: true
-          minItems: 1
-          maxItems: 500
+        bucketId:
+          $ref: "#/components/schemas/Uuid"
         approvalId:
           $ref: "#/components/schemas/Uuid"
       required:
-        - bucketIds
+        - bucketId
         - approvalId
       additionalProperties: false
     QualityStatus:

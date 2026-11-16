@@ -53,8 +53,8 @@ public sealed class ExportService(ITenantUnitOfWork uow, ICallerAccessor callers
         var caller = callers.Caller;
         caller.Require(Permissions.ExportsCreate);
         validator.ValidateOrThrow(cmd);
-        if (cmd.Type == ExportType.Traceability)
-            throw AppException.Validation("type", "Traceability exports arrive with the medical milestone (M5).");
+        if (cmd.Type == ExportType.Traceability && cmd.Filters?.LotId is null)
+            throw AppException.Validation("filters.lotId", "A traceability export names the lot to trace.");
         // The tenant archive holds every record of the workspace: owner only, at creation and again at download (LFC-003).
         if (cmd.Type == ExportType.TenantArchive && !caller.IsOwner)
             throw AppException.Forbidden("Only the workspace owner can export the tenant archive.");
@@ -187,6 +187,7 @@ public static class ExportContent
                   AND ({f.ProductId}::uuid IS NULL OR b.product_id = {f.ProductId}) AND ({f.LotId}::uuid IS NULL OR b.lot_id = {f.LotId})
                 ORDER BY b.warehouse_id, b.bin_id, b.product_id, b.id
                 """).ToListAsync(ct)).Select(r => (object)r).ToList(),
+            ExportType.Traceability => [await Inbound.TraceabilityService.BuildAsync(s, f.LotId!.Value, ct)],
             _ => throw new InvalidOperationException($"Export type {job.Type} is not generated yet."),
         };
         var sb = new StringBuilder();

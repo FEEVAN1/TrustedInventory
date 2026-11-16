@@ -170,7 +170,7 @@ public sealed class StockService(ITenantUnitOfWork uow, ICallerAccessor callers,
         }, ct);
     }
 
-    private static async Task<List<StockBucketDto>> DtosAsync(ITenantSession s, IReadOnlyList<StockBucket> buckets, CancellationToken ct)
+    internal static async Task<List<StockBucketDto>> DtosAsync(ITenantSession s, IReadOnlyList<StockBucket> buckets, CancellationToken ct)
     {
         var binIds = buckets.Select(b => b.BinId).Distinct().ToList();
         var bins = await s.Db.Set<Bin>().AsNoTracking().Where(b => binIds.Contains(b.Id)).ToDictionaryAsync(b => b.Id, ct);
@@ -216,7 +216,7 @@ public sealed class StockService(ITenantUnitOfWork uow, ICallerAccessor callers,
         }).ToList();
     }
 
-    private static async Task<List<StockMovementDto>> MovementDtosAsync(ITenantSession s, IReadOnlyList<StockMovement> movements, CancellationToken ct)
+    internal static async Task<List<StockMovementDto>> MovementDtosAsync(ITenantSession s, IReadOnlyList<StockMovement> movements, CancellationToken ct)
     {
         var bucketIds = movements.SelectMany(m => new[] { m.SourceBucketId, m.DestinationBucketId }).Where(id => id is not null).Select(id => id!.Value)
             .Distinct().ToList();

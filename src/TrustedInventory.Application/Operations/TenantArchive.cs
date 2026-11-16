@@ -28,6 +28,8 @@ public static class TenantArchive
         "outbound_order", "outbound_order_line", "reservation", "pick", "pick_confirmation", "shipment", "shipment_line",
         "transfer", "transfer_line", "stock_count", "stock_count_bin", "stock_count_line", "adjustment",
         "customer_return", "customer_return_inspection", "approval", "attachment", "alert", "export_job", "audit_checkpoint",
+        "recall", "recall_item", "recall_outreach",
+        "device", "device_zone_assignment", "telemetry_reading", "excursion", "excursion_bucket", "excursion_shipment_flag",
     ];
 
     /// <summary>
@@ -42,6 +44,7 @@ public static class TenantArchive
         ["idempotency_record"] = "Internal replay cache of API responses, retained 24 hours.",
         ["outbox_event"] = "Internal delivery queue.",
         ["invitation"] = "Holds invitation token digests (credentials).",
+        ["device_credential"] = "Holds device secret digests (credentials).",
         ["usage_counter"] = "Internal quota accounting.",
         ["usage_reservation"] = "Internal quota accounting.",
     };

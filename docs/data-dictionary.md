@@ -293,6 +293,7 @@ Created by 0013 (DEC-056): a line names a product and optional lot; dispatch cho
 References the shipment line, with an FK that includes product. `returned_qty > 0`. The return lands in a Quarantine bucket (EXC-005). `disposition` is NULL while the status is `Received`. Recorded through the API (DEC-060): the shipment line is locked and `shipment_line.returned_qty` grows with each return, the goods enter a Quarantine bucket with a `ReturnReceipt` movement, and each inspection (Release as Available to a storage bin, Damaged, SupplierReturn, Disposal) appends a `customer_return_inspection` row with its movement. Medical releases wait for QA release (M5).
 
 ### recall / recall_item / recall_outreach
+Created by migration 0026 (DEC-076). `all_lots` covers every lot and serial of the product; `closure_reason`, `closed_by` and `last_modified_by` added; items and outreach are append-only; `ti.recall_covers(product, lot, serial)` answers coverage for allocation, release and closure.
 A recall has a product, reason and `effective_at`. Closing it requires `closure_approval_id` and `closed_at` (EXC-007). Each item is a lot or a serial of that product. Outreach status (`recall_outreach_status`) is recorded manually (EXC-006).
 
 ## 7. Approvals
@@ -314,6 +315,8 @@ Created by migration 0013 (DEC-056), with `reauth_verified_at` and `invalidated_
 | Std | | | |
 
 ## 8. Telemetry and excursions
+
+Created by migration 0027 (DEC-077): `device` (external id, name, active, `last_reading_at`, `last_observed_at`), `device_credential` (SHA-256 of the secret only, `expires_at`, `first_used_at`; looked up before tenant context only through `ti.device_for_credential`), `device_zone_assignment` (effective-dated, non-overlapping), `telemetry_reading` (append-only, unique per device and event id, 60 s skew CHECK), `excursion` (one unresolved per zone and profile; profile limits copied; historical flag), `excursion_bucket` and `excursion_shipment_flag` (append-only). `ti.zone_telemetry_stale(zone, now, seconds)` decides stale zones.
 
 ### device
 `external_id` unique per tenant. `integration_subject` is the only service principal allowed to post for the device (TEL-001). `credentials_reference` names a secret-manager entry, never the secret. `interval_seconds` defaults to 60.

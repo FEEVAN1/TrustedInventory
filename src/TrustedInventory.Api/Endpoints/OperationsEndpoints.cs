@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using TrustedInventory.Api.Http;
 using TrustedInventory.Api.Security;
 using TrustedInventory.Application.Administration;
+using TrustedInventory.Application.Inbound;
 using TrustedInventory.Application.Operations;
 using TrustedInventory.Domain.Operations;
 using TrustedInventory.Domain.Security;
@@ -142,6 +143,36 @@ public static class OperationsEndpoints
         returns.MapPost("/{id:guid}/inspect", async (HttpContext http, ReturnService svc, Guid id, InspectReturn body, CancellationToken ct) =>
                 Conventions.Outcome(http, await svc.InspectAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
             .WithName("inspectReturn").RequirePermission(Permissions.ReturnsInspect);
+
+        // Quality hold, release and disposition (MED-001, MED-002, EXC-007, DEC-075).
+        var quality = tenant.MapGroup("/quality");
+        quality.MapPost("/hold", async (HttpContext http, QualityService svc, QualityHoldRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.HoldAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("holdQuality").RequirePermission(Permissions.QualityHold);
+        quality.MapPost("/release", async (HttpContext http, QualityService svc, QualityReleaseRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.ReleaseAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("releaseQuality").RequirePermission(Permissions.QualityRelease);
+        quality.MapPost("/disposition", async (HttpContext http, QualityService svc, QualityDispositionRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.DispositionAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("dispositionQuality").RequirePermission(Permissions.QualityHold);
+
+        // Recalls (EXC-006, EXC-007, DEC-076).
+        var recalls = tenant.MapGroup("/recalls");
+        recalls.MapGet("", (RecallService svc, [AsParameters] ListQuery q, [FromQuery] Guid? productId, [FromQuery] RecallStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new RecallFilter(productId, status), q.ToPage(), ct))
+            .WithName("listRecalls").RequirePermission(Permissions.StockRead);
+        recalls.MapPost("", async (HttpContext http, RecallService svc, CreateRecallRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.CreateAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("createRecall").RequirePermission(Permissions.RecallsManage);
+        recalls.MapGet("/{id:guid}", async (HttpContext http, RecallService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getRecall").RequirePermission(Permissions.StockRead);
+        recalls.MapPost("/{id:guid}/outreach", async (HttpContext http, RecallService svc, Guid id, RecordOutreachRequest body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.RecordOutreachAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("recordRecallOutreach").RequirePermission(Permissions.RecallsManage);
+        recalls.MapPost("/{id:guid}/close", async (HttpContext http, RecallService svc, Guid id, CloseRecallRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.CloseAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("closeRecall").RequirePermission(Permissions.RecallsClose);
         return tenant;
     }
 }

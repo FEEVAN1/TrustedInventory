@@ -165,6 +165,8 @@ public sealed class PickingService(
                 throw AppException.InvalidState("The reserved stock is no longer available (quality status changed).");
             if (!ReceivingRules.IsShippable(lot?.ExpiryDate, await WarehouseTodayAsync(s, pick.WarehouseId, c)))
                 throw AppException.InvalidState("The reserved lot has expired and cannot be picked.");
+            if (await Inbound.TelemetryChecks.StaleAsync(s, source.Id, c))
+                throw new AppException(ErrorCode.StockBlocked, "Temperature monitoring for this zone is stale; monitored stock cannot be picked (TEL-003).");
 
             // 3. Buckets in id order, then the stock and reservation move together (STK-002).
             var staging = await MatchingBucketAsync(s, caller, source, cmd.StagingBinId, c);

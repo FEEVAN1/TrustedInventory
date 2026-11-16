@@ -20,8 +20,12 @@ public static class TenantRateLimits
         var service = config.GetValue("RateLimit:ServicePerMinute", 600);
         var anonymous = config.GetValue("RateLimit:PermitsPerMinute", 600);
         var identity = config.GetValue("RateLimit:PerIdentityPerMinute", 1200);
+        var device = config.GetValue("RateLimit:DevicePerMinute", 120);
         var perTenant = PartitionedRateLimiter.Create<HttpContext, string>(http =>
         {
+            // Device ingestion has its own budget per credential (SOP-001: telemetry is configured separately from people).
+            if (DeviceKey(http) is { } deviceKey)
+                return Window(deviceKey, device);
             var (key, limit) = Partition(http, human, service, anonymous);
             return Window(key, limit);
         });
@@ -30,6 +34,19 @@ public static class TenantRateLimits
         var perIdentity = PartitionedRateLimiter.Create<HttpContext, string>(http =>
             http.User.FindFirst("sub")?.Value is { } subject ? Window($"id|{subject}", identity) : RateLimitPartition.GetNoLimiter("anon"));
         return PartitionedRateLimiter.CreateChained(perTenant, perIdentity);
+    }
+
+    /// <summary>"dev|&lt;credential id&gt;" for a device bearer on the ingestion route; the credential is verified later, so a forged one only
+    /// spends its own made-up partition.</summary>
+    public static string? DeviceKey(HttpContext http)
+    {
+        if (!HttpMethods.IsPost(http.Request.Method) || !http.Request.Path.StartsWithSegments("/api/v1/telemetry/readings"))
+            return null;
+        var header = http.Request.Headers.Authorization.ToString();
+        const string prefix = "Bearer ti_dev_";
+        return header.StartsWith(prefix, StringComparison.Ordinal) && header.Length >= prefix.Length + 32
+            ? $"dev|{header.Substring(prefix.Length, 32)}"
+            : "dev|invalid";
     }
 
     private static RateLimitPartition<string> Window(string key, int limit) =>

@@ -29,6 +29,7 @@ public static class WorkerRegistration
         services.AddSingleton<Billing.PlanChangeJob>();
         services.AddSingleton<Saas.TenantDeletionJob>();
         services.AddSingleton<Organization.PlatformMonitorJob>();
+        services.AddSingleton<StaleDeviceJob>();
         return services;
     }
 }

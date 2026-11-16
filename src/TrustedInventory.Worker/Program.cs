@@ -32,6 +32,8 @@ builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infras
     sp.GetRequiredService<WorkerOptions>().BillingReminderInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Billing.SubscriptionPeriodEndJob>(sp,
     sp.GetRequiredService<WorkerOptions>().SubscriptionPeriodEndInterval));
+// Stale device alerts (TEL-005, DEC-077).
+builder.Services.AddHostedService(sp => new ScheduledJob<StaleDeviceJob>(sp, builder.Configuration.GetValue("Worker:StaleDeviceInterval", TimeSpan.FromMinutes(1))));
 // Platform signals and alerts (SOP-003, DEC-074).
 builder.Services.AddHostedService(sp => new ScheduledJob<TrustedInventory.Infrastructure.Organization.PlatformMonitorJob>(sp,
     builder.Configuration.GetValue("Worker:MonitorInterval", TimeSpan.FromMinutes(1))));

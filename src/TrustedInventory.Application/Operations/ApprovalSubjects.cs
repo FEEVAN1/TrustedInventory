@@ -28,6 +28,9 @@ internal static class ApprovalSubjects
         ApprovalSubjectType.Adjustment => await AdjustmentAsync(s, await AdjustmentRules.LockAsync(s, id, ct), ct),
         ApprovalSubjectType.TransitDisposition => await TransferAsync(s, await TransferRules.LockAsync(s, id, ct), ct),
         ApprovalSubjectType.CountVariance => await CountAsync(s, await CountRules.LockAsync(s, id, ct), ct),
+        ApprovalSubjectType.QualityRelease or ApprovalSubjectType.HoldRelease or ApprovalSubjectType.QualityDisposition => await BucketAsync(s, type, id, ct),
+        ApprovalSubjectType.RecallClosure => await RecallAsync(s, id, ct),
+        ApprovalSubjectType.ExcursionDisposition => await ExcursionAsync(s, id, ct),
         _ => throw AppException.Validation("subjectType", "This subject type is not supported yet; it arrives with its workflow."),
     };
 
@@ -45,6 +48,55 @@ internal static class ApprovalSubjects
         ApprovalSubjectType.CountVariance, c.Count.Id, c.Count.Version, CountRules.Digest(c.Count, c.Lines), c.Count.CreatedBy, c.Count.LastModifiedBy,
         await CountRules.SignPermissionsAsync(s, c.Lines, ct), c.Count.Status == CountStatus.Submitted, ApprovalAction.Post, "count",
         c.Lines.Where(l => l.CountedBy is not null).Select(l => l.CountedBy!).Distinct().ToList());
+
+    /// <summary>
+    /// A stock bucket as an approval subject (DEC-075): bound at its version and content. Authors are whoever created it and whoever
+    /// last moved stock in or out, so the person who received, held or moved the goods cannot also sign their release (SOD-1). Only QA
+    /// signs (SOD-2).
+    /// </summary>
+    public static async Task<SubjectState> BucketAsync(ITenantSession s, ApprovalSubjectType type, Guid id, CancellationToken ct)
+    {
+        var rows = await s.Db.Database.SqlQuery<BucketSubjectRow>($"""
+            SELECT b.id AS "Id", b.version AS "Version", b.quality_status::text AS "Quality", b.bin_id AS "BinId", b.product_id AS "ProductId",
+                   b.lot_id AS "LotId", b.serial_id AS "SerialId", b.on_hand_qty AS "OnHand", b.created_by AS "CreatedBy",
+                   (SELECT m.actor_subject FROM ti.stock_movement m WHERE m.source_bucket_id = b.id OR m.destination_bucket_id = b.id
+                    ORDER BY m.recorded_at DESC, m.id DESC LIMIT 1) AS "LastMovedBy"
+            FROM ti.stock_bucket b WHERE b.id = {id} FOR UPDATE
+            """).ToListAsync(ct);
+        var b = rows.SingleOrDefault() ?? throw AppException.NotFound("Stock bucket");
+        var quality = Enum.Parse<Domain.Inbound.QualityStatus>(b.Quality);
+        var open = type switch
+        {
+            ApprovalSubjectType.QualityRelease => quality == Domain.Inbound.QualityStatus.Quarantine && b.OnHand > 0,
+            ApprovalSubjectType.HoldRelease => quality == Domain.Inbound.QualityStatus.Hold && b.OnHand > 0,
+            _ => Domain.Inbound.QualityRules.Dispositionable(quality) && b.OnHand > 0,
+        };
+        return new SubjectState(type, b.Id, b.Version,
+            Domain.Inbound.QualityRules.BucketDigest(b.Id, quality, b.BinId, b.ProductId, b.LotId, b.SerialId, b.OnHand), b.CreatedBy,
+            b.LastMovedBy ?? b.CreatedBy, [Domain.Security.Permissions.ApprovalsSignQuality], open,
+            type == ApprovalSubjectType.QualityDisposition ? ApprovalAction.Dispose : ApprovalAction.Release, "stock bucket");
+    }
+
+    /// <summary>A recall as the subject of its closure (EXC-007, DEC-076): QA signs; the opener and last editor cannot.</summary>
+    public static async Task<SubjectState> RecallAsync(ITenantSession s, Guid id, CancellationToken ct)
+    {
+        var recall = await Inbound.RecallService.LockAsync(s, id, ct);
+        var outstanding = await Inbound.RecallService.OutstandingAsync(s, id, ct);
+        return new SubjectState(ApprovalSubjectType.RecallClosure, recall.Id, recall.Version, Inbound.RecallService.Digest(recall, outstanding),
+            recall.CreatedBy, recall.LastModifiedBy, [Domain.Security.Permissions.ApprovalsSignQuality], recall.Status == "Open", ApprovalAction.Close, "recall");
+    }
+
+    /// <summary>An excursion as the subject of its QA disposition (TEL-003, DEC-077): QA signs; whoever last changed it cannot.</summary>
+    public static async Task<SubjectState> ExcursionAsync(ITenantSession s, Guid id, CancellationToken ct)
+    {
+        var row = await Inbound.ExcursionService.LockAsync(s, id, ct);
+        return new SubjectState(ApprovalSubjectType.ExcursionDisposition, row.Id, row.Version, await Inbound.ExcursionService.DigestAsync(s, row, ct),
+            row.CreatedBy, row.LastModifiedBy, [Domain.Security.Permissions.ApprovalsSignQuality], row.Status != "Resolved", ApprovalAction.Dispose,
+            "excursion");
+    }
+
+    private sealed record BucketSubjectRow(Guid Id, int Version, string Quality, Guid BinId, Guid ProductId, Guid? LotId, Guid? SerialId, decimal OnHand,
+        string CreatedBy, string? LastMovedBy);
 
     /// <summary>A rejected approval closes an adjustment; a transfer carries on (DEC-057, DEC-058).</summary>
     public static async Task OnRejectedAsync(ITenantSession s, SubjectState subject, CancellationToken ct)

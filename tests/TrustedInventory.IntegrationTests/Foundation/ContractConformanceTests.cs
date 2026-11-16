@@ -65,7 +65,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
             if (response.StatusCode != HttpStatusCode.Forbidden)
                 failures.Add($"{e.Name}: {(int)response.StatusCode}");
         }
-        Assert.Empty(failures);
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
             if (missing.StatusCode != HttpStatusCode.BadRequest)
                 failures.Add($"{e.Name} no header: {(int)missing.StatusCode}");
         }
-        Assert.Empty(failures);
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
             if (response.StatusCode != HttpStatusCode.Unauthorized)
                 failures.Add($"{e.Name}: {(int)response.StatusCode}");
         }
-        Assert.Empty(failures);
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
     }
 
     private static HttpRequestMessage Request(Implemented e)
