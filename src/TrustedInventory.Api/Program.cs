@@ -14,6 +14,15 @@ using TrustedInventory.Infrastructure.Organization;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
+// Structured JSON logs with scopes (traceId, route, tenantId); never headers, bodies, query strings or tokens (NFR-MONITOR, DEC-079).
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(o =>
+{
+    o.IncludeScopes = true;
+    o.UseUtcTimestamp = true;
+    o.TimestampFormat = "O";
+});
+
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 1024 * 1024); // section 06 request size
 builder.Services.Configure<JsonOptions>(o => JsonDefaults.Configure(o.SerializerOptions));
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true);
@@ -34,6 +43,7 @@ builder.Services.AddRateLimiter(o =>
     o.GlobalLimiter = TenantRateLimits.Create(config);
     o.OnRejected = (ctx, _) =>
     {
+        OperationsMetrics.RateLimited();
         ctx.HttpContext.Response.Headers.RetryAfter = "60";
         return new ValueTask(Problems.WriteAsync(ctx.HttpContext, 429, ErrorCode.RateLimited, "Too many requests. Retry later."));
     };
@@ -64,6 +74,7 @@ app.Use(async (http, next) =>
     await next();
 });
 app.UseCors();
+app.UseMiddleware<RequestLogScope>();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();

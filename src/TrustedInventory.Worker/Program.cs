@@ -2,15 +2,26 @@ using TrustedInventory.Application;
 using TrustedInventory.Application.Security;
 using TrustedInventory.Infrastructure;
 using TrustedInventory.Infrastructure.Jobs;
+using TrustedInventory.Infrastructure.Organization;
 using TrustedInventory.Worker;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(o =>
+{
+    o.IncludeScopes = true;
+    o.UseUtcTimestamp = true;
+    o.TimestampFormat = "O";
+}); // structured logs (DEC-079)
 
 // Missing connection strings, cursor or checkpoint keys, or storage settings stop startup (fail closed, section 18).
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddWorkerInfrastructure(builder.Configuration);
 builder.Services.AddScoped<ICallerAccessor, NoRequestCallerAccessor>();
+// Application services shared with the API need the team adapters and a step-up verifier; the worker's verifier always refuses.
+builder.Services.AddTeamInfrastructure(builder.Configuration);
+builder.Services.AddSingleton<TrustedInventory.Application.Administration.IReauthVerifier, NoReauthVerifier>();
 
 builder.Services.AddHostedService(sp => new ScheduledJob<OutboxDispatcher>(sp, sp.GetRequiredService<WorkerOptions>().OutboxInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<IdempotencyCleanupJob>(sp, sp.GetRequiredService<WorkerOptions>().IdempotencyCleanupInterval));

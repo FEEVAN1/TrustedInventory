@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TrustedInventory.Api.Http;
 using TrustedInventory.Api.Security;
+using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Organization;
 using TrustedInventory.Application.Saas;
@@ -82,6 +83,13 @@ public static class PlatformEndpoints
         var health = app.MapGroup("/platform/v1").RequireAuthorization(p => PlatformPolicy(p, AdministratorsKey, BillingKey));
         health.MapGet("/health", (HttpContext http, PlatformMonitorService svc, CancellationToken ct) => svc.GetHealthAsync(Caller(http), ct))
             .WithName("getPlatformHealth").RequirePermission(Permissions.PlatformHealthRead);
+        // Operations metrics in Prometheus text format (NFR-MONITOR, DEC-079): counters and cross-tenant aggregates only.
+        health.MapGet("/metrics", async (HttpContext http, IOperationsGaugeReader gauges, TimeProvider clock, CancellationToken ct) =>
+            {
+                PlatformMonitorService.RequireHealthReader(Caller(http));
+                return Results.Text(OperationsMetrics.Render(await gauges.ReadAsync(clock.GetUtcNow(), ct)), "text/plain; version=0.0.4");
+            })
+            .WithName("getPlatformMetrics").RequirePermission(Permissions.PlatformHealthRead);
         health.MapGet("/alerts", (HttpContext http, PlatformMonitorService svc, [AsParameters] ListQuery q, [FromQuery] PlatformAlertStatus? status,
                 CancellationToken ct) => svc.ListAsync(Caller(http), status, q.ToPage(), ct))
             .WithName("listPlatformAlerts").RequirePermission(Permissions.PlatformHealthRead);

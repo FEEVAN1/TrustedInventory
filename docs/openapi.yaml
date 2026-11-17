@@ -9587,6 +9587,36 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/metrics:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: getPlatformMetrics
+      tags:
+        - PlatformOperations
+      summary: Operations metrics (Prometheus text)
+      description: Process counters (failed allocations, transaction retries, rate-limited requests) and aggregates across tenants (ledger mismatch alerts, outbox age and dead letters, stale devices, hold backlog, open excursions). Never a tenant id or name (NFR-MONITOR, DEC-079).
+      x-permission: platform.health.read
+      x-access: platform
+      x-requirements:
+        - NFR-MONITOR
+      responses:
+        "200":
+          description: Completed.
+          content:
+            text/plain:
+              schema:
+                type: string
+                maxLength: 100000
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /platform/v1/alerts:
     servers:
       - url: /

@@ -94,6 +94,8 @@ services:
       # Simulator webhook signing secret and inbox payload key (DEC-064); both API and worker need them.
       Billing__Simulator__SigningSecret: ${TI_BILLING_SIM_SECRET:?set in .env}
       Billing__InboxKey: ${TI_INBOX_KEY:?set in .env}
+      # Invitation token key (IAM-002); the API and the worker both register the team services.
+      Invitations__TokenKey: ${TI_INVITATION_KEY:?set in .env}
       # S3 lifecycle and service (DEC-070, DEC-072, DEC-073, DEC-074): proposed defaults until the owner approves them.
       Lifecycle__ExportWindowDays: "90"
       Lifecycle__BackupRetentionDays: "35"

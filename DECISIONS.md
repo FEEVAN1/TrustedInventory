@@ -1516,6 +1516,92 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Export (`POST /exports`, type `Traceability`):** requires `filters.lotId` (422 otherwise) and writes the same report as one JSON
   line with the usual signed manifest (DEC-061).
 
+## DEC-079 M6 release readiness: plan, structured logs and operations metrics (M6 slice 1, NFR-MONITOR)
+- **Status:** Adopted. M6 is the current milestone from 16 Nov 2026 on the owner's instruction ("go ahead with M6"). The M5 gate is
+  still open (AT-AUD-01, CFG-002 evidence, INB-003, medical return release); the S2 and S3 gates wait on owner approvals (DEC-069).
+  M6 builds evidence; it cannot itself approve production policies, which stay owner decisions (D01-D10).
+- **Slices:** (1) structured logs and operations metrics; (2) backup restore drill with measured RPO/RTO and reconciliation
+  (AT-OPS-01, NFR-RECOVERY); (3) performance benchmark harness (NFR-PERF, opt-in); (4) web app shell: OIDC sign-in with PKCE,
+  tenant and warehouse selector, API client with loading/empty/validation/unauthorized/offline/retry states, scanner input
+  (UI-001, UI-002); (5) receive-to-dispatch screens; (6) browser test of receive-to-dispatch (AT-UI-01); (7) deployment checklist
+  and release evidence pack (SEC-TRANSPORT, NFR-AVAIL, SOP-004, SOP-005, SUCCESS-02).
+- **Logs:** JSON console logs in API and worker with scopes. Every API request carries a scope with `traceId`, `tenantId` (once the
+  membership is validated) and the route name; jobs carry `tenantId` and the job name. Headers, bodies, tokens and secrets are never
+  logged; a test captures the log output of real requests and fails if a bearer token, device secret or reauth token appears.
+- **Metrics (`GET /platform/v1/metrics`, platform.health.read, Prometheus text format):** process counters from a `Meter`
+  (`ti_allocation_failures_total`, `ti_transaction_retries_total` for deadlock/serialization retries,
+  `ti_rate_limited_total`) and database gauges read through `ti.operations_metrics()`: open ledger mismatch alerts, maximum outbox
+  age, dead-lettered outbox messages, stale devices, held quantity and buckets on Hold, open excursions. The function is SECURITY
+  DEFINER, owned by a new NOLOGIN role `ti_metrics_reader` (bootstrap `0003_metrics.sql`), and returns aggregates across tenants
+  only, never a tenant id or name, so platform operators see service health without tenant data (SAS-004, SOP-006).
+
+## DEC-080 Backup restore drill (M6 slice 2, AT-OPS-01, NFR-RECOVERY)
+- **Status:** Adopted as development evidence. The production drill (managed backups, point-in-time recovery, encrypted storage) is
+  a deployment step under D06 and is still owed before launch.
+- **Drill (RecoveryDrillTests):** a `pg_dump` of the live test database is restored into a new database; the live deletion
+  register is replayed before any access (DEC-072); the ledger reconciliation job runs on the restored data and raises no mismatch
+  for the drilled tenant; a second API instance on the restored database verifies the tenant's audit chain (`POST /audit/verify`)
+  and serves the same on-hand and reserved stock as at the backup; a record written after the backup is absent.
+- **Measured on the development workstation (17 Nov 2026):** restore plus register replay 1.6 s; restore to verified service 5.0 s
+  (budget RTO 4 h). A dump-only backup loses every write after it, so RPO equals the backup interval: the proposed RPO of 15 minutes
+  needs continuous WAL archiving / point-in-time recovery in production (D06), which this drill cannot show.
+- **Runbook:** docs/operations.md "Backup restore" (replaces the placeholder): restore in isolation, replay the register, reconcile
+  the ledger, verify each tenant's audit chain against its latest external checkpoint, record timings, then open access.
+
+## DEC-081 Performance benchmark harness (M6 slice 3, NFR-PERF, SOP-002)
+- **Status:** Adopted. The harness is opt-in (`TI_RUN_PERF=1`, `TI_PERF_SECONDS`, default 60) and reported as skipped otherwise, so
+  a normal test run never claims performance evidence.
+- **Workload:** 20 products with one million synthetic movements; 50 concurrent virtual users for the period, 80 % stock queries
+  (`GET /stock`, `GET /stock/movements` by product) and 20 % stock commands (bin transfers); p95 per category against the proposed
+  budgets (queries 1 s, commands 2 s, section 18); one allocation of a 100-unit line over 100 candidate lots timed separately.
+- **Evidence status:** a workstation run against the test container is indicative only. Release evidence is the same harness against
+  staging with production-like sizing (NFR-PERF stays Partial until then).
+- **What the first runs found and fixed (17 Nov 2026, workstation, 30 s window):** the stock list computed each bucket's last
+  movement by loading the bucket's whole history into memory, and newest-first movement lists had no matching index: query p95
+  6.5 s. Fixed with a per-bucket index probe and migration 0029 (newest-first indexes on source, destination, recorded time and
+  product). After the fix, with all 50 users, the API and PostgreSQL on one laptop: queries p95 1.00 s (2,134 requests), commands
+  p95 1.33 s (590 bin transfers), no errors, allocation over 100 lots 0.65 s. Commands meet the budget; queries sit at the 1 s
+  budget on this hardware, so the staging run decides NFR-PERF.
+
+## DEC-082 Web app for receive-to-dispatch, QA inbox and alerts; browser evidence (M6 slices 4-6, UI-001, UI-002, AT-UI-01)
+- **Status:** Adopted. Covers the receive-to-dispatch screens, the QA approval inbox, alerts and the workspace switcher. Catalog and
+  location editing, counts, transfers, returns, recalls, traceability, administration, audit and billing screens are still API-only
+  and listed as UI gaps in the release evidence (UI-SCREENS stays Partial).
+- **Sign-in:** OIDC authorization code with PKCE against the existing public client (`trustedinventory-pwa`); tokens only in this tab's
+  sessionStorage. Signatures re-authenticate in a popup (`prompt=login`, `max_age=0`) and send the new ID token as `reauthToken`
+  (DEC-009). The re-auth callback page loads its script from a file because the CSP forbids inline scripts.
+- **Client behaviour (UI-001, UI-002):** every command gets one Idempotency-Key per user action, reused on retry after a timeout or
+  network failure, so a retry returns the stored outcome instead of acting twice; a definite rejection draws a new key. Scans are
+  shown as "scanned" and only the server's answer is shown as confirmed. Loading, empty, validation (field errors), unauthorized,
+  offline and retry states, with the trace id on every failure. Keyboard-wedge scanning (type and Enter) everywhere; camera
+  scanning through BarcodeDetector where the browser has it, falling back to typing when unavailable or refused. Short audible
+  feedback for success and error. Workspace switching re-keys the whole view so nothing of the previous tenant stays shown.
+  44 px touch targets, visible focus, labelled inputs; tables collapse to cards below 600 px.
+- **Nothing is decided in the browser:** stock, eligibility, access and entitlements always come from the API (SUI-001).
+- **Browser test (`web/e2e`, Playwright 1.64.1, `npm run test:e2e`):** against the Docker Compose stack, at handheld (390 px, touch)
+  and desktop widths. API setup as alice, then in the browser: Keycloak sign-in with password and one-time code; receive with a
+  synthetic GTIN (restricted-circulation range 02) registered through the API; a misread barcode first, refused by the server with
+  `UNKNOWN_BARCODE`, the field and the trace id shown, then the valid scan; putaway with a wrong-product scan error, then success;
+  offline banner; allocation; pick with a wrong-bin scan error, then success; dispatch; the ledger then shows 7 of 12 left. One
+  browser at a time (`workers: 1`), because the shared synthetic user's one-time code is accepted once per 30-second window.
+  Passed at both widths on 17 Nov 2026. Accessibility checks with an automated rule engine are not yet added.
+- **Defects the first browser run found and fixed:** (1) screens resolved products and bins from one list page (`limit=500`, above
+  the contract maximum of 200), so a tenant with more rows would see "Product" and could not scan a valid bin; putaway now loads the
+  task's product by id, resolves a scanned bin through the server's bin search with an exact code match, and order work loads only
+  the order warehouse's staging bins. (2) A refresh switched every list back to "loading", which unmounted the task that had just
+  succeeded and lost its server confirmation; a refresh now keeps the shown data until the answer arrives, and putaway shows its
+  confirmation at screen level because a finished task leaves the open list.
+
+## DEC-083 Deployment checklist and release evidence pack (M6 slice 7, SEC-TRANSPORT, NFR-AVAIL, SOP-004, SOP-005, SUCCESS-02)
+- **Status:** Adopted. `docs/deployment-checklist.md` lists every production item with its status (Ready, Needs environment
+  evidence, Owner decision), the exact secret settings that stop startup when missing, the canary and rollback steps, and the
+  owner's launch checklist. `docs/release-evidence.md` maps each gate and M6 requirement to its evidence and lists every gap.
+- **Rollback compatibility (SOP-005):** migrations 0017 to 0029 are expand-only, so the previous build runs against the new schema;
+  the earlier contract steps ran only after the code stopped needing the old shape (DEC-042, DEC-043). The canary and rollback
+  drills themselves need the target environment.
+- **What M6 cannot do from this repository:** approve production policies, choose region and provider (D06), configure the production
+  identity provider (D02), or produce staging and production measurements. These stay owner and operations evidence.
+
 ## DEC-024 Audit chain and lock order
 - **Status:** Adopted
 - **Decision:** Each tenant has an `audit_stream` row; appending an audit event locks it, which
@@ -1541,3 +1627,16 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 | D08 operational limits | Zero over-receipt, 24 h reservation expiry, online-only mutations; request budgets 120/min per person per tenant and 600/min per service identity, two concurrent exports (DEC-073) | Suitability |
 | D09 SaaS commercial | **Partly decided (DEC-067):** Paystack (test mode until live keys are approved), NGN, prices configurable in the platform catalog. Default still in force: 14-day trial, flat recurring subscription, fixture plans | Plan names, quotas, per-plan trials, taxes |
 | D10 SaaS lifecycle | **Partly decided (DEC-067):** 7-day past-due grace and reminders on day 0, 3 and 6 approved. Default still in force: 90-day export window, retention overrides deletion | 90-day export window, retention over deletion |
+
+## DEC-084 Compose stack configuration caught up with the code (M6, found by the browser run)
+- **Status:** Adopted. The first `docker compose up` since S3 showed two start-up failures that the in-process test hosts could not
+  see. Both are fixed without loosening a check.
+- **API:** `Invitations:TokenKey` (required since M4, fail closed) was missing from the Compose settings and `.env.example`. It is now
+  `TI_INVITATION_KEY` (placeholder only in the example; the real value lives in the untracked `.env`).
+- **Worker:** the worker validates its service graph at start-up in Development, and the shared application services need the team
+  adapters and a step-up re-authentication verifier that only the API registered. The worker now registers the team adapters and a
+  `NoReauthVerifier` that always refuses (IAM-005): the worker serves no people, so a step-up action reached from a job fails
+  instead of skipping the check. Service validation itself stays on.
+- **Evidence:** the stack starts with all services up and AT-UI-01 passes against it. The browser test needs the API, so missing API
+  settings fail it; the worker has no automated start-up check yet (known limitation): after `docker compose up`, confirm with
+  `docker compose ps` that `worker` is running.

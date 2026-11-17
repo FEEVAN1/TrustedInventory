@@ -122,6 +122,7 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
             }
             catch (Exception ex) when (IsTransient(ex) && attempt <= MaxRetries)
             {
+                Application.Common.OperationsMetrics.TransactionRetried();
                 // STK-005: bounded retry with jitter on deadlock / serialization failure.
                 await Task.Delay(TimeSpan.FromMilliseconds(Random.Shared.Next(20, 60) * attempt), ct);
             }

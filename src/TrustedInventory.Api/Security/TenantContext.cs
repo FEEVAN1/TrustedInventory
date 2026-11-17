@@ -38,7 +38,7 @@ public sealed class TenantContextMiddleware(RequestDelegate next)
     public const string TenantHeader = "X-Tenant-Id";
 
     public async Task InvokeAsync(HttpContext http, IMembershipDirectory memberships, ITenantAccessReader accessReader,
-        TimeProvider clock, HttpCallerAccessor accessor)
+        TimeProvider clock, HttpCallerAccessor accessor, ILogger<TenantContextMiddleware> log)
     {
         var endpoint = http.GetEndpoint();
         if (endpoint?.Metadata.GetMetadata<TenantScopedMetadata>() is null)
@@ -83,6 +83,9 @@ public sealed class TenantContextMiddleware(RequestDelegate next)
         AccessGate.Enforce(state, now, access.Category, isOwner, endpoint.Metadata.GetMetadata<EntitlementMetadata>()?.Feature);
         accessor.Set(caller);
 
+        // The validated tenant joins the request's log scope (DEC-079); the subject is not logged.
+        http.Items[Http.RequestLogScope.TenantItem] = tenantId;
+        using var scope = log.BeginScope(new Dictionary<string, object?> { ["tenantId"] = tenantId });
         await next(http);
     }
 

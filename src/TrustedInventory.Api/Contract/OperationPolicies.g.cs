@@ -98,6 +98,7 @@ public static class OperationPolicies
         ["getPartner"] = new("read", "core_inventory", null),
         ["getPick"] = new("read", "core_inventory", null),
         ["getPlatformHealth"] = new("platform", null, null),
+        ["getPlatformMetrics"] = new("platform", null, null),
         ["getPlatformTenant"] = new("platform", null, null),
         ["getProduct"] = new("read", "core_inventory", null),
         ["getProvisioningJob"] = new("setup-status", null, null),

@@ -131,6 +131,8 @@ public sealed class AllocationService(
 
             // 4. All-or-nothing (default): any shortage rolls every line back (AT-OUT-01).
             if (shortages.Count > 0 && !allowPartial)
+            {
+                OperationsMetrics.AllocationFailed();
                 throw new AppException(ErrorCode.InsufficientStock, "Not enough eligible stock for every line; nothing was reserved.")
                 {
                     Extensions = new JsonObject
@@ -142,6 +144,7 @@ public sealed class AllocationService(
                         }).ToArray()),
                     },
                 };
+            }
 
             DomainGuard.Run(() => order.Recalculate(lines.Select(l => l.Progress).ToList(), s.Now));
             var result = new AllocationResult(order.Id, allocations, shortages, order.Status, order.Version);

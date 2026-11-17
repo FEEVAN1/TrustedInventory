@@ -6,6 +6,8 @@ WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props .editorconfig TrustedInventory.slnx ./
 COPY src/ src/
 COPY db/ db/
+# The migrator embeds the fixture plan catalog (DEC-062).
+COPY docs/entitlement-catalog.json docs/
 ENV CI=true
 RUN dotnet restore src/TrustedInventory.Api/TrustedInventory.Api.csproj --locked-mode \
  && dotnet restore src/TrustedInventory.Worker/TrustedInventory.Worker.csproj --locked-mode \

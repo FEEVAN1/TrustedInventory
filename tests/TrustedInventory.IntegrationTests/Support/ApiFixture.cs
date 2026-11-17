@@ -126,6 +126,8 @@ public sealed class ApiFixture : IAsyncLifetime
     }
 
     public const string ControlRolePassword = ControlPassword;
+    public const string AppRolePassword = AppPassword;
+    public const string PlatformRolePassword = PlatformPassword;
 
     private string Connection(string user, string password) =>
         new NpgsqlConnectionStringBuilder(SuperuserConnection) { Username = user, Password = password }.ConnectionString;

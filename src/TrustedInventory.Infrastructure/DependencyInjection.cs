@@ -13,7 +13,7 @@ namespace TrustedInventory.Infrastructure;
 /// <summary>Schema version this build requires; a test keeps it equal to the newest file in db/migrations.</summary>
 public static class SchemaVersion
 {
-    public const string Required = "0027_telemetry";
+    public const string Required = "0029_movement_read_indexes";
 }
 
 public static class DependencyInjection
@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddSingleton<Application.Organization.IPlatformDirectory, Organization.PlatformDirectory>();
         services.AddSingleton<Application.Organization.IWorkspaceStatusReader, Organization.WorkspaceStatusReader>();
         services.AddSingleton<Application.Organization.IPlatformMonitorStore, Organization.PlatformMonitorStore>();
+        services.AddSingleton<Application.Common.IOperationsGaugeReader, Organization.OperationsGaugeReader>();
         services.AddSingleton<ICursorCodec>(new HmacCursorCodec(cursorKey));
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IMembershipDirectory, MembershipDirectory>();

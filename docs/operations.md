@@ -152,12 +152,15 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
   `DeletionPending` by a crash resumes on the next run.
 - Never run deletion against production from development or tests (section 30).
 
-### Backup restore and the deletion register (draft, S3; full drill in M6)
+### Backup restore and the deletion register (draft, S3; drilled in M6, DEC-080)
 1. Export the register from the live control plane: `TrustedInventory.Migrator export-deletion-register register.json`.
 2. Restore into an isolated environment with API and workers stopped.
 3. Run `TrustedInventory.Migrator replay-deletions register.json` against the restored database (`TI_CONTROL_CONNECTION`). It
    must exit 0.
-4. Only then start workers and the API. Record the run (register size, verification lines) in the recovery log.
+4. Run the ledger reconciliation job on the restored data; expect no new ReconciliationMismatch alert.
+5. For each tenant, run `POST /audit/verify` and compare the result with its latest external checkpoint.
+6. Only then start workers and the API. Record the run (register size, verification lines, timings) in the recovery log.
+7. RPO: with dump-only backups everything after the dump is lost; production uses point-in-time recovery to meet 15 minutes (D06).
 
 ### Orphaned objects (S3)
 - Deleting a tenant removes its whole storage prefix (`IObjectStore.DeleteTenantAsync`), including objects whose rows were never
@@ -190,5 +193,4 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
 ### Not yet written
 | Runbook | Milestone |
 |---------|-----------|
-| Backup restore | M6 |
 | Ledger reconciliation failure | M2 |

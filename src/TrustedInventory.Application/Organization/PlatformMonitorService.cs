@@ -93,7 +93,7 @@ public sealed class PlatformMonitorService(IPlatformMonitorStore store, ICursorC
     }
 
     /// <summary>platform.health.read: platform operations and platform billing (docs/permissions.md).</summary>
-    private static void RequireHealthReader(PlatformCaller caller)
+    public static void RequireHealthReader(PlatformCaller caller)
     {
         if (!caller.IsAdministrator && !caller.IsBilling)
             throw AppException.Forbidden("Platform health is restricted to platform operators.");

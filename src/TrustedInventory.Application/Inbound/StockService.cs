@@ -189,10 +189,15 @@ public sealed class StockService(ITenantUnitOfWork uow, ICallerAccessor callers,
         var warehouseIds = buckets.Select(b => b.WarehouseId).Distinct().ToList();
         var timeZones = await s.Db.Set<Warehouse>().AsNoTracking().Where(w => warehouseIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.TimeZone, ct);
         var ids = buckets.Select(b => b.Id).ToList();
-        var lastMovement = await s.Db.Set<StockMovement>().AsNoTracking()
-            .Where(m => (m.SourceBucketId != null && ids.Contains(m.SourceBucketId.Value)) || (m.DestinationBucketId != null && ids.Contains(m.DestinationBucketId.Value)))
-            .Select(m => new { Bucket = m.DestinationBucketId ?? m.SourceBucketId, m.SourceBucketId, m.DestinationBucketId, m.OccurredAt })
-            .ToListAsync(ct);
+        // Latest movement per bucket through the newest-first indexes (0029): one index probe per bucket and direction, never the
+        // bucket's whole history (DEC-081).
+        var idArray = ids.ToArray();
+        var lastMovement = (await s.Db.Database.SqlQuery<LastMovementRow>($"""
+            SELECT b.id AS "BucketId",
+                   GREATEST((SELECT m.occurred_at FROM ti.stock_movement m WHERE m.source_bucket_id = b.id ORDER BY m.occurred_at DESC LIMIT 1),
+                            (SELECT m.occurred_at FROM ti.stock_movement m WHERE m.destination_bucket_id = b.id ORDER BY m.occurred_at DESC LIMIT 1)) AS "At"
+            FROM ti.stock_bucket b WHERE b.id = ANY({idArray})
+            """).ToListAsync(ct)).ToDictionary(r => r.BucketId, r => r.At);
         var tenantBlocked = await StockBlocks.TenantBlockedAsync(s, ct);
         var blocked = await StockBlocks.BlockedBucketsAsync(s, ids, ct);
 
@@ -208,13 +213,15 @@ public sealed class StockService(ITenantUnitOfWork uow, ICallerAccessor callers,
                 StorageCompatibility.IsCompatible(zone.TempMinC, zone.TempMaxC, profile?.MinC, profile?.MaxC, product.HazardClass, hazards[zone.Id].ToList()),
                 tenantBlocked || blocked.Contains(b.Id));
             var reasons = StockEligibility.Reasons(facts);
-            var last = lastMovement.Where(m => m.SourceBucketId == b.Id || m.DestinationBucketId == b.Id).Select(m => (DateTimeOffset?)m.OccurredAt).Max();
+            var last = lastMovement.GetValueOrDefault(b.Id);
             return new StockBucketDto(b.Id, b.Version, b.WarehouseId, b.BinId, bin.Code, bin.Kind, b.ProductId, product.Sku, b.LotId, lot?.LotNumber,
                 lot?.ExpiryDate, b.SerialId, b.SerialId is { } sid ? serials.GetValueOrDefault(sid)?.SerialNumber : null, b.QualityStatus,
                 Quantity.From(b.OnHandQty), Quantity.From(b.ReservedQty), Quantity.From(StockEligibility.Allocatable(facts)), reasons.Count == 0, reasons,
                 b.ReceivedAt, last);
         }).ToList();
     }
+
+    private sealed record LastMovementRow(Guid BucketId, DateTimeOffset? At);
 
     internal static async Task<List<StockMovementDto>> MovementDtosAsync(ITenantSession s, IReadOnlyList<StockMovement> movements, CancellationToken ct)
     {
