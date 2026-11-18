@@ -41,6 +41,7 @@ Run `npm run test:e2e` in `web/` against `docker compose up` (see README).
 | Date | Stack | Result |
 |------|-------|--------|
 | 17 Nov 2026 | Compose development stack, Chromium (Playwright 1.64.1), workstation | handheld (390×844, touch) passed in 11 s; desktop (1366×900) passed in 58 s. Both include one wait for a fresh one-time-code window |
+| 18 Nov 2026 | Same stack, unchanged code | handheld passed in 43 s; desktop passed in 51 s. Earlier attempts that night are not counted: one was refused at login after deliberate failed-login probes (realm brute-force protection), one ran across a laptop sleep, and one setup token was refused as not multi-factor (not reproduced; under watch) |
 
 The first run found two screen defects and two stack configuration gaps, all fixed before this result (DEC-082, DEC-084).
 
