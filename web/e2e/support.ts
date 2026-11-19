@@ -2,7 +2,7 @@
 // Keycloak sign-in. Every user and every value is synthetic; nothing here reaches a real identity provider or customer.
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { type Page } from "@playwright/test";
+import { type Browser, type Page, type TestInfo } from "@playwright/test";
 
 export const env = Object.fromEntries(
   readFileSync(new URL("../../.env", import.meta.url), "utf8").split(/\r?\n/).filter((l) => l && !l.startsWith("#") && l.includes("="))
@@ -56,7 +56,11 @@ export async function call<T>(bearer: string, path: string, body?: unknown, ifMa
   const response = await fetch(`${api}/api/v1${path}`, { method: body === undefined && ifMatch === undefined ? "GET" : "POST", headers,
     body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await response.text();
-  if (!response.ok && response.status !== 409) throw new Error(`${path}: ${response.status} ${text}`);
+  if (!response.ok && response.status !== 409) {
+    // A refusal for missing MFA has happened rarely in development (DEC-085, DEC-087); name what the token claimed, never the token.
+    const claims = JSON.parse(Buffer.from(bearer.split(".")[1] ?? "", "base64url").toString() || "{}") as { amr?: unknown; acr?: unknown; iat?: number };
+    throw new Error(`${path}: ${response.status} ${text} (token amr ${JSON.stringify(claims.amr)}, acr ${JSON.stringify(claims.acr)}, iat ${claims.iat})`);
+  }
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
@@ -88,4 +92,133 @@ export async function scan(page: Page, testId: string, code: string): Promise<vo
   await field.click();
   await page.keyboard.type(code, { delay: 5 });
   await page.keyboard.press("Enter");
+}
+
+export const aliceSubject = "00000000-0000-4000-8000-000000000002";
+export const quinnSubject = "00000000-0000-4000-8000-000000000003";
+
+/**
+ * Gives a synthetic member of tenant A a role through the API, so each test sets up what it needs whatever ran before it. Only the
+ * "already granted" refusal is accepted; any other refusal, such as granting yourself QA signing (APPROVAL_SELF), fails the test
+ * (DEC-087: `call` lets every 409 through, which once hid that refusal).
+ */
+export async function grantRole(bearer: string, subject: string, role: string, reason: string): Promise<void> {
+  const memberships = await call<{ items: { id: string; userSubject: string }[] }>(bearer, "/memberships?limit=200");
+  const member = memberships.items.find((m) => m.userSubject === subject)!;
+  const answer = await call<{ code?: string; detail?: string } | undefined>(bearer, `/memberships/${member.id}/role-grants`, { role, reason });
+  if (answer?.code && !(answer.code === "INVALID_STATE" && /already granted/.test(answer.detail ?? "")))
+    throw new Error(`Granting ${role} to ${subject} was refused: ${answer.code} ${answer.detail}`);
+}
+
+/** Revokes every active grant of `role` from a synthetic member of tenant A, so a test starts from the roles it expects. */
+export async function revokeRole(bearer: string, subject: string, role: string, reason: string): Promise<void> {
+  const memberships = await call<{ items: { id: string; userSubject: string }[] }>(bearer, "/memberships?limit=200");
+  const member = memberships.items.find((m) => m.userSubject === subject)!;
+  const grants = await call<{ items: { id: string; role: string; version: number }[] }>(bearer, `/memberships/${member.id}/role-grants?active=true&limit=200`);
+  for (const g of grants.items.filter((x) => x.role === role)) {
+    const answer = await call<{ code?: string; detail?: string } | undefined>(bearer, `/role-grants/${g.id}/revoke`, { reason }, g.version);
+    if (answer?.code) throw new Error(`Revoking ${role} from ${subject} was refused: ${answer.code} ${answer.detail}`);
+  }
+}
+
+export const grantQuinn =(bearer: string, role: string, reason: string) => grantRole(bearer, quinnSubject, role, reason);
+
+/** Re-authentication in the pop-up a Sign button opens (prompt=login, max_age=0): password, then a fresh one-time code. */
+export async function reauthenticate(popup: Page, user: string): Promise<void> {
+  const username = popup.locator("#username");
+  await popup.locator("#password").waitFor();
+  if (await username.isVisible() && await username.isEditable()) await username.fill(user);
+  await popup.locator("#password").fill(env.TI_DEV_USER_PASSWORD!);
+  await popup.locator("#kc-login").click();
+  await nextWindow(); // the sign-in a moment ago used this window's code
+  await popup.locator("#otp").fill(totp(env.TI_DEV_OTP_SECRET!));
+  await popup.locator("#kc-login").click();
+}
+
+/** Signs one approval in the approval inbox of a signed-in page; the approval is found by its request reason. */
+export async function signApproval(page: Page, requestReason: string, signReason: string, user: string): Promise<void> {
+  await page.goto("/#/approvals");
+  const card = page.locator(".panel", { hasText: requestReason });
+  await card.getByLabel("Reason").fill(signReason);
+  const popup = page.waitForEvent("popup");
+  await card.getByRole("button", { name: "Sign" }).click();
+  await reauthenticate(await popup, user);
+  // A signed approval leaves the inbox; a refusal would stay on the card with its code.
+  await card.waitFor({ state: "detached", timeout: 30_000 });
+}
+
+export interface Stocked { warehouseId: string; zoneId: string; inBinId: string; storageBinId: string; unitId: string; productId: string; sku: string }
+
+/**
+ * A synthetic warehouse (code `${prefix}${run}`) with a staging bin IN-run, a storage bin A-run and `quantity` units of a new
+ * product put away in A-run, all through the API. With `lot` the product is lot-tracked and the units arrive as that lot. With
+ * `putAway` false the units stay in IN-run with an open putaway task.
+ */
+export async function stockedWarehouse(bearer: string, prefix: string, run: string, quantity: string,
+  lot?: { lotNumber: string; expirationDate: string }, putAway = true): Promise<Stocked> {
+  for (const role of ["Receiver"]) await grantRole(bearer, aliceSubject, role, "browser test setup: receive and put away");
+  const created = async (path: string, body: unknown) => (await call<{ id: string; version: number }>(bearer, path, body));
+  const warehouse = await created("/warehouses", { code: `${prefix}${run}`, name: `Synthetic ${prefix}${run}`, timeZone: "UTC" });
+  const zone = await created("/zones", { warehouseId: warehouse.id, code: "AMB", name: "Ambient" });
+  const inBin = await created("/bins", { zoneId: zone.id, code: `IN-${prefix}${run}`, kind: "Staging" });
+  const storage = await created("/bins", { zoneId: zone.id, code: `A-${prefix}${run}`, kind: "Storage" });
+  const unit = await created("/units", { code: `E${prefix}${run}`.slice(0, 20), name: "Each" });
+  const sku = `SKU-${prefix}${run}`;
+  const product = await created("/products", { sku, name: "Synthetic stocked item", handlingProfile: "General",
+    trackingMode: lot ? "Lot" : "Quantity", baseUomId: unit.id, basePrecision: 0, rotationRule: lot ? "FEFO" : "FIFO" });
+  const supplier = await created("/partners", { code: `S${prefix}${run}`.slice(0, 20), name: "Synthetic supplier", type: "Supplier" });
+  const po = await created("/purchase-orders", { supplierId: supplier.id, warehouseId: warehouse.id, reference: `P${prefix}-${run}`,
+    lines: [{ productId: product.id, quantity, uomId: unit.id }] });
+  await call(bearer, `/purchase-orders/${po.id}/approve`, undefined, 1);
+  const order = await call<{ lines: { id: string }[] }>(bearer, `/purchase-orders/${po.id}`);
+  await call(bearer, "/inventory/receive", { warehouseId: warehouse.id, purchaseOrderId: po.id, items: [{ purchaseOrderLineId: order.lines[0]!.id,
+    productId: product.id, uomId: unit.id, quantity, targetBinId: inBin.id, lotNumber: lot?.lotNumber ?? null, expirationDate: lot?.expirationDate ?? null }] });
+  if (putAway) {
+    const tasks = await call<{ items: { productId: string; sourceLineId: string; sourceBinId: string }[] }>(bearer, "/putaway/tasks?status=Open&limit=200");
+    const task = tasks.items.find((t) => t.productId === product.id)!;
+    await call(bearer, "/putaway/confirm", { receiptLineId: task.sourceLineId, sourceBinId: task.sourceBinId, targetBinId: storage.id, quantity,
+      scannedProductId: product.id, scannedLotNumber: lot?.lotNumber });
+  }
+  return { warehouseId: warehouse.id, zoneId: zone.id, inBinId: inBin.id, storageBinId: storage.id, unitId: unit.id, productId: product.id, sku };
+}
+
+/**
+ * Ships `quantity` of a stocked product to a customer through the API: order, confirm, allocate, pick to the staging bin and dispatch
+ * with reference `dispatchReference`. Needs the Picker and Dispatcher roles, which it grants to alice.
+ */
+export async function shipOrder(bearer: string, stock: Stocked, customerId: string, quantity: string, dispatchReference: string): Promise<string> {
+  for (const role of ["Picker", "Dispatcher"]) await grantRole(bearer, aliceSubject, role, "browser test setup: pick and dispatch");
+  const order = await call<{ id: string }>(bearer, "/orders", { customerId, warehouseId: stock.warehouseId, reference: `O-${dispatchReference}`,
+    plannedDispatchDate: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10), lines: [{ productId: stock.productId, quantity }] });
+  await call(bearer, `/orders/${order.id}/confirm`, undefined, 1);
+  const version = async () => (await call<{ version: number }>(bearer, `/orders/${order.id}`)).version;
+  await call(bearer, `/orders/${order.id}/allocate`, { allowPartial: false }, await version());
+  const picks = await call<{ items: { id: string; version: number; remainingQuantity: string; sourceBinId: string; lotNumber: string | null }[] }>(
+    bearer, `/picks?orderId=${order.id}`);
+  for (const p of picks.items)
+    await call(bearer, `/picks/${p.id}/confirm`, { quantity: p.remainingQuantity, scannedBinId: p.sourceBinId, scannedProductId: stock.productId,
+      scannedLotNumber: p.lotNumber, stagingBinId: stock.inBinId }, p.version);
+  await call(bearer, `/orders/${order.id}/dispatch`, { pickIds: picks.items.map((p) => p.id), allowPartial: false, dispatchReference }, await version());
+  return order.id;
+}
+
+/** On-hand quantity per bin code for one product. */
+export async function onHand(bearer: string, productId: string): Promise<Record<string, string>> {
+  const stock = await call<{ items: { binCode: string; onHand: string }[] }>(bearer, `/stock?productId=${productId}&limit=200`);
+  return Object.fromEntries(stock.items.map((b) => [b.binCode, b.onHand]));
+}
+
+/** Runs `work` as another synthetic user in a separate browser context at the same width; screenshots its pages if it fails. */
+export async function asOtherUser(browser: Browser, info: TestInfo, user: string, work: (page: Page) => Promise<void>): Promise<void> {
+  const context = await browser.newContext({ ...info.project.use });
+  try {
+    const page = await context.newPage();
+    await signInAs(page, user);
+    await work(page);
+  } catch (e) {
+    for (const [i, p] of context.pages().entries()) await p.screenshot({ path: info.outputPath(`${user}-${i}.png`) }).catch(() => undefined);
+    throw e;
+  } finally {
+    await context.close();
+  }
 }

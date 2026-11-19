@@ -6,7 +6,7 @@ import { request } from "./api";
 import {
   Act, ApprovalGate, Choice, Field, list, Name, PagedList, Pick, Screen, SearchPicker, Tabs, usePaged, when, type Bucket, type ProductRow,
 } from "./kit";
-import { Empty, Loaded, useLoad } from "./ui";
+import { Empty, FailureView, Loaded, useLoad } from "./ui";
 
 interface Movement {
   id: string; type: string; baseQuantity: string; productId: string; lotId: string | null; documentType: string; documentId: string; actorSubject: string;
@@ -94,7 +94,9 @@ function QualityActions({ bucket, onDone }: { bucket: Bucket; onDone: () => void
 
 function MoveStock({ bucket, onDone }: { bucket: Bucket; onDone: () => void }) {
   const [target, setTarget] = useState("");
-  const [quantity, setQuantity] = useState(bucket.allocatable);
+  // Movable means unreserved, not "free to ship": staging or held stock has nothing free yet can move. With nothing reserved the whole
+  // line is offered; otherwise the person enters it and the server checks it (no stock arithmetic in the browser; DEC-087).
+  const [quantity, setQuantity] = useState(Number(bucket.reserved) === 0 ? bucket.onHand : "");
   const [reason, setReason] = useState("");
   return (
     <div className="subpanel">
@@ -154,12 +156,13 @@ function NewRecall({ onDone, onCancel }: { onDone: (id: string) => void; onCance
   const [lots, setLots] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [effective, setEffective] = useState(new Date().toISOString().slice(0, 16));
-  const [productLots] = useLoad(() => (product ? list<Lot>(`/lots?productId=${product.id}&limit=200`) : Promise.resolve([] as Lot[])), [product?.id]);
+  const [productLots, reloadLots] = useLoad(() => (product ? list<Lot>(`/lots?productId=${product.id}&limit=200`) : Promise.resolve([] as Lot[])), [product?.id]);
   return (
     <div className="panel">
       <h3>Start a recall</h3>
       <p className="muted">Recalled stock is blocked from picking and dispatch the moment the server accepts the recall.</p>
       <SearchPicker<ProductRow> label="Product" path="/products" show={(p) => `${p.sku} · ${p.name}`} value={product} onPick={(p) => { setProduct(p); setLots([]); }} />
+      {product && productLots.state === "failed" && <FailureView failure={productLots.failure} onRetry={reloadLots} />}
       {product && productLots.state === "ready" && (
         <fieldset>
           <legend>Lots (none chosen means every lot of the product)</legend>
@@ -251,7 +254,7 @@ export function Traceability() {
   const [product, setProduct] = useState<ProductRow | null>(null);
   const [lotNumber, setLotNumber] = useState("");
   const [lotId, setLotId] = useState<string | null>(null);
-  const [lots] = useLoad(() => (product ? list<Lot>(`/lots?productId=${product.id}${lotNumber ? `&lotNumber=${encodeURIComponent(lotNumber)}` : ""}&limit=100`) : Promise.resolve([] as Lot[])), [product?.id, lotNumber]);
+  const [lots, reloadLots] = useLoad(() => (product ? list<Lot>(`/lots?productId=${product.id}${lotNumber ? `&lotNumber=${encodeURIComponent(lotNumber)}` : ""}&limit=100`) : Promise.resolve([] as Lot[])), [product?.id, lotNumber]);
   return (
     <Screen id="trace" title="Lot traceability">
       <p className="muted">From supplier receipt to customer shipment, with every quality decision and movement in between.</p>
@@ -259,6 +262,7 @@ export function Traceability() {
         <SearchPicker<ProductRow> label="Product" path="/products" show={(p) => `${p.sku} · ${p.name}`} value={product} onPick={(p) => { setProduct(p); setLotId(null); }} />
         <Field label="Lot number" value={lotNumber} onChange={setLotNumber} />
       </div>
+      {product && lots.state === "failed" && <FailureView failure={lots.failure} onRetry={reloadLots} />}
       {product && lots.state === "ready" && (lots.data.length === 0 ? <Empty>No lot matches.</Empty> : (
         <ul className="choices">{lots.data.map((l) => (
           <li key={l.id}><button type="button" className={lotId === l.id ? undefined : "secondary"} onClick={() => setLotId(l.id)}>{l.lotNumber}{l.expiryDate ? ` · exp ${l.expiryDate}` : ""}</button></li>

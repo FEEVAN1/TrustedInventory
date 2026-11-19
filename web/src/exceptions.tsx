@@ -226,9 +226,9 @@ function NewCount({ onDone, onCancel }: { onDone: (id: string) => void; onCancel
       <h3>New count</h3>
       <Choice<Warehouse> label="Warehouse" path="/warehouses?active=true" show={warehouseLabel} value={warehouse} onChange={(v) => { setWarehouse(v); setBins([]); }} />
       {warehouse && <CountBins key={warehouse} warehouseId={warehouse} chosen={bins} onChange={setBins} />}
-      <Field label="Reason (optional)" value={reason} onChange={setReason} />
-      <Act label="Create count" run={() => request<Count>("/counts", { body: { warehouseId: warehouse, binIds: bins, reason: reason || undefined } })} onDone={(c) => onDone(c.id)}
-        okText="Count created." disabled={!warehouse || bins.length === 0} />
+      <Field label="Reason for the count" value={reason} onChange={setReason} required />
+      <Act label="Create count" run={() => request<Count>("/counts", { body: { warehouseId: warehouse, binIds: bins, reason } })} onDone={(c) => onDone(c.id)}
+        okText="Count created." disabled={!warehouse || bins.length === 0 || !reason.trim()} />
       <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
     </div>
   );

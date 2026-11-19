@@ -185,11 +185,17 @@ function PutawayTask({ task, onDone }: { task: Task; onDone: (what: string) => v
   const product = loaded.state === "ready" ? loaded.data : undefined;
   const [binId, setBinId] = useState<string | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
+  const [lot, setLot] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The contract asks for the scanned lot of a lot-tracked task and a reason when the bin is not the top recommendation (INB-006);
+  // without them the server refuses every such putaway (found by AT-UI-08, DEC-087).
+  const offRecommendation = binId !== null && binId !== task.recommendedBins[0]?.binId;
   const run = useCallback((key: string) => request("/putaway/confirm", {
     idempotencyKey: key,
-    body: { receiptLineId: task.sourceLineId, sourceBinId: task.sourceBinId, targetBinId: binId, quantity: task.remainingQuantity, scannedProductId: productId },
-  }), [task, binId, productId]);
+    body: { receiptLineId: task.sourceLineId, sourceBinId: task.sourceBinId, targetBinId: binId, quantity: task.remainingQuantity, scannedProductId: productId,
+      scannedLotNumber: lot ?? undefined, reason: offRecommendation && reason.trim() ? reason : undefined },
+  }), [task, binId, productId, lot, offRecommendation, reason]);
   const label = `${product?.sku ?? "the product"} × ${task.remainingQuantity}`;
   const [command, send] = useCommand(run, useCallback(() => onDone(label), [onDone, label]));
   return (
@@ -209,8 +215,17 @@ function PutawayTask({ task, onDone }: { task: Task; onDone: (what: string) => v
         setProductId(ok ? product!.id : null);
         beep(ok);
       }} />
+      {task.lotId && (
+        <>
+          <ScanInput label="Scan the lot" testId="scan-lot" onScan={(code) => { setLot(code); beep(true); }} />
+          {lot && <p className="muted">Lot scanned: <code>{lot}</code> (checked by the server when you confirm)</p>}
+        </>
+      )}
+      {offRecommendation && <label>Reason for a bin other than {task.recommendedBins[0]?.binCode ?? "the suggestion"}
+        <input value={reason} onChange={(e) => setReason(e.target.value)} required data-testid="putaway-reason" /></label>}
       {error && <p role="alert" className="alert problem">{error}</p>}
-      <button type="button" disabled={!binId || !productId || command.state === "sending"} onClick={send}>Confirm putaway</button>
+      <button type="button" disabled={!binId || !productId || (!!task.lotId && !lot) || (offRecommendation && task.recommendedBins.length > 0 && !reason.trim())
+        || command.state === "sending"} onClick={send}>Confirm putaway</button>
       <CommandStatus command={command} onRetry={send} okText="Putaway confirmed by the server." />
     </div>
   );

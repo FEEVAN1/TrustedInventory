@@ -12,6 +12,8 @@ export default defineConfig({
   use: {
     baseURL: process.env.TI_WEB_URL ?? "http://localhost:5173",
     trace: "retain-on-failure",
+    // A missing element fails within a minute instead of waiting for the whole test limit.
+    actionTimeout: 60_000,
     launchOptions: { args: ["--host-resolver-rules=MAP keycloak 127.0.0.1"] },
   },
   projects: [

@@ -64,6 +64,7 @@ const CHECKOUT_KEY = "ti.checkout";
 export function Billing() {
   const [sub, reload] = useLoad(() => request<Subscription>("/saas/subscription"), []);
   const invoices = usePaged<Invoice>("/saas/invoices?limit=20");
+  const [cancelReason, setCancelReason] = useState("");
   return (
     <Screen id="billing" title="Subscription and billing">
       <p className="badge sim">Billing runs against a labelled simulator in development; no real charge is ever made.</p>
@@ -83,8 +84,13 @@ export function Billing() {
               <div className="row">
                 {s.cancelAtPeriodEnd
                   ? <Act label="Resume subscription" run={() => request("/saas/subscription/resume", { ifMatch: s.version })} onDone={reload} okText="Resumed." />
-                  : s.state !== "Cancelled" && <Act label="Cancel at period end" secondary confirm="Cancel the subscription at the end of the current period? This does not delete the workspace."
-                    run={() => request("/saas/subscription/cancel", { ifMatch: s.version })} onDone={reload} okText="Cancellation scheduled." />}
+                  : s.state !== "Cancelled" && <>
+                    {/* The contract requires a reason (CancelSubscriptionRequest); without it every cancellation was refused (DEC-087). */}
+                    <Field label="Reason to cancel" value={cancelReason} onChange={setCancelReason} />
+                    <Act label="Cancel at period end" secondary confirm="Cancel the subscription at the end of the current period? This does not delete the workspace."
+                      disabled={!cancelReason.trim()} run={() => request("/saas/subscription/cancel", { ifMatch: s.version, body: { reason: cancelReason } })}
+                      onDone={() => { setCancelReason(""); reload(); }} okText="Cancellation scheduled." />
+                  </>}
                 <Act<{ url: string }> label="Payment details (provider portal)" secondary run={() => request<{ url: string }>("/saas/billing-portal", { body: {} })}
                   onDone={(r) => window.open(r.url, "_blank", "noopener")} okText="Portal opened." />
               </div>
@@ -102,7 +108,8 @@ export function Billing() {
             <tbody>{rows.map((i) => (
               <tr key={i.id}><td>{i.number}</td><td>{when(i.periodStart)} to {when(i.periodEnd)}</td><td>{money(i.total)}</td>
                 <td><span className="badge">{i.status}</span>{i.paymentStatus && <span className="badge">{i.paymentStatus}</span>}</td><td>{when(i.dueAt)}</td>
-                <td><Act label="PDF" secondary run={() => openLink(`/saas/invoices/${i.id}/download-link`)} onDone={() => undefined} okText="Opened." /></td></tr>
+                {/* Invoice documents are not produced yet (getInvoiceDownloadLink is not implemented, DEC-087): no button that can only fail. */}
+                <td><span className="muted">PDF not available yet</span></td></tr>
             ))}</tbody>
           </table>
         )}

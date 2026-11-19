@@ -205,6 +205,63 @@ public sealed class ReceivingTests(ApiFixture fx)
         Assert.Equal(0L, await CountAsync("SELECT count(*) FROM ti.stock_movement WHERE tenant_id = @t", w.Tenant));
     }
 
+    [Fact]
+    [Trait("Requirement", "UI-SCREENS")]
+    [Trait("Requirement", "API-16")]
+    [Trait("Requirement", "AT-TEN-01")]
+    public async Task Lots_and_serials_are_listed_filtered_paged_and_read_within_the_tenant()
+    {
+        // DEC-087: listLots, getLot and listSerials were in the contract but not mapped; the recall and traceability screens use them.
+        var w = await WorldAsync("rcv-lots");
+        await (await PostAsync(w, Guid.NewGuid(), Receive(w,
+            Item(w.LotLine, w.Lotted, "4", w.Each, w.AmbientStaging, lotNumber: "LOT-A1", expirationDate: "2030-06-30"),
+            Item(w.LotLine, w.Lotted, "6", w.Each, w.AmbientStaging, lotNumber: "LOT-B1"),
+            Item(w.SerLine, w.Serialized, "2", w.Each, w.AmbientStaging, serials: ["S-10", "S-20"])))).ExpectAsync(HttpStatusCode.OK);
+
+        async Task<JsonArray> Items(string url) => (await (await w.Client.GetAsync(url)).ExpectAsync(HttpStatusCode.OK))["items"]!.AsArray();
+        static string[] Numbers(JsonArray items, string field) => items.Select(i => (string)i![field]!).Order(StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(["LOT-A1", "LOT-B1"], Numbers(await Items($"/api/v1/lots?productId={w.Lotted}"), "lotNumber"));
+        Assert.Equal(["LOT-A1"], Numbers(await Items($"/api/v1/lots?productId={w.Lotted}&lotNumber=LOT-A"), "lotNumber")); // a prefix
+        Assert.Empty(await Items($"/api/v1/lots?productId={w.Lotted}&lotNumber=lot-a")); // case-sensitive
+        Assert.Equal(["LOT-A1"], Numbers(await Items("/api/v1/lots?expiresBefore=2031-01-01"), "lotNumber")); // no expiry, not listed
+
+        // Cursor paging in the default order, bound to the filter.
+        var first = await (await w.Client.GetAsync($"/api/v1/lots?productId={w.Lotted}&limit=1")).ExpectAsync(HttpStatusCode.OK);
+        var cursor = (string)first["nextCursor"]!;
+        var second = await (await w.Client.GetAsync($"/api/v1/lots?productId={w.Lotted}&limit=1&cursor={Uri.EscapeDataString(cursor)}"))
+            .ExpectAsync(HttpStatusCode.OK);
+        Assert.NotEqual((string?)first["items"]![0]!["id"], (string?)second["items"]![0]!["id"]);
+        Assert.Null((string?)second["nextCursor"]);
+        await (await w.Client.GetAsync($"/api/v1/lots?limit=1&cursor={Uri.EscapeDataString(cursor)}")).ExpectProblemAsync(HttpStatusCode.BadRequest, "INVALID_CURSOR");
+
+        // One lot with its version as the ETag; an unknown id is 404.
+        var lotA = (await Items($"/api/v1/lots?productId={w.Lotted}&lotNumber=LOT-A1"))[0]!;
+        var single = await w.Client.GetAsync($"/api/v1/lots/{lotA["id"]}");
+        var lot = await single.ExpectAsync(HttpStatusCode.OK);
+        Assert.Equal("\"1\"", single.ETag());
+        Assert.Equal("LOT-A1", (string?)lot["lotNumber"]);
+        Assert.Equal("2030-06-30", (string?)lot["expiryDate"]);
+        Assert.False((bool)lot["expiryCorrected"]!);
+        await (await w.Client.GetAsync($"/api/v1/lots/{Guid.NewGuid()}")).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+
+        // Serials: append-only, so version 1 and updatedAt = createdAt (DEC-055).
+        var serials = await Items($"/api/v1/serials?productId={w.Serialized}");
+        Assert.Equal(["S-10", "S-20"], Numbers(serials, "serialNumber"));
+        Assert.All(serials, s =>
+        {
+            Assert.Equal(1, (int)s!["version"]!);
+            Assert.Equal((string?)s["createdAt"], (string?)s["updatedAt"]);
+        });
+        Assert.Equal(["S-20"], Numbers(await Items("/api/v1/serials?serialNumber=S-2"), "serialNumber"));
+
+        // Another tenant sees none of them (RLS), even by id.
+        var other = await WorldAsync("rcv-lots-other");
+        Assert.Empty((await (await other.Client.GetAsync("/api/v1/lots")).ExpectAsync(HttpStatusCode.OK))["items"]!.AsArray());
+        Assert.Empty((await (await other.Client.GetAsync("/api/v1/serials")).ExpectAsync(HttpStatusCode.OK))["items"]!.AsArray());
+        await (await other.Client.GetAsync($"/api/v1/lots/{lotA["id"]}")).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
 
     private sealed record World(Guid Tenant, HttpClient Client, string Warehouse, string AmbientStaging, string AmbientStorage, string ColdStaging,

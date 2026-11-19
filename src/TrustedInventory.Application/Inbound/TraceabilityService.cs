@@ -99,7 +99,7 @@ public sealed class TraceabilityService(ITenantUnitOfWork uow, ICallerAccessor c
             """).ToListAsync(ct);
 
         return new TraceabilityReport(
-            new LotDto(lot.Id, lot.Version, lot.CreatedAt, lot.CreatedBy, lot.UpdatedAt, lot.ProductId, lot.LotNumber, lot.ExpiryDate, lot.SupplierRef, false),
+            LotService.ToDto(lot),
             new TraceProduct(product.Id, product.Sku, product.Name),
             receipts.Select(r => new TraceReceipt(r.ReceiptId, r.LineId, r.PurchaseOrderId, r.SupplierId, r.WarehouseId, Quantity.From(r.Qty), r.ReceivedAt,
                 Enum.Parse<QualityStatus>(r.Quality))).ToList(),

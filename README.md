@@ -16,14 +16,15 @@ independent approvals with re-authentication, adjustments, bin and warehouse tra
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
 storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrived with M5.
 **M5 (medical) code complete; gate not yet assessed** (DEC-075 to DEC-078): QA quality hold, release and disposition with MED-001 eligibility checks, recalls that block stock at once and close only with QA approval, telemetry devices with rotating credentials, excursions with automatic holds, stale-telemetry blocking, late-reading shipment flags, tenant alerts, and lot traceability. Devices are simulated (D07); medical policies (D04) need QA validation.
-**M6 (release readiness) in progress** (DEC-079 to DEC-086): structured JSON logs and Prometheus metrics, a backup restore drill
+**M6 (release readiness) in progress** (DEC-079 to DEC-087): structured JSON logs and Prometheus metrics, a backup restore drill
 with deletion replay, ledger reconciliation and audit verification, an opt-in section 18 benchmark, and the web app for
 receive-to-dispatch, the QA inbox and alerts, plus the rest of the screen inventory: catalog, locations, transfers, counts,
 adjustments, returns, tasks, recalls, traceability, temperature devices, team, settings, audit, exports, billing and the workspace
 checklist, ownership transfer and closure (DEC-085). Its browser tests pass at handheld and desktop widths against the Compose
 stack: AT-UI-01 receive-to-dispatch with a lost-answer retry, AT-UI-02 every screen, AT-UI-03 automated WCAG A and AA rule checks
-(axe-core), AT-UI-04 an adjustment approved by a second person after re-authentication, and AT-UI-05 team, settings and device
-administration (DEC-086). The deployment checklist and release evidence pack are in `docs/deployment-checklist.md` and `docs/release-evidence.md`.
+(axe-core), AT-UI-04 an adjustment approved by a second person after re-authentication, AT-UI-05 team, settings and device
+administration (DEC-086), AT-UI-06 transfers and blind counts, AT-UI-07 returns, tasks and bin moves, AT-UI-08 lot putaway, recalls
+and traceability, and AT-UI-09 billing and ownership (DEC-087). The deployment checklist and release evidence pack are in `docs/deployment-checklist.md` and `docs/release-evidence.md`.
 Staging and production evidence and the owner's approval of production policies are still needed.
 **S3 (lifecycle and service) code complete; its gate waits for the owner to approve the commercial defaults** (DEC-069 to
 DEC-074): workspace closure with re-authentication and safety blockers, retention holds and withdrawal, the owner-only tenant
@@ -92,7 +93,8 @@ docker compose up -d --build
 # 3. Verify: Keycloak login with password + TOTP, token claims, /me, tenant isolation
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy/verify-stack.ps1 -EnvFile .env -User alice
 
-# 4. Browser tests (AT-UI-01 to AT-UI-05) at handheld and desktop widths, about ten minutes
+# 4. Browser tests (AT-UI-01 to AT-UI-09) at handheld and desktop widths, about forty minutes. On a machine short of memory run
+#    one file at a time: npx playwright test e2e/<file>.spec.ts --project=desktop
 #    Confirm first with `docker compose ps` that api and worker are running.
 cd web; npx playwright install chromium; npm run test:e2e; cd ..
 

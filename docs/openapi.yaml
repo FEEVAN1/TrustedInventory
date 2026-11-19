@@ -1910,12 +1910,14 @@ paths:
         - name: lotNumber
           in: query
           required: false
+          description: Lots whose number starts with this text (case-sensitive, DEC-087).
           schema:
             type: string
             maxLength: 100
         - name: expiresBefore
           in: query
           required: false
+          description: Lots with an expiry date before this date; lots without expiry are excluded.
           schema:
             $ref: "#/components/schemas/Date"
       responses:
@@ -2064,6 +2066,7 @@ paths:
         - name: serialNumber
           in: query
           required: false
+          description: Serials whose number starts with this text (case-sensitive, DEC-087).
           schema:
             type: string
             maxLength: 100
@@ -11753,6 +11756,7 @@ components:
       required:
         - warehouseId
         - binIds
+        - reason
       additionalProperties: false
     CreateDeviceRequest:
       type: object

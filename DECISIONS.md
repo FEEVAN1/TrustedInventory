@@ -1726,3 +1726,67 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Known limitations:** the e2e files are not covered by the web typecheck (Playwright strips types; no Node type package is added
   for them); transfers, counts, returns, tasks, recalls, traceability and the billing and workspace write paths are still proven by
   API integration tests only; platform consoles and the public signup page are not built.
+
+## DEC-087 Browser evidence for the remaining write paths; contract gaps they exposed (M6, UI-SCREENS, API-16)
+- **Status:** Adopted, except the identity provider change at the end, which is **proposed** and waits for the owner.
+- **Browser tests:** AT-UI-06 (`web/e2e/transfers-counts.spec.ts`): a transfer created, approved, dispatched, part-received and its
+  shortage written off with a second person's signature; a blind count with a scanned bin, a server-calculated variance, an
+  independent approval and posting; the ledger agrees. AT-UI-07 (`web/e2e/returns-tasks.spec.ts`): a customer return received into
+  quarantine, refused to the receiver at inspection (a QA duty) and released to storage by the QA officer; an exception task refused
+  while its stock is in the staging bin, the stock moved from the stock drilldown, then the task completed. AT-UI-08
+  (`web/e2e/recalls-traceability.spec.ts`): a lot put away in the browser with its lot scanned (a wrong lot refused first); a recall
+  of the lot that blocks its stock, customer outreach, disposal of the recalled units still on hand and closure, each with another QA
+  signature; the lot traced from receipt to customer; the owner's traceability export completes and the QA officer's is refused.
+  AT-UI-09 (`web/e2e/billing-workspace.spec.ts`): billing against the labelled simulator (a cancellation needs a reason; the seeded
+  subscription, never bought through the provider, is refused with the server's explanation; plans show that no price is approved
+  for display, D09, so no checkout can start; the simulator portal link is issued) and an ownership offer made after re-authentication
+  and withdrawn. Workspace closure is not driven in the browser: it would stop the shared synthetic tenant and the screen has no
+  withdrawal (API evidence AT-LFC-01/02). Shared setup moved to `web/e2e/support.ts`, and each test now grants the roles it needs, so no
+  test depends on another having run first (a fresh stack showed AT-UI-04 relied on AT-UI-01's grants).
+  The setup helper now accepts only the "already granted" refusal: it had let every 409 through, which hid the server refusing alice
+  QA signing for herself (`APPROVAL_SELF`, a correct control). AT-UI-08 gets a second QA signer the way a workspace would: another
+  administrator grants the role. Playwright actions now time out after 60 s instead of waiting for the whole test limit.
+- **Controls the runs confirmed (no change):** a receiver cannot inspect a return (`returns.inspect` is a QA duty); nobody grants
+  themselves QA signing (`APPROVAL_SELF`); a recall cannot close while recalled stock is on hand (EXC-007); and a closure approval
+  signed before the disposal is refused as stale (`APPROVAL_STALE`), because it is bound to the recall's content including its impact.
+  AT-UI-08 therefore disposes of the stock first and asks for the closure approval afterwards.
+- **For the owner:** the QA officer role has no `exports.create`, so QA cannot export a lot's traceability report during a recall;
+  only the owner and the Auditor can (docs/permissions.md). The screens follow the matrix; whether QA should export is a product
+  decision. The billing simulator's checkout and portal links point to a non-resolvable `.invalid` host by design, so no browser
+  test can complete a payment in development; checkout and plan changes also wait for display-approved prices (D09).
+- **Contract and implementation gaps found and fixed:**
+  - `listLots`, `getLot` and `listSerials` were in the contract but never mapped (404): the recall lot picker, the traceability lot
+    search and every lot name on screen failed. They are implemented read-only with `stock.read` in the tenant, as the traceability
+    report is (DEC-078); number filters match a case-sensitive prefix (now stated in the contract); serials report version 1 and
+    `updatedAt = createdAt` (append-only, as shipments, DEC-055); `expiryCorrected` stays false. Integration test
+    `Lots_and_serials_are_listed_filtered_paged_and_read_within_the_tenant` covers filters, paging, cursor binding, ETag, 404 and a
+    second tenant seeing nothing.
+  - `ContractConformanceTests` only checked that implemented endpoints are in the contract. The new
+    `Every_contract_operation_is_implemented` checks the reverse, with named exceptions: the two health checks (mapped without an
+    endpoint name), `correctLotExpiry` (needs approvals for lot corrections, DEC-085) and `getInvoiceDownloadLink` (no invoice
+    documents exist yet, S2). The billing screen no longer offers an invoice "PDF" button that could only fail.
+  - `CreateCountRequest` listed `reason` as optional, but DEC-059 and the server require it; the screen labelled it optional and every
+    count without a reason was refused. The contract now requires it and the screen asks for it. A comparison of every server reason
+    rule with the contract found no other mismatch.
+  - The putaway screen sent neither the scanned lot (required for lot-tracked tasks) nor a reason when the bin is not the top
+    recommendation (INB-006), so both were always refused. It now asks for both.
+  - The stock drilldown's Move tab prefilled the free quantity, which is 0 for staging or held stock that can still move. It now
+    prefills the on-hand quantity only when nothing is reserved and otherwise leaves the field empty; the server checks it.
+  - The recall and traceability screens hid a failed lot lookup; they now show it with a retry.
+  - Cancelling the subscription sent no body, but the contract requires a reason (`CancelSubscriptionRequest`): every cancellation was
+    refused. The screen asks for the reason. A second audit of every command sent without a body, now including plain-string paths,
+    found no other case (the first audit, for revocations, missed plain-string paths).
+- **Evidence:** on 19 Nov 2026, against a fresh Compose stack, AT-UI-01 to AT-UI-09 pass at handheld and desktop widths, run file by
+  file; the release evidence pack lists the reruns and their causes. AT-UI-03 now creates its own stock line and confirmed order. Unit
+  tests 290 pass; integration tests 291 pass on PostgreSQL 16 (the opt-in benchmark skipped).
+- **Identity provider finding (proposed fix, not applied):** the intermittent "Sign-in must use multi-factor authentication" refusal
+  noted in DEC-085 is explained. The development realm sets `default.reference.maxAge` to `0` on its `amr` references, so Keycloak
+  names a sign-in method only in a token issued in the same second as the login step. Captured tokens: every token with
+  `iat - auth_time = 0` carried `amr ["pwd","otp"]` and was accepted; both with `iat - auth_time = 1` carried `amr []` and were
+  refused by the API's MFA requirement, which is the correct behaviour for such a token. Later traces showed the same split (three
+  refusals in all, each with `amr []` one second after `auth_time`) and accepted tokens with only `amr ["otp"]`, where the password
+  step had happened a second before the one-time code: each method drops out of the claim once a second has passed. The proposal is to set the max age to the
+  realm's session maximum (36000 s), so the methods a session used stay in its tokens; sensitive actions still need a
+  re-authentication under 300 s old (DEC-009). This changes how MFA evidence is issued, so it waits for the owner. Until then, browser
+  runs fail intermittently at sign-in, more often on a loaded machine. The browser test helper now reports a refused token's `amr`,
+  `acr` and `iat` (never the token).

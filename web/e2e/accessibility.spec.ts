@@ -3,7 +3,7 @@
 // A rule engine finds only part of the WCAG failures; it does not replace a manual review with a screen reader.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { signInAs } from "./support";
+import { call, retireLeftoverWarehouses, signInAs, stockedWarehouse, token } from "./support";
 
 const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
 
@@ -18,6 +18,16 @@ async function settled(page: Page): Promise<void> {
 }
 
 test("the start page, the menu and every screen pass the WCAG A and AA rules", async ({ page }, info) => {
+  // Its own data for the interaction states (a stock line and a confirmed order), whatever other tests left behind (DEC-087).
+  const run = `${info.project.name.slice(0, 1)}${Date.now().toString(36)}`.toUpperCase();
+  const alice = await token("alice");
+  await retireLeftoverWarehouses(alice, /^WA[HD][0-9A-Z]+$/);
+  const stock = await stockedWarehouse(alice, "WA", run, "5");
+  const customer = await call<{ id: string }>(alice, "/partners", { code: `CA${run}`, name: "Synthetic customer", type: "Customer" });
+  const order = await call<{ id: string }>(alice, "/orders", { customerId: customer.id, warehouseId: stock.warehouseId, reference: `SA-${run}`,
+    plannedDispatchDate: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10), lines: [{ productId: stock.productId, quantity: "1" }] });
+  await call(alice, `/orders/${order.id}/confirm`, undefined, 1);
+
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   const found = await violations(page, "start page");
@@ -35,7 +45,9 @@ test("the start page, the menu and every screen pass the WCAG A and AA rules", a
     await page.goto(`/${href}`);
     await expect(page.getByRole("heading", { level: 2 }).first(), href).toBeVisible();
     await settled(page);
-    for (const summary of await page.locator("details:not([open]) > summary").all()) await summary.click();
+    // Open every collapsed section; opening one shifts the positions of the rest, so always take the first that is still closed.
+    const closed = page.locator("details:not([open]) > summary");
+    for (let i = 0; i < 20 && (await closed.count()) > 0; i++) await closed.first().click();
     found.push(...(await violations(page, href)));
   }
 
@@ -52,7 +64,7 @@ test("the start page, the menu and every screen pass the WCAG A and AA rules", a
 
   await page.goto("/#/orders");
   await settled(page);
-  await page.locator("ul.cards button").first().click();
+  await page.getByTestId(`order-SA-${run}`).click();
   await expect(page.getByTestId("allocate")).toBeVisible();
   await settled(page);
   found.push(...(await violations(page, "orders: order work")));

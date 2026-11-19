@@ -94,6 +94,19 @@ public static class InboundEndpoints
         tasks.MapPost("/{id:guid}/complete", async (HttpContext http, TaskService svc, Guid id, CompleteTask body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.CompleteAsync(id, Conventions.IfMatch(http), body, ct)))
             .WithName("completeTask").RequirePermission(Permissions.TasksManage);
+
+        // Lots and serials, read only (section 07, DEC-087); both are created by receipt posting.
+        tenant.MapGet("/lots", (LotService svc, [AsParameters] ListQuery q, [FromQuery] Guid? productId, [FromQuery] string? lotNumber,
+                [FromQuery] DateOnly? expiresBefore, CancellationToken ct) =>
+                svc.ListLotsAsync(new LotFilter(productId, lotNumber, expiresBefore), q.ToPage(), ct))
+            .WithName("listLots").RequirePermission(Permissions.StockRead);
+        tenant.MapGet("/lots/{id:guid}", async (HttpContext http, LotService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetLotAsync(id, ct)))
+            .WithName("getLot").RequirePermission(Permissions.StockRead);
+        tenant.MapGet("/serials", (LotService svc, [AsParameters] ListQuery q, [FromQuery] Guid? productId, [FromQuery] Guid? lotId,
+                [FromQuery] string? serialNumber, CancellationToken ct) =>
+                svc.ListSerialsAsync(new SerialFilter(productId, lotId, serialNumber), q.ToPage(), ct))
+            .WithName("listSerials").RequirePermission(Permissions.StockRead);
         return tenant;
     }
 }
