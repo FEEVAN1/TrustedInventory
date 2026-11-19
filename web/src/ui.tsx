@@ -1,6 +1,6 @@
 // Shared states and controls (UI-001, UI-002, DEC-082): loading, empty, validation, unauthorized, offline and retry states with the
 // trace id; a scan field that separates "scanned" from "confirmed by the server"; and commands that keep one Idempotency-Key per action.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, describe, newCommandKey, type Failure } from "./api";
 
 export type Load<T> = { state: "loading" } | { state: "ready"; data: T } | { state: "failed"; failure: Failure };
@@ -168,4 +168,27 @@ export function CommandStatus({ command, onRetry, okText }: { command: CommandSt
   if (command.state === "failed")
     return <FailureView failure={command.failure} onRetry={command.failure.kind === "problem" ? undefined : onRetry} />;
   return null;
+}
+
+/**
+ * Contains a rendering fault to the screen it happened in (DEC-085): the header, menu and other screens keep working, and the
+ * person sees a failure state instead of a blank page. Nothing was sent by rendering, so there is nothing to retry on the server.
+ */
+export class ScreenBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
+  }
+
+  render(): ReactNode {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div role="alert" className="alert problem" data-testid="failure">
+        <strong>This screen could not be shown</strong>
+        <p>Something in the answer was not what the screen expected. Your changes were not affected. Open another screen, or reload the page.</p>
+        <p className="muted"><code>{this.state.error.message}</code></p>
+      </div>
+    );
+  }
 }

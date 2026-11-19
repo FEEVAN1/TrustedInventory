@@ -30,6 +30,12 @@ public sealed class ObservabilityTests(ApiFixture fx)
 
         var warehouses = await client.GetAsync("/api/v1/warehouses");
         Assert.Equal(HttpStatusCode.OK, warehouses.StatusCode);
+        // A refusal raised in the tenant middleware is logged with the status the caller received (DEC-085).
+        var foreign = new HttpRequestMessage(HttpMethod.Get, "/api/v1/warehouses");
+        foreign.Headers.Add("X-Tenant-Id", fx.Seed.B.TenantId.ToString());
+        client.DefaultRequestHeaders.Remove("X-Tenant-Id");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(foreign)).StatusCode);
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", tenant.TenantId.ToString());
         // A download token in a query string, and a reauth token in a body, must not reach the logs.
         const string linkSecret = "SECRET-LINK-TOKEN-0123456789";
         await client.GetAsync($"/api/v1/exports/{Guid.NewGuid()}/download?token={linkSecret}");
@@ -43,6 +49,7 @@ public sealed class ObservabilityTests(ApiFixture fx)
         var entry = Assert.Single(completed);
         Assert.Contains("traceId=", entry.Scopes, StringComparison.Ordinal);
         Assert.Contains($"for tenant {tenant.TenantId}", entry.Message, StringComparison.Ordinal);
+        Assert.Single(lines, l => l.Message.Contains("listWarehouses answered 403", StringComparison.Ordinal) && l.Message.EndsWith("for tenant none", StringComparison.Ordinal));
         var all = string.Join('\n', lines.Select(l => l.Message + " " + l.Scopes));
         Assert.DoesNotContain(token, all, StringComparison.Ordinal);
         Assert.DoesNotContain(reauth, all, StringComparison.Ordinal);

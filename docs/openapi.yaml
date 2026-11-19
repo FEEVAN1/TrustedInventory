@@ -11474,7 +11474,7 @@ components:
       description: Business code; unique within its parent.
     CompleteTaskRequest:
       type: object
-      description: Completes a Rework or Exception task after the required stock movements were posted. Putaway tasks complete through POST /putaway/confirm.
+      description: Completes a Rework or Exception task after the required stock movements were posted; refused with 409 INVALID_STATE while the task's product and lot still have stock in its source bin (DEC-085). Putaway tasks complete through POST /putaway/confirm.
       properties:
         resolution:
           $ref: "#/components/schemas/Reason"

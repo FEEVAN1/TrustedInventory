@@ -81,6 +81,19 @@ public static class InboundEndpoints
         putaway.MapPost("/confirm", async (HttpContext http, PutawayService svc, ConfirmPutaway body, CancellationToken ct) =>
                 Conventions.Outcome(http, await svc.ConfirmAsync(Conventions.IdempotencyKey(http), body, ct)))
             .WithName("confirmPutaway").RequirePermission(Permissions.PutawayConfirm);
+
+        // Warehouse tasks of every type; rework and exception tasks complete by hand (DEC-016, DEC-085).
+        var tasks = tenant.MapGroup("/tasks");
+        tasks.MapGet("", (TaskService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] TaskType? type,
+                [FromQuery] Domain.Inbound.TaskStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new WorkTaskFilter(warehouseId, type, status), q.ToPage(), ct))
+            .WithName("listTasks").RequirePermission(Permissions.StockRead);
+        tasks.MapGet("/{id:guid}", async (HttpContext http, TaskService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getTask").RequirePermission(Permissions.StockRead);
+        tasks.MapPost("/{id:guid}/complete", async (HttpContext http, TaskService svc, Guid id, CompleteTask body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.CompleteAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("completeTask").RequirePermission(Permissions.TasksManage);
         return tenant;
     }
 }

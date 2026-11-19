@@ -57,6 +57,8 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigi
 
 var app = builder.Build();
 
+// The request log wraps the exception handler, so a refusal thrown as an exception is logged with the status the caller received (DEC-085).
+app.UseMiddleware<RequestLogScope>();
 app.UseExceptionHandler(e => e.Run(Problems.HandleAsync));
 if (!app.Environment.IsDevelopment())
 {
@@ -74,7 +76,6 @@ app.Use(async (http, next) =>
     await next();
 });
 app.UseCors();
-app.UseMiddleware<RequestLogScope>();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();

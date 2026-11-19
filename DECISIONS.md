@@ -1640,3 +1640,46 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Evidence:** the stack starts with all services up and AT-UI-01 passes against it. The browser test needs the API, so missing API
   settings fail it; the worker has no automated start-up check yet (known limitation): after `docker compose up`, confirm with
   `docker compose ps` that `worker` is running.
+
+## DEC-085 Remaining screens of the inventory (M6, UI-SCREENS, AT-UI-02)
+- **Status:** Adopted. Builds the rest of the section 17 screen inventory and the section 29 tenant surfaces on the existing API.
+  No control moves into the browser: every screen calls the contract, the server checks every call, and the screen shows its
+  refusal (code, field errors, trace id).
+- **Screens:** catalog (products with barcodes and unit conversions, units, partners, storage profiles; retire, never delete);
+  locations (warehouses, zones, bins); transfers (approve, dispatch, receive, transit write-off); blind counts (bin scan, variances,
+  approval, post); adjustments with evidence upload; customer returns and inspection; rework and exception tasks; stock explorer with
+  filters, paging and a per-line drilldown (history, hold, release, disposition, bin move) and open alerts on top; recalls (impact,
+  outreach, QA closure); lot traceability with export; temperature devices (register, rotate credential with the secret shown once,
+  retire) and excursions; team (members, role grants with warehouse scope, invitations); versioned settings; audit trail with chain
+  verification and export; exports; job failures; billing (subscription, quota meters, plan preview before checkout, invoices,
+  cancel and resume); checkout return; setup checklist; ownership transfer; workspace closure; restriction banner.
+- **One approval pattern:** every action that needs a second person goes through one component that lists approvals for the
+  subject, requests one bound to the exact version on screen with the server's action name, and passes the signed approval id to
+  the command. A stale version is refused by the server (412) and shown.
+- **Menu by permission:** the menu lists only routes whose list permission the member holds (from `/me`). This is navigation only;
+  a typed URL still reaches the screen and the server refuses it. On narrow screens the menu sits behind a Menu button.
+- **Checkout return:** the return URL carries no ids, so the checkout id is kept in session storage and the bounded checkout status is
+  polled (20 times, 3 s apart). The page shows Pending until the server confirms; it never shows success from the redirect alone.
+- **Task endpoints implemented:** the screen run found that `GET /tasks`, `GET /tasks/{id}` and `POST /tasks/{id}/complete`
+  (contract since DEC-016) were never mapped. They now exist. Completing a rework or exception task needs `tasks.manage` in the
+  task's warehouse, If-Match and a resolution, and is refused (409 `INVALID_STATE`) while the task's product and lot still have stock
+  in its source bin, so a task cannot be closed with its stock left behind. Putaway tasks still complete only through putaway
+  confirmation. Completing the last open task of a receipt closes the receipt, as putaway confirmation does (DEC-005). Nothing here
+  moves stock. Rework tasks now name their outbound order and order line as the source instead of an empty receipt.
+- **Request log status:** refusals raised as exceptions (for example a missing permission in the tenant middleware) were logged as
+  "answered 200", because the log middleware ran inside the exception handler. It now wraps the handler and logs the status the
+  caller received. ASP.NET's authorization log is kept at Information, so a refused policy names the failed requirement (no token
+  is logged).
+- **Rendering faults are contained:** each screen renders inside an error boundary, so an answer the screen did not expect shows a
+  failure state while the header, menu and other screens keep working. Found when a queued export (manifest still null, as the
+  contract allows) blanked the app; the export screen now reads the manifest as optional.
+- **Browser evidence:** AT-UI-02 (`web/e2e/screens.spec.ts`) signs in through Keycloak, opens every screen in the menu and requires a
+  heading, a settled load and no failure state, then adds a unit, a warehouse with a zone and bin, verifies the audit chain, queues an
+  export and loads billing (labelled simulator) and the setup checklist. Test warehouses are retired by the next run so repeated runs
+  stay within the plan's active-warehouse quota; alice gets the Auditor role through the API for the audit screens.
+- **Known limitations:** the person receiving an ownership transfer accepts through a link the owner shares (no list endpoint for
+  pending transfers); releasing returned medical goods and correcting a lot's expiry show the server's refusal, because approvals
+  for those actions are not supported yet (M5 carry-over); most write paths of the new screens are exercised by the API integration
+  tests, not yet in the browser; no automated accessibility rule checks; platform consoles and the public signup page are not built.
+  A browser sign-in was refused as not multi-factor twice in about fifteen sign-ins on 17-18 Nov 2026 although the token showed a
+  one-time code in every probe; not reproduced with logging on, and now diagnosable from the authorization log.

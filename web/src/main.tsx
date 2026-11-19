@@ -1,19 +1,45 @@
 import { StrictMode, useEffect, useState, type JSX } from "react";
 import { createRoot } from "react-dom/client";
 import { completeSignIn, currentSession, signIn, signOut } from "./auth";
-import { currentTenant, selectTenant } from "./api";
+import { currentTenant, request, selectTenant } from "./api";
+import { Billing, CheckoutReturn, RestrictionBanner, Workspace, type MyMembership } from "./account";
+import { Audit, Exports, JobFailures, SettingsScreen, Team } from "./admin";
+import { Catalog, Locations } from "./catalog";
+import { Adjustments, Counts, Returns, Tasks, Transfers } from "./exceptions";
+import { Devices, Recalls, Traceability } from "./quality";
 import { Alerts, Approvals, NotFound, Orders, Putaway, Receive, StockExplorer, Workspaces } from "./screens";
+import { Loaded, ScreenBoundary, useLoad } from "./ui";
 import "./styles.css";
 
-// Screen inventory for the receive-to-dispatch path, the QA inbox and alerts (section 17, DEC-082).
-const routes: Record<string, { title: string; view: () => JSX.Element }> = {
-  "#/": { title: "Stock", view: StockExplorer },
-  "#/receive": { title: "Receive", view: Receive },
-  "#/putaway": { title: "Putaway", view: Putaway },
-  "#/orders": { title: "Orders", view: Orders },
-  "#/approvals": { title: "Approvals", view: Approvals },
-  "#/alerts": { title: "Alerts", view: Alerts },
+// Screen inventory (section 17 and section 29, DEC-082, DEC-085). Each route names the permission its list needs; the menu shows only
+// routes the member can open. This is navigation only: the server checks every call and the screen shows its refusal.
+type Route = { title: string; group: string; needs: string[]; view: (p: { membership: MyMembership }) => JSX.Element };
+const routes: Record<string, Route> = {
+  "#/": { title: "Stock", group: "Operate", needs: ["stock.read"], view: StockExplorer },
+  "#/receive": { title: "Receive", group: "Operate", needs: ["receipts.post"], view: Receive },
+  "#/putaway": { title: "Putaway", group: "Operate", needs: ["putaway.confirm"], view: Putaway },
+  "#/orders": { title: "Orders", group: "Operate", needs: ["orders.allocate", "picks.confirm", "dispatch.post"], view: Orders },
+  "#/transfers": { title: "Transfers", group: "Operate", needs: ["stock.read"], view: Transfers },
+  "#/counts": { title: "Counts", group: "Operate", needs: ["counts.perform"], view: Counts },
+  "#/adjustments": { title: "Adjustments", group: "Exceptions", needs: ["stock.read"], view: Adjustments },
+  "#/returns": { title: "Returns", group: "Exceptions", needs: ["stock.read"], view: Returns },
+  "#/tasks": { title: "Tasks", group: "Exceptions", needs: ["stock.read"], view: Tasks },
+  "#/approvals": { title: "Approvals", group: "Quality", needs: ["approvals.sign.inventory", "approvals.sign.quality", "approvals.request"], view: Approvals },
+  "#/recalls": { title: "Recalls", group: "Quality", needs: ["stock.read"], view: Recalls },
+  "#/traceability": { title: "Traceability", group: "Quality", needs: ["stock.read"], view: Traceability },
+  "#/alerts": { title: "Alerts", group: "Quality", needs: ["alerts.read"], view: Alerts },
+  "#/devices": { title: "Temperature", group: "Quality", needs: ["alerts.read"], view: Devices },
+  "#/catalog": { title: "Catalog", group: "Setup", needs: ["catalog.read"], view: Catalog },
+  "#/locations": { title: "Locations", group: "Setup", needs: ["catalog.read"], view: Locations },
+  "#/team": { title: "Team", group: "Setup", needs: ["tenant.members.manage"], view: Team },
+  "#/settings": { title: "Settings", group: "Setup", needs: ["tenant.config.manage"], view: SettingsScreen },
+  "#/audit": { title: "Audit", group: "Oversight", needs: ["audit.read"], view: Audit },
+  "#/exports": { title: "Exports", group: "Oversight", needs: ["exports.create"], view: Exports },
+  "#/jobs": { title: "Job failures", group: "Oversight", needs: ["exports.create"], view: JobFailures },
+  "#/billing": { title: "Billing", group: "Account", needs: ["billing.read"], view: Billing },
+  "#/workspace": { title: "Workspace", group: "Account", needs: [], view: Workspace },
 };
+const GROUPS = ["Operate", "Exceptions", "Quality", "Setup", "Oversight", "Account"];
 
 function useHash(): string {
   const [hash, setHash] = useState(location.hash || "#/");
@@ -40,6 +66,59 @@ function useOnline(): boolean {
   return online;
 }
 
+function Menu({ membership, hash, onNavigate }: { membership: MyMembership; hash: string; onNavigate: () => void }) {
+  const held = new Set(membership.permissions.map((p) => p.permission));
+  const allowed = Object.entries(routes).filter(([, r]) => r.needs.length === 0 || r.needs.some((n) => held.has(n)));
+  return (
+    <nav aria-label="Main" id="main-menu">
+      {GROUPS.map((g) => {
+        const items = allowed.filter(([, r]) => r.group === g);
+        if (items.length === 0) return null;
+        return (
+          <div key={g} className="nav-group">
+            <span className="nav-title">{g}</span>
+            {items.map(([href, r]) => <a key={href} href={href} onClick={onNavigate} aria-current={href === hash ? "page" : undefined}>{r.title}</a>)}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** The signed-in workspace: its membership (permissions, access mode) comes from /me, re-read when the workspace changes. */
+function Shell({ tenant, hash, online, onSwitch }: { tenant: string; hash: string; online: boolean; onSwitch: () => void }) {
+  const [me, reload] = useLoad(() => request<{ memberships: MyMembership[] }>("/me", { tenant: false }), [tenant]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const route = routes[hash.split("?")[0] ?? "#/"];
+  return (
+    <Loaded load={me} what="your workspace" onRetry={reload}>
+      {(data) => {
+        const membership = data.memberships.find((m) => m.tenantId === tenant);
+        if (!membership) {
+          return <main><p role="alert" className="alert problem">You are no longer a member of this workspace. <button type="button" onClick={onSwitch}>Choose another</button></p></main>;
+        }
+        const Screen = route?.view ?? NotFound;
+        return (
+          <>
+            <header>
+              <strong>TrustedInventory</strong>
+              <span className="badge">{membership.tenantName}</span>
+              <button type="button" className="secondary menu-toggle" aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen(!menuOpen)}>Menu</button>
+              <span className="spacer" />
+              <button type="button" className="secondary" onClick={onSwitch}>Switch workspace</button>
+              <button type="button" className="secondary" onClick={signOut}>Sign out</button>
+              <div className={`menu ${menuOpen ? "open" : ""}`}><Menu membership={membership} hash={hash.split("?")[0] ?? "#/"} onNavigate={() => setMenuOpen(false)} /></div>
+            </header>
+            {!online && <div role="alert" className="alert offline">You are offline. Changes cannot be sent until the connection returns.</div>}
+            <RestrictionBanner membership={membership} />
+            <main><ScreenBoundary key={hash.split("?")[0]}><Screen membership={membership} /></ScreenBoundary></main>
+          </>
+        );
+      }}
+    </Loaded>
+  );
+}
+
 function App() {
   const hash = useHash();
   const online = useOnline();
@@ -55,29 +134,18 @@ function App() {
       </main>
     );
 
-  const Screen = routes[hash.split("?")[0] ?? "#/"]?.view ?? NotFound;
-  return (
-    <>
-      <header>
-        <strong>TrustedInventory</strong>
-        {tenant && (
-          <nav aria-label="Main">
-            {Object.entries(routes).map(([href, r]) => (
-              <a key={href} href={href} aria-current={href === hash ? "page" : undefined}>{r.title}</a>
-            ))}
-          </nav>
-        )}
-        <span className="spacer" />
-        {tenant && <button type="button" className="secondary" onClick={() => { selectTenant(null); setTenant(null); }}>Switch workspace</button>}
-        <button type="button" className="secondary" onClick={signOut}>Sign out</button>
-      </header>
-      {!online && <div role="alert" className="alert offline">You are offline. Changes cannot be sent until the connection returns.</div>}
-      {/* Re-keyed on every workspace change, so nothing of the previous tenant stays rendered or cached (section 17). */}
-      <main key={`${tenant}-${epoch}`}>
-        {tenant ? <Screen /> : <Workspaces onSelected={() => { setTenant(currentTenant()); setEpoch((e) => e + 1); location.hash = "#/"; }} />}
-      </main>
-    </>
-  );
+  if (location.pathname === "/billing/return" && tenant) return <main><CheckoutReturn /></main>;
+
+  if (!tenant)
+    return (
+      <>
+        <header><strong>TrustedInventory</strong><span className="spacer" /><button type="button" className="secondary" onClick={signOut}>Sign out</button></header>
+        <main><Workspaces onSelected={() => { setTenant(currentTenant()); setEpoch((e) => e + 1); location.hash = "#/"; }} /></main>
+      </>
+    );
+
+  // Re-keyed on every workspace change, so nothing of the previous tenant stays rendered or cached (section 17).
+  return <Shell key={`${tenant}-${epoch}`} tenant={tenant} hash={hash} online={online} onSwitch={() => { selectTenant(null); setTenant(null); }} />;
 }
 
 async function start() {

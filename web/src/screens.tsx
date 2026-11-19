@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import { ApiError, describe, request, selectTenant, type Page } from "./api";
 import { reauthenticate } from "./auth";
+import { Choice, PagedList, SearchPicker, usePaged, type Bucket, type ProductRow } from "./kit";
+import { StockLine } from "./quality";
 import { beep, CommandStatus, Empty, FailureView, Loaded, ScanInput, useCommand, useLoad } from "./ui";
 
 interface Membership { tenantId: string; tenantName: string; accessMode: string; restrictionReasons: string[]; roles: { role: string }[] }
@@ -49,31 +51,50 @@ export function Workspaces({ onSelected }: { onSelected: () => void }) {
   );
 }
 
-interface Bucket {
-  id: string; binCode: string; sku: string; lotNumber: string | null; expiryDate: string | null; qualityStatus: string; onHand: string;
-  reserved: string; allocatable: string; eligible: boolean; ineligibilityReasons: string[]
-}
-
+/**
+ * Dashboard and stock explorer (section 17): on-hand, reserved and free quantities with server-side filters, lot and serial drilldown,
+ * and the open quarantine, expiry and stale-device alerts at the top.
+ */
 export function StockExplorer() {
   const [quality, setQuality] = useState("");
-  const [stock, reload] = useLoad(() => list<Bucket>(`/stock?limit=200${quality ? `&qualityStatus=${quality}` : ""}`), [quality]);
+  const [warehouse, setWarehouse] = useState("");
+  const [product, setProduct] = useState<ProductRow | null>(null);
+  const [eligibleOnly, setEligibleOnly] = useState(false);
+  const [open, setOpen] = useState<Bucket | null>(null);
+  const path = `/stock?limit=50${quality ? `&qualityStatus=${quality}` : ""}${warehouse ? `&warehouseId=${warehouse}` : ""}${product ? `&productId=${product.id}` : ""}${eligibleOnly ? "&eligibleOnly=true" : ""}`;
+  const stock = usePaged<Bucket>(path);
+  const [alerts] = useLoad(() => list<Alert>("/alerts?status=Open&limit=5"), []);
   return (
     <section aria-labelledby="stock">
       <h2 id="stock">Stock</h2>
-      <label>Quality <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-        <option value="">All</option>{["Available", "Quarantine", "Hold", "Recalled", "Damaged"].map((q) => <option key={q}>{q}</option>)}
-      </select></label>
-      <Loaded load={stock} what="stock" onRetry={reload}>
-        {(rows) => rows.length === 0 ? <Empty>No stock matches.</Empty> : (
+      {alerts.state === "ready" && alerts.data.length > 0 && (
+        <div className="panel attention">
+          <strong>Needs attention</strong>
+          <ul>{alerts.data.map((a) => <li key={a.id}><span className="badge">{a.type}</span> {a.title}</li>)}</ul>
+          <a href="#/alerts">All open alerts</a>
+        </div>
+      )}
+      <div className="filters">
+        <Choice<Warehouse> label="Warehouse" path="/warehouses" show={(w) => `${w.code} · ${w.name}`} value={warehouse} onChange={setWarehouse} optional="All warehouses" />
+        <SearchPicker<ProductRow> label="Product" path="/products" show={(p) => `${p.sku} · ${p.name}`} value={product} onPick={setProduct} />
+        <label>Quality <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+          <option value="">All</option>{["Available", "Quarantine", "Hold", "Recalled", "Damaged"].map((q) => <option key={q}>{q}</option>)}
+        </select></label>
+        <label className="inline"><input type="checkbox" checked={eligibleOnly} onChange={(e) => setEligibleOnly(e.target.checked)} /> Only stock that can ship</label>
+      </div>
+      <PagedList paged={stock} what="stock" empty="No stock matches.">
+        {(rows) => (
           <table>
-            <thead><tr><th>Bin</th><th>SKU</th><th>Lot</th><th>Expiry</th><th>Quality</th><th>On hand</th><th>Reserved</th><th>Allocatable</th><th>Why not</th></tr></thead>
+            <thead><tr><th>Bin</th><th>SKU</th><th>Lot</th><th>Serial</th><th>Expiry</th><th>Quality</th><th>On hand</th><th>Reserved</th><th>Free</th><th>Why not</th><th /></tr></thead>
             <tbody>{rows.map((b) => (
-              <tr key={b.id}><td>{b.binCode}</td><td>{b.sku}</td><td>{b.lotNumber ?? "-"}</td><td>{b.expiryDate ?? "-"}</td><td>{b.qualityStatus}</td>
-                <td>{b.onHand}</td><td>{b.reserved}</td><td>{b.allocatable}</td><td>{b.ineligibilityReasons.join(", ")}</td></tr>
+              <tr key={b.id}><td>{b.binCode}</td><td>{b.sku}</td><td>{b.lotNumber ?? "-"}</td><td>{b.serialNumber ?? "-"}</td><td>{b.expiryDate ?? "-"}</td><td>{b.qualityStatus}</td>
+                <td>{b.onHand}</td><td>{b.reserved}</td><td>{b.allocatable}</td><td>{b.ineligibilityReasons.join(", ")}</td>
+                <td><button type="button" className="secondary small" onClick={() => setOpen(open?.id === b.id ? null : b)}>{open?.id === b.id ? "Close" : "Details"}</button></td></tr>
             ))}</tbody>
           </table>
         )}
-      </Loaded>
+      </PagedList>
+      {open && <StockLine key={open.id} bucket={open} onChanged={() => { setOpen(null); stock.reload(); }} />}
     </section>
   );
 }

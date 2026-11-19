@@ -16,10 +16,12 @@ independent approvals with re-authentication, adjustments, bin and warehouse tra
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
 storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrived with M5.
 **M5 (medical) code complete; gate not yet assessed** (DEC-075 to DEC-078): QA quality hold, release and disposition with MED-001 eligibility checks, recalls that block stock at once and close only with QA approval, telemetry devices with rotating credentials, excursions with automatic holds, stale-telemetry blocking, late-reading shipment flags, tenant alerts, and lot traceability. Devices are simulated (D07); medical policies (D04) need QA validation.
-**M6 (release readiness) in progress** (DEC-079 to DEC-084): structured JSON logs and Prometheus metrics, a backup restore drill
+**M6 (release readiness) in progress** (DEC-079 to DEC-085): structured JSON logs and Prometheus metrics, a backup restore drill
 with deletion replay, ledger reconciliation and audit verification, an opt-in section 18 benchmark, and the web app for
-receive-to-dispatch, the QA inbox and alerts. Its browser test (AT-UI-01) passes at handheld and desktop widths against the Compose
-stack. The deployment checklist and release evidence pack are in `docs/deployment-checklist.md` and `docs/release-evidence.md`.
+receive-to-dispatch, the QA inbox and alerts, plus the rest of the screen inventory: catalog, locations, transfers, counts,
+adjustments, returns, tasks, recalls, traceability, temperature devices, team, settings, audit, exports, billing and the workspace
+checklist, ownership transfer and closure (DEC-085). Its browser tests (AT-UI-01 receive-to-dispatch, AT-UI-02 every screen) pass at
+handheld and desktop widths against the Compose stack. The deployment checklist and release evidence pack are in `docs/deployment-checklist.md` and `docs/release-evidence.md`.
 Staging and production evidence and the owner's approval of production policies are still needed.
 **S3 (lifecycle and service) code complete; its gate waits for the owner to approve the commercial defaults** (DEC-069 to
 DEC-074): workspace closure with re-authentication and safety blockers, retention holds and withdrawal, the owner-only tenant
@@ -42,7 +44,7 @@ alerts and health signals, the public service status, and per-recipient billing 
 | `db/bootstrap`, `db/migrations` | Cluster bootstrap (superuser, once) and versioned SQL migrations (DEC-025) |
 | `db/design/` | M0 draft schema and RLS smoke test (design artefacts, superseded by migrations) |
 | `deploy/` | Dockerfiles, Keycloak development realm, stack verification script |
-| `web/` | React + TypeScript web app (Vite): receive, putaway, orders/picking/dispatch, QA inbox, alerts, stock; Playwright tests in `web/e2e` |
+| `web/` | React + TypeScript web app (Vite): the section 17 screen inventory and section 29 tenant surfaces; Playwright tests in `web/e2e` |
 | `tests/` | Unit tests and integration tests on real PostgreSQL 16 (Testcontainers) |
 | `docs/openapi.yaml` | API contract (OpenAPI 3.1, contract-first) |
 | `docs/` | Data dictionary, ER model, migration design, enums, permissions, test matrix, operations |
@@ -88,7 +90,7 @@ docker compose up -d --build
 # 3. Verify: Keycloak login with password + TOTP, token claims, /me, tenant isolation
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy/verify-stack.ps1 -EnvFile .env -User alice
 
-# 4. Browser test (AT-UI-01): receive-to-dispatch at handheld and desktop widths, about two minutes
+# 4. Browser tests (AT-UI-01 receive-to-dispatch, AT-UI-02 every screen) at handheld and desktop widths, about four minutes
 #    Confirm first with `docker compose ps` that api and worker are running.
 cd web; npx playwright install chromium; npm run test:e2e; cd ..
 

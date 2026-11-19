@@ -134,6 +134,60 @@ public sealed class PutawayTests(ApiFixture fx)
     }
 
     [Fact]
+    [Trait("Requirement", "INB-005")]
+    [Trait("Requirement", "OUT-006")]
+    public async Task An_exception_task_completes_by_hand_only_after_its_stock_left_the_source_bin()
+    {
+        var w = await WorldAsync("put-task");
+        var general = await ReceiveAsync(w, Item(w.GenLine, w.General, "2", w.AmbientStaging));
+        var hazardous = await ReceiveAsync(w, Item(w.HazLine, w.Hazardous, "2", w.HazardStaging));
+        var receiptId = (string)hazardous["receiptId"]!;
+        var bucket = (string)hazardous["lines"]![0]!["bucketId"]!;
+
+        // GET /tasks lists every type, filtered by type and status (DEC-016); GET /tasks/{id} carries the version as the ETag.
+        var exceptions = await ItemsAsync(w.Client, "/api/v1/tasks?type=Exception&status=Open");
+        var task = Assert.Single(exceptions);
+        Assert.Equal(["Exception", "Receipt", receiptId], new[] { (string)task["type"]!, (string)task["sourceType"]!, (string)task["sourceId"]! });
+        Assert.Contains(await ItemsAsync(w.Client, "/api/v1/tasks?type=Putaway"), t => (string?)t["sourceId"] == (string?)general["receiptId"]);
+        var id = (string)task["id"]!;
+        var single = await w.Client.GetAsync($"/api/v1/tasks/{id}");
+        Assert.Equal("\"1\"", single.Headers.ETag?.Tag);
+        await (await w.Client.GetAsync($"/api/v1/tasks/{Guid.NewGuid()}")).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+
+        // Refused while the stock is still in the staging bin; a putaway task never completes here; If-Match and a resolution are required.
+        var resolution = new { resolution = "Moved to the new hazmat cage" };
+        await (await w.Client.PostJsonAsync($"/api/v1/tasks/{id}/complete", resolution, "\"1\""))
+            .ExpectProblemAsync(HttpStatusCode.Conflict, "INVALID_STATE");
+        var putawayTask = (await ItemsAsync(w.Client, "/api/v1/tasks?type=Putaway")).Single();
+        await (await w.Client.PostJsonAsync($"/api/v1/tasks/{putawayTask["id"]}/complete", resolution, "\"1\""))
+            .ExpectProblemAsync(HttpStatusCode.Conflict, "INVALID_STATE");
+        await (await w.Client.PostJsonAsync($"/api/v1/tasks/{id}/complete", resolution)).ExpectProblemAsync(HttpStatusCode.PreconditionRequired, "PRECONDITION_REQUIRED");
+        await (await w.Client.PostJsonAsync($"/api/v1/tasks/{id}/complete", new { resolution = "" }, "\"1\""))
+            .ExpectProblemAsync(HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.Equal("Open", (string?)(await (await w.Client.GetAsync($"/api/v1/tasks/{id}")).ExpectAsync(HttpStatusCode.OK))["status"]);
+
+        // The stock moves another way (a zone now allows the class, then a bin transfer); the task then completes and the receipt closes.
+        await (await w.Client.PatchJsonAsync($"/api/v1/zones/{w.AmbientZone}", new { allowedHazardClasses = HazardClasses, reason = "Hazmat cage installed" }, "\"1\""))
+            .ExpectAsync(HttpStatusCode.OK);
+        var move = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inventory/bin-transfers")
+        {
+            Content = Json(new { sourceBucketId = bucket, targetBinId = w.A01, quantity = "2", reason = "Into the new hazmat cage" }),
+        };
+        move.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        await (await w.Client.SendAsync(move)).ExpectAsync(HttpStatusCode.OK);
+        await (await w.Client.PostJsonAsync($"/api/v1/tasks/{id}/complete", resolution, "\"2\""))
+            .ExpectProblemAsync(HttpStatusCode.PreconditionFailed, "VERSION_CONFLICT");
+        var done = await (await w.Client.PostJsonAsync($"/api/v1/tasks/{id}/complete", resolution, "\"1\"")).ExpectAsync(HttpStatusCode.OK);
+        Assert.Equal(["Completed", "0", "Moved to the new hazmat cage"], new[] { (string)done["status"]!, (string)done["remainingQuantity"]!, (string)done["resolution"]! });
+        await (await w.Client.PostJsonAsync($"/api/v1/tasks/{id}/complete", resolution, $"\"{done["version"]}\""))
+            .ExpectProblemAsync(HttpStatusCode.Conflict, "INVALID_STATE");
+        Assert.Equal("Closed", (string?)(await (await w.Client.GetAsync($"/api/v1/receipts/{receiptId}")).ExpectAsync(HttpStatusCode.OK))["status"]);
+        Assert.Equal(1L, await ScalarAsync<long>(
+            "SELECT count(*) FROM ti.audit_event WHERE tenant_id = @t AND event_type = 'TaskCompleted' AND object_id = @id",
+            ("t", w.Tenant), ("id", Guid.Parse(id))));
+    }
+
+    [Fact]
     [Trait("Requirement", "INB-006")]
     [Trait("Requirement", "STK-007")]
     public async Task Confirmation_needs_matching_scans_a_known_source_and_no_more_than_remains()

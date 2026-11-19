@@ -29,8 +29,9 @@ R1A needs M0-M4, S1-S3 and M6. R1B also needs M5 and medical validation.
 | AT-OPS-01, NFR-RECOVERY | RecoveryDrillTests: real pg_dump restored, deletion register replayed, ledger reconciled, audit chain verified on the restored database, stock identical; restore to verified service 5.0 s on a workstation (DEC-080) | Development drill passing; production drill with point-in-time recovery (RPO 15 min) owed under D06 |
 | NFR-PERF, SOP-002 | PerformanceTests (opt-in): 1M movements, 50 users. Found and fixed two slow read paths (migration 0029). Workstation: queries p95 1.00 s, commands p95 1.33 s, no errors, allocation over 100 lots 0.65 s (DEC-081) | Partial: staging run required |
 | AT-UI-01 | Playwright receive-to-dispatch at handheld and desktop widths against the Compose stack (DEC-082, DEC-084) | Passing (17 Nov 2026) |
+| AT-UI-02 | Playwright: every screen in the menu loads without a failure state; unit, warehouse, zone and bin added; audit chain verified; export queued; billing and checklist load, at handheld and desktop widths (DEC-085) | Passing (18 Nov 2026) |
 | UI-001, UI-002 | Same run: keyboard-wedge scans, scanned vs server-confirmed, server validation with field and trace id, scan errors, offline banner | Partial: timeout retry not driven in the browser; no automated accessibility rule checks |
-| UI-SCREENS | Receive, putaway, orders/picking/dispatch, QA inbox, alerts, stock explorer, workspace switcher | Partial: catalog/locations, counts, transfers, returns, recalls, traceability, administration, audit and billing screens are API-only |
+| UI-SCREENS | Every section 17 screen and the section 29 tenant surfaces are built (DEC-082, DEC-085) | Partial: most write paths of the new screens are proven by API integration tests, not yet in the browser; platform consoles and the public signup page are not built |
 | SEC-TRANSPORT, NFR-AVAIL, SOP-004, SOP-005 | `docs/deployment-checklist.md` | Prepared; environment evidence and owner decisions (D02, D06) needed |
 | SUCCESS-02 | This document | Prepared for owner review |
 
@@ -42,6 +43,8 @@ Run `npm run test:e2e` in `web/` against `docker compose up` (see README).
 |------|-------|--------|
 | 17 Nov 2026 | Compose development stack, Chromium (Playwright 1.64.1), workstation | handheld (390×844, touch) passed in 11 s; desktop (1366×900) passed in 58 s. Both include one wait for a fresh one-time-code window |
 | 18 Nov 2026 | Same stack, unchanged code | handheld passed in 43 s; desktop passed in 51 s. Earlier attempts that night are not counted: one was refused at login after deliberate failed-login probes (realm brute-force protection), one ran across a laptop sleep, and one setup token was refused as not multi-factor (not reproduced; under watch) |
+
+| 18 Nov 2026 (later) | Same stack with the remaining screens (DEC-085) | AT-UI-01 and AT-UI-02 passed at both widths in one run of 3.5 min. Earlier runs that day found and fixed three defects: the task endpoints were in the contract but not mapped, a queued export blanked the app, and refused requests were logged as 200. One browser sign-in was refused as not multi-factor before the fix runs (not reproduced in the next six sign-ins; under watch) |
 
 The first run found two screen defects and two stack configuration gaps, all fixed before this result (DEC-082, DEC-084).
 

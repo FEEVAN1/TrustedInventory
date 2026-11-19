@@ -4,7 +4,7 @@ import { defineConfig } from "@playwright/test";
 // The browser resolves the compose host name "keycloak" to the local machine, as the README's hosts entry does (DEC-031).
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 180_000,
+  timeout: 300_000,
   retries: 0,
   // One browser at a time: every sign-in uses the shared synthetic user's one-time code, which Keycloak accepts once per window.
   workers: 1,

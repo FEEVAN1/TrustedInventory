@@ -54,6 +54,12 @@ interface Options {
   basePath?: string;
 }
 
+/** A command without a body (retire, approve, start, post) is still a POST: any body, If-Match or Idempotency-Key means a write. */
+function methodOf(options: Options): string {
+  if (options.method) return options.method;
+  return options.body !== undefined || options.ifMatch !== undefined || options.idempotencyKey ? "POST" : "GET";
+}
+
 export async function request<T>(path: string, options: Options = {}): Promise<T> {
   const session = currentSession();
   if (!session) {
@@ -63,7 +69,9 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
   if (!navigator.onLine) throw new ApiError({ kind: "offline" });
   const headers: Record<string, string> = { Authorization: `Bearer ${session.accessToken}`, Accept: "application/json" };
   if (options.tenant !== false && tenantId) headers["X-Tenant-Id"] = tenantId;
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  const method = methodOf(options);
+  // PATCH routes take JSON merge patch (contract); everything else is plain JSON.
+  if (options.body !== undefined) headers["Content-Type"] = method === "PATCH" ? "application/merge-patch+json" : "application/json";
   if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
   if (options.ifMatch !== undefined) headers["If-Match"] = `"${options.ifMatch}"`;
   const controller = new AbortController();
@@ -71,7 +79,7 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
   let response: Response;
   try {
     response = await fetch(`${config.apiUrl}${options.basePath ?? "/api/v1"}${path}`, {
-      method: options.method ?? (options.body === undefined ? "GET" : "POST"),
+      method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
