@@ -246,11 +246,12 @@ function OrderWork({ orderId, onChanged }: { orderId: string; onChanged: () => v
   const warehouseId = order.state === "ready" ? order.data.warehouseId : null;
   const [bins] = useLoad(() => warehouseId ? list<Bin>(`/bins?warehouseId=${warehouseId}&kind=Staging&limit=200`) : Promise.resolve([]), [warehouseId]);
   const refresh = useCallback(() => { reloadOrder(); reloadPicks(); onChanged(); }, [reloadOrder, reloadPicks, onChanged]);
-  const version = order.state === "ready" ? order.data.version : 0;
-  const allocate = useCallback((key: string) => request(`/orders/${orderId}/allocate`, { idempotencyKey: key, ifMatch: version, body: { allowPartial: false } }), [orderId, version]);
+  // Until the order has loaded there is no version to bind to, so its commands stay disabled (found by AT-UI-01, DEC-086).
+  const version = order.state === "ready" ? order.data.version : null;
+  const allocate = useCallback((key: string) => request(`/orders/${orderId}/allocate`, { idempotencyKey: key, ifMatch: version!, body: { allowPartial: false } }), [orderId, version]);
   const [allocation, sendAllocate] = useCommand(allocate, refresh);
   const dispatch = useCallback((key: string) => request(`/orders/${orderId}/dispatch`, {
-    idempotencyKey: key, ifMatch: version,
+    idempotencyKey: key, ifMatch: version!,
     body: { pickIds: picks.state === "ready" ? picks.data.map((p) => p.id) : [], allowPartial: false, dispatchReference: `DN-${Date.now()}` },
   }), [orderId, version, picks]);
   const [dispatched, sendDispatch] = useCommand(dispatch, refresh);
@@ -258,14 +259,14 @@ function OrderWork({ orderId, onChanged }: { orderId: string; onChanged: () => v
   return (
     <div className="panel">
       <Loaded load={order} what="the order" onRetry={reloadOrder}>{(o) => <p>Order <strong>{o.reference}</strong>: {o.status}</p>}</Loaded>
-      <button type="button" onClick={sendAllocate} disabled={allocation.state === "sending"} data-testid="allocate">Allocate</button>
+      <button type="button" onClick={sendAllocate} disabled={version === null || allocation.state === "sending"} data-testid="allocate">Allocate</button>
       <CommandStatus command={allocation} onRetry={sendAllocate} okText="Allocated." />
       <Loaded load={picks} what="pick tasks" onRetry={reloadPicks}>
         {(rows) => rows.length === 0 ? <Empty>No pick task yet: allocate first.</Empty> : (
           <ul className="cards">{rows.map((p) => <li key={p.id}><PickTask pick={p} staging={staging} onDone={refresh} /></li>)}</ul>
         )}
       </Loaded>
-      <button type="button" onClick={sendDispatch} disabled={dispatched.state === "sending"} data-testid="dispatch">Dispatch</button>
+      <button type="button" onClick={sendDispatch} disabled={version === null || dispatched.state === "sending"} data-testid="dispatch">Dispatch</button>
       <CommandStatus command={dispatched} onRetry={sendDispatch} okText="Dispatched and confirmed by the server." />
     </div>
   );

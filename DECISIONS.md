@@ -1683,3 +1683,46 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   tests, not yet in the browser; no automated accessibility rule checks; platform consoles and the public signup page are not built.
   A browser sign-in was refused as not multi-factor twice in about fifteen sign-ins on 17-18 Nov 2026 although the token showed a
   one-time code in every probe; not reproduced with logging on, and now diagnosable from the authorization log.
+
+## DEC-086 Accessibility rule checks and browser evidence for screen write paths (M6, UI-001, UI-002, UI-SCREENS)
+- **Status:** Adopted. Adds automated accessibility checks and browser tests for write paths that only had API evidence, and fixes
+  what those runs found. No control moved: every check of a result goes back to the server.
+- **Accessibility (AT-UI-03, `web/e2e/accessibility.spec.ts`):** axe-core (`@axe-core/playwright` 4.14.0; `axe-core` pinned to
+  4.14.0 with an npm override because 4.14.1 was three days old) runs the WCAG 2.0, 2.1 and 2.2 A and AA rules on the signed-out
+  start page, the open handheld menu, every screen in the menu with its collapsed forms opened, and four states behind an
+  interaction: search picker matches, a stock line's drilldown, an order's work panel and a server refusal. Any violation fails the
+  test, one line per rule and element. The engine was checked against a planted violation before it was trusted. A rule engine
+  finds only part of the WCAG failures; a manual screen-reader and keyboard review is still owed before release.
+- **Lost answer retried (UI-001, in AT-UI-01):** the receipt's answer is held past the screen's 15-second limit after the server
+  has posted it. The screen shows "No answer yet"; "Try again" sends the same Idempotency-Key, the server returns the original
+  outcome and the ledger check finds the goods received once.
+- **Independent approval in two browsers (AT-UI-04, `web/e2e/approvals.spec.ts`):** alice requests an adjustment with an evidence
+  file and asks for approval; her own inbox does not offer it (SOD-1); quinn, in a second browser, signs after re-authenticating
+  in the Keycloak pop-up; alice posts it and the ledger changes once.
+- **Administration writes (AT-UI-05, `web/e2e/administration.spec.ts`):** an invitation sent and revoked, a warehouse-scoped role
+  granted and revoked, a settings version saved with a reason and kept in the history, a simulated device registered, its
+  credential issued once and never shown again, and the device retired.
+- **Export completion (AT-UI-02):** the export check now follows the queued export to Completed and downloads it through its
+  short-lived link; it used to stop at "queued".
+- **Defects found and fixed:**
+  - The simulated object store volume was owned by root, so the non-root API and worker could not write: every attachment upload
+    answered 500 and every export failed in the worker. The images now create `/data/objects-simulated` owned by the app user,
+    which Docker copies into a new empty volume. An existing development volume keeps its old owner; remove it once
+    (`docker compose down -v`, or `docker volume rm trustedinventory_objects` with api and worker stopped).
+  - Re-authentication from the browser was always refused (`REAUTH_REQUIRED`): the pop-up's ID token is addressed to the web client,
+    and the Compose stack did not list `trustedinventory-pwa` in `Auth:ReauthAudiences` (DEC-009 expects it; the deployment
+    checklist already names the setting). No approval could be signed in the browser until now.
+  - An approved adjustment could not be posted from its screen: "Approved" is derived (a Requested adjustment with a live signed
+    approval, DEC-057) and the detail showed the approval step only for "Requested". It now shows it for both.
+  - The order screen's Allocate and Dispatch buttons could be pressed before the order had loaded, sending version 0 (400
+    `MALFORMED_REQUEST`). They stay disabled until the version is known.
+  - Revoking an invitation or a role grant was always refused (400 `MALFORMED_REQUEST`): the contract requires a reason
+    (`RevokeInvitationRequest`, `RevokeRoleGrantRequest`) and the screens sent no body. Both screens now ask for the reason and keep
+    Revoke disabled until it is given. A check of every bodiless command in the screens against the contract found no other case.
+  - The search picker's matches were marked `role="listbox"` around buttons, which assistive technology cannot use (axe
+    `aria-required-children`, critical). They are now a plain labelled list of buttons.
+- **Evidence:** AT-UI-01 to AT-UI-05 pass at handheld and desktop widths against the Compose stack on 19 Nov 2026, run file by file;
+  a full-suite run was stopped for low memory on the workstation and is not counted.
+- **Known limitations:** the e2e files are not covered by the web typecheck (Playwright strips types; no Node type package is added
+  for them); transfers, counts, returns, tasks, recalls, traceability and the billing and workspace write paths are still proven by
+  API integration tests only; platform consoles and the public signup page are not built.

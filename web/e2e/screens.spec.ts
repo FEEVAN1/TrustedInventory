@@ -71,10 +71,20 @@ test("every screen in the menu loads, and setup, audit and export screens write 
   await page.getByRole("button", { name: "Verify now" }).click();
   await expect(page.getByText(/^Chain intact:/)).toBeVisible({ timeout: 30_000 });
 
-  // Exports: a movements export is queued and listed.
+  // Exports: a movements export is queued, completes and downloads.
   await page.goto("/#/exports");
+  const queued = page.waitForResponse((r) => r.request().method() === "POST" && /\/api\/v1\/exports$/.test(r.url()));
   await page.getByRole("button", { name: "Request export" }).click();
   await expect(page.getByText("Export queued.")).toBeVisible();
+  // The worker writes it to the (simulated) object store; it completes and its short-lived link downloads (DEC-086: a queued-only
+  // check missed that the store was not writable in the Compose stack).
+  const exportId = ((await (await queued).json()) as { id: string }).id;
+  await expect.poll(async () => (await call<{ status: string }>(alice, `/exports/${exportId}`)).status, { timeout: 90_000, intervals: [2_000] })
+    .toBe("Completed");
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByRole("button", { name: "Download" }).first()).toBeVisible();
+  const link = await call<{ url: string }>(alice, `/exports/${exportId}/download-link`);
+  expect((await page.request.get(link.url)).status()).toBe(200);
 
   // Account: the subscription (simulator) and the setup checklist load with their states.
   await page.goto("/#/billing");

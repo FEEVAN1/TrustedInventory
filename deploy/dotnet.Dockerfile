@@ -19,6 +19,9 @@ RUN dotnet publish src/TrustedInventory.Api/TrustedInventory.Api.csproj -c Relea
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.5 AS api
 WORKDIR /app
 COPY --from=build /out/api ./
+# The simulated object store (DEC-061) is a named volume; Docker seeds an empty volume with this directory and its owner, so the
+# non-root user can write attachments and exports (DEC-086).
+RUN mkdir -p /data/objects-simulated && chown $APP_UID:$APP_UID /data/objects-simulated
 USER $APP_UID
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
@@ -27,6 +30,9 @@ ENTRYPOINT ["dotnet", "TrustedInventory.Api.dll"]
 FROM mcr.microsoft.com/dotnet/runtime:10.0.5 AS worker
 WORKDIR /app
 COPY --from=build /out/worker ./
+# The simulated object store (DEC-061) is a named volume; Docker seeds an empty volume with this directory and its owner, so the
+# non-root user can write attachments and exports (DEC-086).
+RUN mkdir -p /data/objects-simulated && chown $APP_UID:$APP_UID /data/objects-simulated
 USER $APP_UID
 ENTRYPOINT ["dotnet", "TrustedInventory.Worker.dll"]
 

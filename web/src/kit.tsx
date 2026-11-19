@@ -125,7 +125,7 @@ export function SearchPicker<T extends { id: string }>({ label: text, path, show
       <label>{text}<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Type to search" autoComplete="off" data-testid={testId} /></label>
       {failure && <FailureView failure={failure} />}
       {rows.length > 0 && (
-        <ul className="choices" role="listbox" aria-label={`${text} matches`}>
+        <ul className="choices" aria-label={`${text} matches`}>
           {rows.map((r) => <li key={r.id}><button type="button" className="secondary" onClick={() => onPick(r)}>{show(r)}</button></li>)}
         </ul>
       )}

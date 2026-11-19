@@ -30,8 +30,12 @@ R1A needs M0-M4, S1-S3 and M6. R1B also needs M5 and medical validation.
 | NFR-PERF, SOP-002 | PerformanceTests (opt-in): 1M movements, 50 users. Found and fixed two slow read paths (migration 0029). Workstation: queries p95 1.00 s, commands p95 1.33 s, no errors, allocation over 100 lots 0.65 s (DEC-081) | Partial: staging run required |
 | AT-UI-01 | Playwright receive-to-dispatch at handheld and desktop widths against the Compose stack (DEC-082, DEC-084) | Passing (17 Nov 2026) |
 | AT-UI-02 | Playwright: every screen in the menu loads without a failure state; unit, warehouse, zone and bin added; audit chain verified; export queued; billing and checklist load, at handheld and desktop widths (DEC-085) | Passing (18 Nov 2026) |
-| UI-001, UI-002 | Same run: keyboard-wedge scans, scanned vs server-confirmed, server validation with field and trace id, scan errors, offline banner | Partial: timeout retry not driven in the browser; no automated accessibility rule checks |
-| UI-SCREENS | Every section 17 screen and the section 29 tenant surfaces are built (DEC-082, DEC-085) | Partial: most write paths of the new screens are proven by API integration tests, not yet in the browser; platform consoles and the public signup page are not built |
+| AT-UI-03 | Playwright with axe-core 4.14.0: WCAG 2.0, 2.1 and 2.2 A and AA rules on the start page, the handheld menu, every menu screen with its forms opened, and four interaction states, at handheld and desktop widths (DEC-086) | Passing (19 Nov 2026) |
+| AT-UI-04 | Playwright, two browsers: adjustment with evidence requested by alice, absent from her own inbox, signed by quinn after Keycloak re-authentication, posted by alice; ledger changes once (DEC-086) | Passing (19 Nov 2026) |
+| AT-UI-05 | Playwright: invitation sent and revoked, scoped role granted and revoked, settings version saved, simulated device registered, credential shown once, device retired (DEC-086) | Passing (19 Nov 2026) |
+| UI-001 | AT-UI-01: keyboard-wedge scans, scanned vs server-confirmed, and a receipt answer held past the 15 s limit retried with the same Idempotency-Key, received once (DEC-086) | Passing |
+| UI-002 | AT-UI-01 to AT-UI-03: server validation with field and trace id, scan errors, offline banner, timeout state, automated WCAG rule checks | Partial: manual screen-reader and keyboard review not yet done |
+| UI-SCREENS | Every section 17 screen and the section 29 tenant surfaces are built (DEC-082, DEC-085); browser writes for catalog, locations, audit, exports, adjustments with approval, team, settings and devices (DEC-086) | Partial: transfers, counts, returns, tasks, recalls, traceability, billing and workspace writes are proven by API integration tests only; platform consoles and the public signup page are not built |
 | SEC-TRANSPORT, NFR-AVAIL, SOP-004, SOP-005 | `docs/deployment-checklist.md` | Prepared; environment evidence and owner decisions (D02, D06) needed |
 | SUCCESS-02 | This document | Prepared for owner review |
 
@@ -46,11 +50,13 @@ Run `npm run test:e2e` in `web/` against `docker compose up` (see README).
 
 | 18 Nov 2026 (later) | Same stack with the remaining screens (DEC-085) | AT-UI-01 and AT-UI-02 passed at both widths in one run of 3.5 min. Earlier runs that day found and fixed three defects: the task endpoints were in the contract but not mapped, a queued export blanked the app, and refused requests were logged as 200. One browser sign-in was refused as not multi-factor before the fix runs (not reproduced in the next six sign-ins; under watch) |
 
+| 19 Nov 2026 | Same stack with DEC-086 | AT-UI-01 to AT-UI-05 passed at handheld and desktop widths, run file by file after the fixes (AT-UI-03 rerun after the last screen change). A full-suite run was stopped for low memory on the workstation and is not counted |
+
 The first run found two screen defects and two stack configuration gaps, all fixed before this result (DEC-082, DEC-084).
 
 ## Known limitations at this release candidate
 
 - Object storage, malware scanning, billing (simulator), devices and the outbox delivery sink are labelled simulators in development.
 - Medical policies and device validation (D04, D07) are proposed defaults; QA must validate them before any medical use (R1B).
-- Accessibility is designed in (labels, focus, touch targets, small-screen layout) but not yet checked with an automated rule engine.
+- Accessibility passes the automated WCAG A and AA rules (axe-core); a manual screen-reader and keyboard review has not been done.
 - Performance and availability targets are measured only on a workstation; staging evidence is required.

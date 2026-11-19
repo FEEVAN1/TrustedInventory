@@ -55,6 +55,7 @@ function MemberRoles({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [warehouse, setWarehouse] = useState("");
   const [reason, setReason] = useState("");
   const [why, setWhy] = useState("");
+  const [revokeWhy, setRevokeWhy] = useState("");
   const refresh = useCallback(() => { grants.reload(); reloadMember(); onChanged(); }, [grants, reloadMember, onChanged]);
   return (
     <div className="panel">
@@ -62,11 +63,13 @@ function MemberRoles({ id, onChanged }: { id: string; onChanged: () => void }) {
         {(m) => (
           <>
             <h3>{m.displayName ?? m.userSubject}</h3>
+            {/* Revoking is audited with a reason (contract RevokeRoleGrantRequest; DEC-086). */}
+            <Field label="Reason to revoke a role" value={revokeWhy} onChange={setRevokeWhy} />
             <PagedList paged={grants} what="roles" empty="No active role: this member can sign in but do nothing.">
               {(rows) => (
                 <ul>{rows.map((g) => (
                   <li key={g.id}><strong>{g.role}</strong>{g.warehouseId && <> in warehouse <code>{g.warehouseId.slice(0, 8)}</code></>} <span className="muted">({g.reason})</span>{" "}
-                    <Act label="Revoke" secondary confirm={`Revoke ${g.role}?`} run={() => request(`/role-grants/${g.id}/revoke`, { ifMatch: g.version })} onDone={refresh} okText="Revoked." /></li>
+                    <Act label="Revoke" secondary confirm={`Revoke ${g.role}?`} disabled={!revokeWhy.trim()} run={() => request(`/role-grants/${g.id}/revoke`, { ifMatch: g.version, body: { reason: revokeWhy } })} onDone={() => { setRevokeWhy(""); refresh(); }} okText="Revoked." /></li>
                 ))}</ul>
               )}
             </PagedList>
@@ -99,16 +102,21 @@ function Invitations() {
   const paged = usePaged<Invitation>(`/invitations?limit=50${status ? `&status=${status}` : ""}`);
   const [email, setEmail] = useState("");
   const [roles, setRoles] = useState<string[]>(["Receiver"]);
+  const [revokeWhy, setRevokeWhy] = useState("");
   return (
     <>
-      <Pick label="Status" value={status} onChange={setStatus} options={["Pending", "Accepted", "Revoked", "Expired", ""]} />
+      <div className="row">
+        <Pick label="Status" value={status} onChange={setStatus} options={["Pending", "Accepted", "Revoked", "Expired", ""]} />
+        {/* Revoking is audited with a reason (contract RevokeInvitationRequest; DEC-086). */}
+        <Field label="Reason to revoke an invitation" value={revokeWhy} onChange={setRevokeWhy} />
+      </div>
       <PagedList paged={paged} what="invitations" empty="No invitation matches.">
         {(rows) => (
           <table>
             <thead><tr><th>Email</th><th>Roles</th><th>Status</th><th>Expires</th><th /></tr></thead>
             <tbody>{rows.map((i) => (
               <tr key={i.id}><td>{i.email}</td><td>{i.roles.map((r) => r.role).join(", ")}</td><td><span className="badge">{i.status}</span></td><td>{when(i.expiresAt)}</td>
-                <td>{i.status === "Pending" && <Act label="Revoke" secondary confirm={`Revoke the invitation to ${i.email}?`} run={() => request(`/invitations/${i.id}/revoke`, { ifMatch: i.version })} onDone={paged.reload} okText="Revoked." />}</td></tr>
+                <td>{i.status === "Pending" && <Act label="Revoke" secondary confirm={`Revoke the invitation to ${i.email}?`} disabled={!revokeWhy.trim()} run={() => request(`/invitations/${i.id}/revoke`, { ifMatch: i.version, body: { reason: revokeWhy } })} onDone={() => { setRevokeWhy(""); paged.reload(); }} okText="Revoked." />}</td></tr>
             ))}</tbody>
           </table>
         )}

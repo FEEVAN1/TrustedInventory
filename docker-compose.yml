@@ -105,6 +105,9 @@ services:
       Support__Contact: ${TI_SUPPORT_CONTACT:-Not configured}
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api
+      # Re-authentication ID tokens are addressed to the web client (DEC-009, DEC-086: found by the browser approval run).
+      Auth__ReauthAudiences__0: trustedinventory-api
+      Auth__ReauthAudiences__1: trustedinventory-pwa
       Auth__RequireHttpsMetadata: "false"
       Platform__AdministratorSubjects__0: 00000000-0000-4000-8000-000000000001
       # No synthetic platform-billing user exists yet (S2); the list is empty in development.

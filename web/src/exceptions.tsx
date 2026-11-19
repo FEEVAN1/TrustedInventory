@@ -424,6 +424,8 @@ function AdjustmentDetail({ id, onChanged }: { id: string; onChanged: () => void
   const [adjustment, reload] = useLoad(() => request<Adjustment>(`/adjustments/${id}`), [id]);
   const refresh = useCallback(() => { reload(); onChanged(); }, [reload, onChanged]);
   const [reason, setReason] = useState("");
+  // "Approved" is a Requested adjustment with a live signed approval (DEC-057): it can still be posted or cancelled (DEC-086).
+  const open = (a: Adjustment) => a.status === "Requested" || a.status === "Approved";
   return (
     <div className="panel">
       <Loaded load={adjustment} what="the adjustment" onRetry={reload}>
@@ -434,12 +436,12 @@ function AdjustmentDetail({ id, onChanged }: { id: string; onChanged: () => void
               <dt>Bin</dt><dd><Name kind="bins" id={a.binId} /></dd><dt>Lot</dt><dd><Name kind="lots" id={a.lotId} /></dd><dt>Quality</dt><dd>{a.qualityStatus}</dd>
               <dt>Change</dt><dd>{a.delta}</dd><dt>Reason</dt><dd>{a.reasonCode}: {a.narrative}</dd><dt>Evidence</dt><dd>{a.evidenceAttachmentIds.length} file(s)</dd><dt>Version</dt><dd>{a.version}</dd>
             </dl>
-            {a.status === "Requested" && (
+            {open(a) && (
               <ApprovalGate subjectType="Adjustment" subjectId={a.id} subjectVersion={a.version} action="Post">
                 {(approvalId) => <Act label="Post adjustment" run={(key) => request(`/adjustments/${a.id}/post`, { idempotencyKey: key, ifMatch: a.version, body: { approvalId } })} onDone={refresh} okText="Posted to the ledger." />}
               </ApprovalGate>
             )}
-            {a.status === "Requested" && (
+            {open(a) && (
               <div className="row">
                 <Field label="Reason to cancel" value={reason} onChange={setReason} />
                 <Act label="Cancel" secondary disabled={!reason} run={() => request(`/adjustments/${a.id}/cancel`, { ifMatch: a.version, body: { reason } })} onDone={refresh} okText="Cancelled." />

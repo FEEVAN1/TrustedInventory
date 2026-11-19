@@ -50,8 +50,29 @@ test("receive, put away, pick and dispatch with scans and visible error states",
   await expect(refused).toContainText("Trace id:");
   await scan(page, "scan-barcode", `(01)${gtin}`);
   await expect(page.getByText("Scanned:")).toContainText(gtin);
+
+  // A lost answer (UI-001, DEC-086): the server posts the receipt but its answer is held past the screen's 15-second limit. The screen
+  // says the outcome is unknown; "Try again" sends the same Idempotency-Key and the server returns the original outcome, so the
+  // goods are received once (the ledger check at the end finds nothing left outside storage and 7 in it).
+  const keys: string[] = [];
+  let held = false;
+  await page.route("**/api/v1/inventory/receive", async (route) => {
+    keys.push(route.request().headers()["idempotency-key"]!);
+    if (held) return route.continue();
+    held = true;
+    const answer = await route.fetch();
+    expect(answer.ok()).toBe(true);
+    await new Promise((r) => setTimeout(r, 17_000));
+    await route.fulfill({ response: answer }).catch(() => undefined); // the page has already given up on this request
+  });
   await page.getByRole("button", { name: "Post receipt" }).click();
+  await expect(page.getByTestId("failure")).toContainText("No answer yet", { timeout: 25_000 });
+  await expect(page.getByTestId("failure")).toContainText("a retry returns the original outcome");
+  await page.getByTestId("failure").getByRole("button", { name: "Try again" }).click();
   await expect(page.getByTestId("confirmed")).toHaveText(/Receipt posted/);
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).toBe(keys[0]);
+  await page.unroute("**/api/v1/inventory/receive");
 
   // Putaway: an unknown product scan is an error, then the right scans confirm.
   await page.goto("/#/putaway");
@@ -91,4 +112,5 @@ test("receive, put away, pick and dispatch with scans and visible error states",
   // The ledger agrees: 12 received, 5 shipped, 7 left in storage.
   const stock = await call<{ items: { binCode: string; onHand: string }[] }>(alice, `/stock?productId=${product.id}`);
   expect(stock.items.find((b) => b.binCode === `A-${run}`)?.onHand).toBe("7");
+  expect(stock.items.filter((b) => b.binCode !== `A-${run}`).every((b) => Number(b.onHand) === 0)).toBe(true);
 });

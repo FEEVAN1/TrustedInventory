@@ -15,7 +15,7 @@ Status key: **Ready** (code or document in this repository), **Needs environment
 | Encryption at rest: database, backups, object storage | Owner decision (D06) | Managed PostgreSQL with storage encryption; encrypted backups; private object storage with server-side encryption |
 | Secrets come from a secret manager, never from files in images | Needs environment evidence | Required at startup (fail closed): `ConnectionStrings:App`, `:Platform`, `:Control`; `Paging:CursorKey`; `Storage:LinkKey`; `Audit:CheckpointKey`; `Billing:InboxKey`; `Billing:Simulator:SigningSecret` or `Billing:Paystack:SecretKey`; `Invitations:TokenKey`. Rotate each on a schedule and after any exposure |
 | Live billing keys and live checkout | Owner decision (D09) | Startup refuses `sk_live_` keys and `Billing:LiveCheckoutEnabled` until a live configuration is approved (DEC-040, DEC-068) |
-| Identity provider: MFA required, production issuer | Owner decision (D02) | `Auth:Authority`, `Auth:Audience`, `Auth:ReauthAudiences`; Keycloak in this repository is development only |
+| Identity provider: MFA required, production issuer | Owner decision (D02) | `Auth:Authority`, `Auth:Audience`, `Auth:ReauthAudiences` (must include the web client id, or no approval can be signed in the browser: DEC-086); Keycloak in this repository is development only |
 
 ## Availability (NFR-AVAIL)
 
