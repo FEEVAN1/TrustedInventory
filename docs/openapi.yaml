@@ -6343,7 +6343,7 @@ paths:
       tags:
         - Quality
       summary: Release quarantined or held stock
-      description: Checks MED-001 eligibility (identifiers, expiry in the warehouse time zone, passed inspection, compatible storage, no open recall or excursion); a signer cannot override missing evidence. Recalled, Damaged and Available buckets cannot be released. Ineligible stock is 422 RELEASE_INELIGIBLE with each reason (DEC-075).
+      description: Checks MED-001 eligibility (identifiers, expiry in the warehouse time zone, passed inspection, compatible storage, no open recall or excursion); a signer cannot override missing evidence. Recalled, Damaged and Available buckets cannot be released. Ineligible stock is 422 RELEASE_INELIGIBLE with each reason (DEC-075). Received stock still waiting in staging for its putaway is 409 INVALID_STATE: put it away first, then release it where it is stored (DEC-096).
       x-permission: quality.release
       x-access: routine-write
       x-entitlement: medical_storage

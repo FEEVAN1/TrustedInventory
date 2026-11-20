@@ -1963,3 +1963,35 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Follow-up (20 Nov 2026):** the full integration run found that `DispatchTests` arranged an expiry by updating `ti.lot` directly, which the
   0030 guard now refuses (as intended). The test now uses a test-only helper that switches triggers off for that one statement as a database
   superuser, standing in for time passing; no application path can do this. The required schema version moved to `0031_complimentary_access`.
+
+## DEC-095 External audit checkpoints need persistent storage in every environment (M6, AUD-003, OPS-001, AGT-003)
+- **Status:** Adopted.
+- **Finding:** the first browser run after DEC-093 was refused with `STOCK_BLOCKED` in every tenant. The Compose worker kept the
+  simulated retention store under `/tmp` inside the container, so each image rebuild or container recreate deleted the external
+  checkpoint copies. The verification job then found every database checkpoint without an external copy (`NotExternal`) and opened a
+  High `AuditChainFailure` alert per tenant, which blocks all stock changes (OPS-001, DEC-049). The job behaved as designed; the
+  configuration was wrong. The checkpoint job writes the external copy before the database row in the same transaction, so there is
+  no window in which a correct store shows this problem.
+- **Resolution:** the retention store is its own named volume (`retention`, mounted at `/data/retention-simulated`, owned by the
+  non-root user in the image), separate from the object store, as the separately administered store it simulates. The rule is not
+  relaxed: a checkpoint with no external copy remains a High failure that blocks stock, because a lost copy cannot be told apart from a
+  removed one (AGT-003). `docs/deployment-checklist.md` already requires durable, separately administered retention storage (D06).
+- **Development stack:** copies lost before this fix cannot be recovered, and re-exporting them from the database would defeat the check,
+  so a development database with such checkpoints is reset rather than unblocked.
+- **Second defect, found on the reset stack:** a tenant with no audit event yet is checkpointed at sequence 0 with the stream's genesis
+  hash (32 zero bytes). The verifier looked for an event numbered 0, found none and reported `EventMissing`, opening a blocking alert
+  for the two seeded tenants. A sequence-0 checkpoint now verifies against the genesis hash; any other hash at sequence 0 is still
+  `EventHashMismatch`. Evidence: `WorkerJobTests.A_checkpoint_of_an_empty_chain_verifies_against_the_genesis_hash_and_nothing_else`.
+  The development stack was reset again to clear the alerts this false failure opened.
+
+## DEC-096 Received stock is released by QA only after putaway (M6, INB-006, MED-001)
+- **Status:** Adopted.
+- **Finding:** writing AT-UI-14, a medical receipt released by QA while still in its staging bin could no longer be put away: putaway
+  moves the receipt line's own bucket and keeps its quality (INB-006), and the release had moved the stock into another bucket of the
+  same bin. The putaway task stayed open for good and the stock showed `AwaitingPutaway`.
+- **Resolution:** `releaseQuality` refuses a bucket that an open putaway task still covers (409 `INVALID_STATE`, "Put these goods away
+  first"). Quarantined stock may already be put away into storage bins (putaway keeps it Quarantine), and QA releases it there. This
+  tightens a rule; nothing is relaxed. Evidence: `PutawayTests.An_incompatible_bin_is_refused_and_moving_held_stock_never_releases_it`.
+- **Open:** a quality hold placed on stock still in staging changes its bucket the same way and would strand the putaway task. Holds
+  stay allowed everywhere (safety first, OPS-001), so the fix there is for putaway to follow the stock into its new bucket. That changes
+  the putaway stock path and is left for review rather than made in passing.

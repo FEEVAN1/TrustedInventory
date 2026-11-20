@@ -68,6 +68,7 @@ public sealed class PutawayTests(ApiFixture fx)
     [Trait("Requirement", "AT-INB-03")]
     [Trait("Requirement", "STORE-COMPAT")]
     [Trait("Requirement", "INB-006")]
+    [Trait("Requirement", "MED-001")]
     public async Task An_incompatible_bin_is_refused_and_moving_held_stock_never_releases_it()
     {
         var w = await WorldAsync("put-at03");
@@ -76,6 +77,24 @@ public sealed class PutawayTests(ApiFixture fx)
         var line = (string)receipt["lines"]![0]!["id"]!;
         var staging = (string)receipt["lines"]![0]!["bucketId"]!;
         Assert.Equal(["C-01"], Codes(await TaskAsync(w, (string)receipt["receiptId"]!)));
+
+        // QA cannot release it while it waits in staging: putaway moves this bucket and keeps its quality, so the release would strand
+        // the task (DEC-096). Nothing moves; it is released after putaway, where it is stored.
+        var qa = $"user-qa-{Guid.NewGuid():N}";
+        var membership = await ScalarAsync<Guid>("INSERT INTO ti.membership (tenant_id, user_subject, created_by) VALUES (@t, @s, 'seed') RETURNING id",
+            ("t", w.Tenant), ("s", qa));
+        await TenantProvisioning.ExecAsSuperuserAsync(fx, """
+            INSERT INTO ti.role_grant (tenant_id, membership_id, grantee_subject, role, reason, granted_by, created_by)
+            VALUES (@t, @m, @s, 'QaOfficer', 'test seed', 'seed', 'seed')
+            """, ("t", w.Tenant), ("m", membership), ("s", qa));
+        var release = new HttpRequestMessage(HttpMethod.Post, "/api/v1/quality/release")
+        {
+            Content = Json(new { bucketId = staging, approvalId = Guid.NewGuid() }),
+        };
+        release.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var early = await (await fx.Client(qa, w.Tenant).SendAsync(release)).ExpectProblemAsync(HttpStatusCode.Conflict, "INVALID_STATE");
+        Assert.Contains("Put these goods away first", (string?)early["detail"], StringComparison.Ordinal);
+        Assert.Equal("4", (string?)(await StockAsync(w, staging))["onHand"]);
 
         // AT-INB-03: refrigerated stock scanned into an ambient bin is blocked; task and stock stay as they were.
         var refused = await (await ConfirmAsync(w, Guid.NewGuid(), Confirm(line, w.ColdStaging, w.A01, "4", w.Medical, lot: "M-1", reason: "try")))

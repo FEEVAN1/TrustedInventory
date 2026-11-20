@@ -22,6 +22,8 @@ public sealed partial class AuditCheckpointVerificationJob(
 {
     public const string DedupeKey = "audit-external-checkpoint";
 
+    private static readonly byte[] Genesis = new byte[32];
+
     public async Task RunOnceAsync(CancellationToken ct)
     {
         foreach (var (tenantId, status) in await runner.TenantsAsync(BackgroundJob.AuditCheckpoint, ct))
@@ -82,6 +84,14 @@ public sealed partial class AuditCheckpointVerificationJob(
             else if (!AuditCheckpointSigner.Verify(signing.Key, tenantId, x.Date, x.Sequence, hash, signature))
                 Problem(x.Date, x.Sequence, "SignatureInvalid");
 
+            // A checkpoint of an empty chain covers sequence 0, whose hash is the stream's genesis value (32 zero bytes, migration 0001);
+            // there is no event 0 to compare with (DEC-095).
+            if (x.Sequence == 0)
+            {
+                if (!hash.AsSpan().SequenceEqual(Genesis))
+                    Problem(x.Date, x.Sequence, "EventHashMismatch");
+            }
+            else
             await using (var at = new NpgsqlCommand("SELECT event_hash FROM ti.audit_event WHERE sequence = @seq", conn, tx))
             {
                 at.Parameters.AddWithValue("seq", x.Sequence);

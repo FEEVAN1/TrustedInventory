@@ -33,6 +33,8 @@ COPY --from=build /out/worker ./
 # The simulated object store (DEC-061) is a named volume; Docker seeds an empty volume with this directory and its owner, so the
 # non-root user can write attachments and exports (DEC-086).
 RUN mkdir -p /data/objects-simulated && chown $APP_UID:$APP_UID /data/objects-simulated
+# The simulated retention store for external audit checkpoints is its own named volume: it must outlive the container (DEC-095).
+RUN mkdir -p /data/retention-simulated && chown $APP_UID:$APP_UID /data/retention-simulated
 USER $APP_UID
 ENTRYPOINT ["dotnet", "TrustedInventory.Worker.dll"]
 

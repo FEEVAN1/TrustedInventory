@@ -131,9 +131,10 @@ services:
       DOTNET_ENVIRONMENT: Development
       Audit__CheckpointKey: ${TI_CHECKPOINT_KEY:?set in .env}
       Audit__CheckpointKeyId: dev-checkpoint-key
-      # SIMULATED retention store (AUD-003 production storage is D06).
-      Audit__RetentionDirectory: /tmp/ti-retention-simulated
-    volumes: [objects:/data/objects-simulated]
+      # SIMULATED retention store (AUD-003 production storage is D06). It is a separate named volume so the external checkpoint
+      # copies survive container rebuilds; under /tmp they were lost on every recreate and the verification job blocked stock (DEC-095).
+      Audit__RetentionDirectory: /data/retention-simulated
+    volumes: [objects:/data/objects-simulated, retention:/data/retention-simulated]
     depends_on:
       migrator: { condition: service_completed_successfully }
 
@@ -145,3 +146,4 @@ services:
 volumes:
   db-data:
   objects:
+  retention:

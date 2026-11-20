@@ -89,6 +89,14 @@ public sealed class QualityService(
             caller.RequireWarehouse(Permissions.QualityRelease, bucket.WarehouseId);
             var subjectType = QualityRules.ReleaseSubject(bucket.QualityStatus);
             var product = await s.Db.Set<Product>().AsNoTracking().SingleAsync(p => p.Id == bucket.ProductId, c);
+            // Putaway moves the receipt's own bucket and keeps its quality (INB-006). Releasing it in staging would move the stock to
+            // another bucket and leave the putaway task unable to complete, so receipts are put away first and released there (DEC-096).
+            var awaitingPutaway = await s.Db.Database.SqlQuery<bool>($"""
+                SELECT EXISTS (SELECT 1 FROM ti.warehouse_task t JOIN ti.receipt_line l ON l.tenant_id = t.tenant_id AND l.id = t.receipt_line_id
+                               WHERE l.bucket_id = {bucket.Id} AND t.type = 'Putaway' AND t.status IN ('Open', 'InProgress')) AS "Value"
+                """).SingleAsync(c);
+            if (awaitingPutaway)
+                throw AppException.InvalidState("Put these goods away first; QA then releases them where they are stored.");
             var problems = QualityRules.ReleaseProblems(await FactsAsync(s, bucket, product, c));
             if (problems.Count > 0)
                 throw Ineligible(problems);

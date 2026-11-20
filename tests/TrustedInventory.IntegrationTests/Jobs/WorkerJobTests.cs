@@ -200,6 +200,35 @@ public sealed class WorkerJobTests : IDisposable
     [Fact]
     [Trait("Requirement", "AT-AUD-01")]
     [Trait("Requirement", "AUD-003")]
+    public async Task A_checkpoint_of_an_empty_chain_verifies_against_the_genesis_hash_and_nothing_else()
+    {
+        // DEC-095: a tenant with no audit event yet is checkpointed at sequence 0 with the stream's genesis hash; there is no event 0.
+        var tenant = await Organization.TenantProvisioning.ProvisionAsync(fx, "ckpt-genesis");
+        Assert.Equal(0L, await ScalarAsync<long>("SELECT last_sequence FROM ti.audit_stream WHERE tenant_id = @t", ("t", tenant.TenantId)));
+        var store = new SimulatedFileRetentionStore(_retentionDir);
+        var signing = new CheckpointSigningOptions(CheckpointKey, "test-key");
+        var support = fx.Factory.Services.GetRequiredService<Application.Audit.IAuditSupport>();
+        var day = new DateOnly(2097, 5, 1);
+        _clock.SetUtcNow(new DateTimeOffset(day, new TimeOnly(12, 0), TimeSpan.Zero));
+        await new AuditCheckpointJob(_runner, store, signing, NullLogger<AuditCheckpointJob>.Instance).RunOnceAsync(default);
+        Assert.Equal(0L, await ScalarAsync<long>("SELECT sequence FROM ti.audit_checkpoint WHERE tenant_id = @t", ("t", tenant.TenantId)));
+        var verifier = new AuditCheckpointVerificationJob(_runner, store, signing, support, NullLogger<AuditCheckpointVerificationJob>.Instance);
+        Assert.Equal(0, await verifier.VerifyTenantAsync(tenant.TenantId, default));
+
+        // A validly signed sequence-0 checkpoint claiming any other hash is still a failure (the store is write-once, so it is a later day).
+        var next = day.AddDays(1);
+        var forged = System.Security.Cryptography.SHA256.HashData("forged genesis"u8);
+        await store.WriteCheckpointAsync(new Application.Jobs.AuditCheckpointRecord(tenant.TenantId, next, 0, Convert.ToHexStringLower(forged),
+            Convert.ToHexStringLower(AuditCheckpointSigner.Sign(CheckpointKey, tenant.TenantId, next, 0, forged)), "test-key"), default);
+        Assert.True(await verifier.VerifyTenantAsync(tenant.TenantId, default) >= 1);
+        var detail = await ScalarAsync<string>(
+            "SELECT details::text FROM ti.alert WHERE tenant_id = @t AND type = 'AuditChainFailure' AND status = 'Open'", ("t", tenant.TenantId));
+        Assert.Contains("EventHashMismatch", detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Requirement", "AT-AUD-01")]
+    [Trait("Requirement", "AUD-003")]
     public async Task External_checkpoints_catch_a_rewritten_chain_with_a_matching_database_checkpoint_and_a_forged_signature()
     {
         // DEC-093: an attacker with database access rewrites the event at the checkpoint and the database's own checkpoint row to agree;
