@@ -1,7 +1,7 @@
 // Shared states and controls (UI-001, UI-002, DEC-082): loading, empty, validation, unauthorized, offline and retry states with the
 // trace id; a scan field that separates "scanned" from "confirmed by the server"; and commands that keep one Idempotency-Key per action.
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ApiError, describe, newCommandKey, type Failure } from "./api";
+import { ApiError, describe, newCommandKey, type Failure, type Problem } from "./api";
 
 export type Load<T> = { state: "loading" } | { state: "ready"; data: T } | { state: "failed"; failure: Failure };
 
@@ -36,8 +36,28 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 /** Any failure, with the server's trace id so support can find it (UI-002). */
+/**
+ * Where to go next for a refusal the server explains (SUI-003, DEC-097): the server names the recovery action (recovery.action on
+ * SUBSCRIPTION_RESTRICTED, upgrade-plan on FEATURE_NOT_ENABLED, quota.upgradeAction on PLAN_LIMIT_REACHED); the screen only links to it.
+ * Safety screens never depend on this: the server keeps them open whatever the plan.
+ */
+const RECOVERY: Record<string, [string, string]> = {
+  "upgrade-plan": ["#/billing", "Compare plans and upgrade"],
+  "billing-recovery": ["#/billing", "Go to billing"],
+  "view-closure": ["#/workspace", "See the closure status"],
+};
+
+function recoveryOf(problem: Problem | undefined): [string, string] | undefined {
+  if (!problem) return undefined;
+  const recovery = problem.recovery as { action?: string } | undefined;
+  const quota = problem.quota as { upgradeAction?: string } | undefined;
+  const action = recovery?.action ?? quota?.upgradeAction;
+  return action ? RECOVERY[action] : undefined;
+}
+
 export function FailureView({ failure, onRetry }: { failure: Failure; onRetry?: () => void }) {
   const problem = failure.kind === "problem" ? failure.problem : undefined;
+  const recovery = recoveryOf(problem);
   return (
     <div role="alert" className={`alert ${failure.kind}`} data-testid="failure">
       <strong>{failure.kind === "offline" ? "Offline" : failure.kind === "timeout" ? "No answer yet" : failure.kind === "unauthorized" ? "Signed out" : problem?.code}</strong>
@@ -45,6 +65,7 @@ export function FailureView({ failure, onRetry }: { failure: Failure; onRetry?: 
       {problem?.errors && problem.errors.length > 0 && (
         <ul>{problem.errors.map((e) => <li key={e.field + e.message}><code>{e.field}</code>: {e.message}</li>)}</ul>
       )}
+      {recovery && <p><a href={recovery[0]} data-testid="recovery">{recovery[1]}</a></p>}
       {problem?.traceId && <p className="muted">Trace id: <code>{problem.traceId}</code></p>}
       {onRetry && <button type="button" onClick={onRetry}>Try again</button>}
     </div>

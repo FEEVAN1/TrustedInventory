@@ -174,6 +174,37 @@ public sealed class TenantContextTests(ApiFixture fx)
         Assert.Equal(1, await CountWarehousesAsync(fx.Seed.A.TenantId, code + "-%"));
     }
 
+    [Fact]
+    [Trait("Requirement", "STK-005")]
+    public async Task Serialization_failures_retry_three_times_then_report_a_retryable_conflict_with_nothing_committed()
+    {
+        var source = new AppDataSource(DependencyInjection.BuildDataSource(fx.AppConnection));
+        var uow = Uow(source, fx.Seed.A.TenantId, "user-retry");
+        var code = "RETRY-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        // Each attempt writes, then PostgreSQL reports a serialization failure, as a lost race under the lock order would (STK-005).
+        async Task<int> Attempt(ITenantSession s, CancellationToken ct, int attempt, int failUntil)
+        {
+            s.Db.Add(Warehouse.Create(s.Caller.TenantId, $"{code}-{attempt}", "Retry", "UTC", s.Caller.Subject, s.Now));
+            await s.Db.SaveChangesAsync(ct);
+            if (attempt <= failUntil)
+                await s.Db.Database.ExecuteSqlRawAsync("DO $$ BEGIN RAISE EXCEPTION 'simulated conflict' USING ERRCODE = '40001'; END $$", ct);
+            return attempt;
+        }
+
+        // Always failing: the first try and three retries, then 409 RETRYABLE_CONFLICT; no attempt's write survives.
+        var attempts = 0;
+        var exhausted = await Assert.ThrowsAsync<AppException>(() => uow.WriteAsync((s, ct) => Attempt(s, ct, ++attempts, int.MaxValue)));
+        Assert.Equal(ErrorCode.RetryableConflict, exhausted.Code);
+        Assert.Equal(4, attempts);
+        Assert.Equal(0, await CountWarehousesAsync(fx.Seed.A.TenantId, code + "%"));
+
+        // Failing twice: the third attempt commits, and only its write is kept.
+        attempts = 0;
+        Assert.Equal(3, await uow.WriteAsync((s, ct) => Attempt(s, ct, ++attempts, 2)));
+        Assert.Equal(1, await CountWarehousesAsync(fx.Seed.A.TenantId, code + "%"));
+        Assert.Equal(1, await CountWarehousesAsync(fx.Seed.A.TenantId, code + "-3"));
+    }
+
     private async Task<long> CountWarehousesAsync(Guid tenantId, string codePattern)
     {
         await using var conn = new NpgsqlConnection(fx.SuperuserConnection);

@@ -1995,3 +1995,19 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Open:** a quality hold placed on stock still in staging changes its bucket the same way and would strand the putaway task. Holds
   stay allowed everywhere (safety first, OPS-001), so the fix there is for putaway to follow the stock into its new bucket. That changes
   the putaway stock path and is left for review rather than made in passing.
+
+## DEC-097 Recall, alert and traceability reads are safety operations; refusals link to their recovery (M6, SUI-003, ENT-006, LFC-001)
+- **Status:** Adopted. Contract change: `listRecalls`, `getRecall`, `listAlerts`, `getAlert` and `getLotTraceability` move from
+  `x-access: read` with `x-entitlement: core_inventory` to `x-access: safety` with no entitlement.
+- **Finding:** AT-UI-16 opened Recalls in a workspace whose trial was withheld (one trial per person). It has no entitlement, and the
+  recall list was refused with `FEATURE_NOT_ENABLED` while the restriction banner promised that recalls and safety alerts stay
+  visible. Recall actions (create, outreach, close) and alert acknowledgement were already safety and ignore entitlements, so such a
+  workspace could act on a recall it could not see. Section 29 and SUI-003 say restrictions never hide recalls or safety alerts.
+- **Resolution:** the five reads join the `safety` category (`docs/saas-state-matrix.md`): allowed in Normal, BillingRestricted and
+  Closed, refused while Provisioning, SecuritySuspended or Deleted, never subject to entitlements. Permissions are unchanged
+  (`stock.read`, `alerts.read`) and tenant isolation is untouched; only the plan gate is removed for safety information. Ordinary
+  reads (stock, catalog) still need `core_inventory`.
+- **Upgrade prompts:** the server already names the recovery for every access refusal (`recovery.action` on SUBSCRIPTION_RESTRICTED,
+  `upgrade-plan` on FEATURE_NOT_ENABLED, `quota.upgradeAction` on PLAN_LIMIT_REACHED, which also names the limit), but the screens did
+  not show it. The failure view now links to billing, the plan comparison or the closure status accordingly.
+- **Evidence:** `SafetyReadTests.Recalls_and_alerts_are_readable_without_any_entitlement_while_billing_restricted`; AT-UI-16.
