@@ -187,6 +187,22 @@ Expiry is immutable after receipt except through an audited QA correction (`Expi
 
 Row-level security by tenant; included in the tenant archive and the approved purge.
 
+### sample_data_set, sample_data_item (0032, DEC-098)
+Opt-in sample data (ONB-004). `sample_data_set`: `status` Active or Removed (removed_at and removed_by exactly when Removed), `version`
+(ETag), at most one Active set per tenant (partial unique index). `sample_data_item`: one row per sample record (`object_type` Warehouse,
+Zone, Bin, Unit, Product or Partner; `object_id`), primary key `(tenant_id, object_id)`, append-only. Trigger `sample_stock_guard` on
+`stock_bucket` refuses any bucket for a sample product or in a sample warehouse (SQLSTATE `TI002`, mapped to 409 INVALID_STATE), so sample
+records never hold stock. Row-level security by tenant; included in the tenant archive and the approved purge.
+
+### product_import (0033, DEC-099, append-only)
+| Column | Type | Null | Constraint |
+|--------|------|------|------------|
+| row_count | integer | N | 1 to 1000 |
+| digest | bytea | N | SHA-256 of the CSV as received (32 bytes); the file is not stored |
+| created_at, created_by | | N | Who imported and when |
+
+Row-level security by tenant; included in the tenant archive and the approved purge.
+
 ### serial
 `serial_number` is an `identifier_text`. Unique `(tenant_id, product_id, serial_number)`. The optional `lot_id` is checked by FK `(tenant_id, product_id, lot_id) → lot`.
 

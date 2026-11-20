@@ -8224,7 +8224,7 @@ paths:
       tags:
         - Signup
       summary: Get the workspace setup checklist
-      description: Any active member may read setup progress once the workspace is Ready (ONB-004, DEC-046). Every item is computed from current records on each read; reading changes nothing and onboarding never creates stock. Sample data arrives in M2.
+      description: Any active member may read setup progress once the workspace is Ready (ONB-004, DEC-046). Every item is computed from current records on each read; reading changes nothing and onboarding never creates stock. Sample data is opt-in through createSampleData (DEC-098).
       x-permission: member
       x-access: read
       x-requirements:
@@ -8246,6 +8246,209 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /saas/sample-data:
+    get:
+      operationId: getSampleData
+      tags:
+        - Signup
+      summary: Get the workspace's sample data set
+      description: The latest sample set with its labelled records (ONB-004, DEC-098); 404 when the workspace never added one.
+      x-permission: catalog.read
+      x-access: read
+      x-entitlement: core_inventory
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SampleDataSet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: createSampleData
+      tags:
+        - Signup
+      summary: Add opt-in sample data
+      description: Adds one labelled sample set (ONB-004, DEC-098) of a warehouse with a zone, staging, storage and quarantine bins, a unit, three general products and a supplier and a customer, every code starting SAMPLE- and every name ending (sample). It counts against active_warehouses and active_skus like any record (PLAN_LIMIT_REACHED names the limit). Sample data is isolated from production quantities; a sample product or warehouse never holds stock (409 INVALID_STATE from any stock command), so onboarding never creates stock. One active set per workspace (409).
+      x-permission: tenant.config.manage
+      x-access: routine-write
+      x-entitlement: core_inventory
+      x-quota: active_warehouses
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSampleDataRequest"
+      responses:
+        "201":
+          description: Created.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SampleDataSet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /saas/sample-data/{id}/remove:
+    post:
+      operationId: removeSampleData
+      tags:
+        - Signup
+      summary: Remove the sample data
+      description: Retires every record of the active sample set and frees its quota (ONB-004, DEC-098). Retired records stay in history and in the audit trail; nothing is deleted.
+      x-permission: tenant.config.manage
+      x-access: routine-write
+      x-entitlement: core_inventory
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SampleDataSet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /imports/products:
+    get:
+      operationId: listProductImports
+      tags:
+        - Catalog
+      summary: List product imports
+      description: Completed product imports, newest first (ONB-004, DEC-099). The file itself is not kept; only its SHA-256 digest and row count.
+      x-permission: catalog.read
+      x-access: read
+      x-entitlement: core_inventory
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductImportPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: importProducts
+      tags:
+        - Catalog
+      summary: Import general products from CSV
+      description: The optional import of the setup checklist (ONB-004, DEC-099). The CSV has a header row with the columns sku, name, unit and tracking (Quantity, Lot, Serial or LotAndSerial) and optionally precision (0 to 6, default 0); unit is the code of an existing active unit. It imports general products only; medical products need a storage profile and are created one by one. All or nothing; every row is validated first and every problem is reported as rows[n].column (422 VALIDATION_FAILED), and nothing is created unless every row is valid. At most 1000 rows. Counts against active_skus (PLAN_LIMIT_REACHED). Never creates stock.
+      x-permission: catalog.manage
+      x-access: routine-write
+      x-entitlement: core_inventory
+      x-quota: active_skus
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductImportRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -12815,6 +13018,145 @@ components:
         - key
         - status
         - required
+      additionalProperties: false
+    ProductImportRequest:
+      type: object
+      properties:
+        csv:
+          type: string
+          minLength: 1
+          maxLength: 1000000
+          description: The CSV text (UTF-8), header row first.
+      required:
+        - csv
+      additionalProperties: false
+    ProductImport:
+      type: object
+      description: A completed product import (ONB-004, DEC-099).
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        rowCount:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1000
+        digest:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: SHA-256 of the CSV as received, hex.
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        createdBy:
+          type: string
+          maxLength: 255
+      required:
+        - id
+        - rowCount
+        - digest
+        - createdAt
+        - createdBy
+      additionalProperties: false
+    ProductImportPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductImport"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
+    SampleDataSet:
+      type: object
+      description: An opt-in sample set (ONB-004, DEC-098). Its records are ordinary records labelled SAMPLE- and (sample) that never hold stock.
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+        status:
+          $ref: "#/components/schemas/SampleDataStatus"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        createdBy:
+          type: string
+          maxLength: 255
+        removedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        removedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/SampleDataItem"
+      required:
+        - id
+        - version
+        - status
+        - createdAt
+        - createdBy
+        - removedAt
+        - removedBy
+        - items
+      additionalProperties: false
+    SampleDataItem:
+      type: object
+      properties:
+        objectType:
+          $ref: "#/components/schemas/SampleDataObjectType"
+        objectId:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 200
+      required:
+        - objectType
+        - objectId
+        - code
+        - name
+      additionalProperties: false
+    SampleDataObjectType:
+      type: string
+      enum:
+        - Warehouse
+        - Zone
+        - Bin
+        - Unit
+        - Product
+        - Partner
+    SampleDataStatus:
+      type: string
+      enum:
+        - Active
+        - Removed
+    CreateSampleDataRequest:
+      type: object
+      properties:
+        timeZone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: IANA time zone of the sample warehouse.
+      required:
+        - timeZone
       additionalProperties: false
     SetupChecklist:
       type: object

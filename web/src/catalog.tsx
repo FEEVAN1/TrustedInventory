@@ -31,6 +31,39 @@ export function Catalog() {
   );
 }
 
+interface ProductImport { id: string; rowCount: number; digest: string; createdAt: string; createdBy: string }
+
+/**
+ * The optional import of the setup checklist (ONB-004, DEC-099): general products from a CSV file, all or nothing. The server checks
+ * every row and names each problem as rows[n].column; nothing is created unless the whole file is valid. It never creates stock.
+ */
+function ImportProducts({ onDone }: { onDone: () => void }) {
+  const [csv, setCsv] = useState("");
+  const [file, setFile] = useState("");
+  const imports = usePaged<ProductImport>("/imports/products?limit=5");
+  const read = (picked: File | undefined) => {
+    if (!picked) return;
+    setFile(picked.name);
+    void picked.text().then(setCsv);
+  };
+  return (
+    <details className="panel">
+      <summary>Import products from a CSV file</summary>
+      <p className="muted">Header row with <code>sku,name,unit,tracking</code> and optionally <code>precision</code>; unit is the code of an
+        existing unit; tracking is Quantity, Lot, Serial or LotAndSerial. General products only, at most 1000 rows. Nothing is imported
+        unless every row is valid, and no stock is created.</p>
+      <label>CSV file<input type="file" accept=".csv,text/csv" onChange={(e) => read(e.target.files?.[0])} /></label>
+      <label>Or paste the CSV<textarea rows={5} value={csv} onChange={(e) => { setCsv(e.target.value); setFile(""); }} /></label>
+      <Act label={file ? `Import ${file}` : "Import"} disabled={!csv.trim()}
+        run={(key) => request<ProductImport>("/imports/products", { idempotencyKey: key, body: { csv } })}
+        onDone={() => { setCsv(""); setFile(""); imports.reload(); onDone(); }} okText="Products imported." />
+      <PagedList paged={imports} what="imports" empty="No import yet.">
+        {(rows) => <ul>{rows.map((i) => <li key={i.id}>{i.rowCount} products · {new Date(i.createdAt).toLocaleString()} by {i.createdBy}</li>)}</ul>}
+      </PagedList>
+    </details>
+  );
+}
+
 function Products() {
   const [search, setSearch] = useState("");
   const [profile, setProfile] = useState("");
@@ -47,6 +80,7 @@ function Products() {
         <button type="button" onClick={() => setCreating(true)}>New product</button>
       </div>
       {creating && <NewProduct onDone={() => { setCreating(false); paged.reload(); }} onCancel={() => setCreating(false)} />}
+      <ImportProducts onDone={paged.reload} />
       <PagedList paged={paged} what="products" empty="No product matches.">
         {(rows) => (
           <table>

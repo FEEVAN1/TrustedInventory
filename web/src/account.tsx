@@ -260,7 +260,7 @@ const CHECKLIST_TEXT: Record<string, [string, string]> = {
   "zones-bins": ["Zones and bins", "#/locations"],
   "products-units": ["Units and products", "#/catalog"],
   "team-invitations": ["Invite your team", "#/team"],
-  import: ["Import existing stock (optional; never forced)", "#/catalog"],
+  import: ["Import products from a file (optional; never stock)", "#/catalog"],
 };
 
 export function Workspace({ membership }: { membership: MyMembership }) {
@@ -270,6 +270,7 @@ export function Workspace({ membership }: { membership: MyMembership }) {
     <Screen id="workspace" title={`Workspace: ${membership.tenantName}`}>
       <p>Plan <strong>{membership.planCode ?? "none"}</strong> · access <span className={`badge ${membership.accessMode}`}>{membership.accessMode}</span> · lifecycle {membership.lifecycle}</p>
       <Checklist />
+      {membership.permissions.some((p) => p.permission === "tenant.config.manage") && <SampleData />}
       {accept.get("accept") && <AcceptOwnership id={accept.get("accept")!} version={accept.get("version") ?? "1"} />}
       {owner ? <><OwnershipTransfer /><ClosurePanel slug={membership.tenantSlug} /></> :<p className="muted">Ownership transfer and closure are available to the workspace owner.</p>}
     </Screen>
@@ -291,6 +292,43 @@ function Checklist() {
             return <li key={i.key} className={i.status}><span aria-hidden="true">{i.status === "Done" ? "✔" : i.status === "Unavailable" ? "–" : "○"}</span> <a href={href}>{text}</a>
               <span className="muted"> {i.status}{i.required ? "" : " (optional)"}</span></li>;
           })}</ul>
+          </>
+        )}
+      </Loaded>
+    </div>
+  );
+}
+
+interface SampleSet {
+  id: string; version: number; status: string; createdAt: string; createdBy: string; removedAt: string | null; removedBy: string | null;
+  items: { objectType: string; objectId: string; code: string; name: string }[];
+}
+
+/** Opt-in sample data (ONB-004, DEC-098): labelled records to explore with; they never hold stock and never complete a setup step. */
+function SampleData() {
+  const [set, reload] = useLoad(() => request<SampleSet>("/saas/sample-data").catch((e: unknown) => {
+    if (e instanceof ApiError && e.failure.kind === "problem" && e.failure.problem.status === 404) return null;
+    throw e;
+  }), []);
+  const [timeZone, setTimeZone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  return (
+    <div className="panel">
+      <h3>Sample data</h3>
+      <Loaded load={set} what="sample data" onRetry={reload}>
+        {(sample) => sample?.status === "Active" ? (
+          <>
+            <p>Sample records added {when(sample.createdAt)} by {sample.createdBy}. Their codes start <code>SAMPLE-</code> and their names end
+              (sample). They never hold stock and do not complete setup steps; they count against your plan until removed.</p>
+            <ul>{sample.items.map((i) => <li key={i.objectId}><span className="badge">{i.objectType}</span> {i.code} · {i.name}</li>)}</ul>
+            <Act label="Remove sample data" secondary confirm="Remove the sample records? They are retired and kept in history."
+              run={() => request(`/saas/sample-data/${sample.id}/remove`, { ifMatch: sample.version })} onDone={reload} okText="Sample data removed." />
+          </>
+        ) : (
+          <>
+            <p>Add a labelled sample warehouse, products and partners to explore the screens. Sample records never hold stock, so your
+              real quantities stay separate, and you can remove them at any time.{sample ? ` Earlier sample data was removed ${when(sample.removedAt ?? sample.createdAt)}.` : ""}</p>
+            <Field label="Sample warehouse time zone" value={timeZone} onChange={setTimeZone} />
+            <Act label="Add sample data" disabled={!timeZone.trim()} run={() => request("/saas/sample-data", { body: { timeZone } })} onDone={reload} okText="Sample data added." />
           </>
         )}
       </Loaded>

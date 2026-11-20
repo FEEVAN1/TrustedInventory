@@ -2011,3 +2011,26 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   `upgrade-plan` on FEATURE_NOT_ENABLED, `quota.upgradeAction` on PLAN_LIMIT_REACHED, which also names the limit), but the screens did
   not show it. The failure view now links to billing, the plan comparison or the closure status accordingly.
 - **Evidence:** `SafetyReadTests.Recalls_and_alerts_are_readable_without_any_entitlement_while_billing_restricted`; AT-UI-16.
+
+## DEC-098 Opt-in sample data that never holds stock (S1 carry-over in M6, ONB-004)
+- **Status:** Adopted. Closes the sample data that DEC-046 deferred to M2 and that was never built.
+- **Model:** a member with `tenant.config.manage` adds one labelled sample set (`createSampleData`): a warehouse with an ambient zone,
+  staging, storage and quarantine bins, a unit, three general products and a supplier and a customer. Every code starts `SAMPLE-` with a
+  short suffix (so a set can be added again after removal) and every name ends "(sample)". They are ordinary master records: they count
+  against `active_warehouses` and `active_skus` (PLAN_LIMIT_REACHED names the limit), are audited, and appear in normal lists.
+- **Isolation from production quantities:** trigger `sample_stock_guard` refuses any stock bucket for a sample product or in a sample
+  warehouse, whichever command writes it; the API answers 409 INVALID_STATE "Sample data never holds stock". So onboarding never creates
+  stock and sample records never mix with real quantities. Sample records do not complete setup checklist steps.
+- **Removal:** `removeSampleData` (If-Match) retires every record of the set and frees its quota; nothing is deleted, history stays.
+- **Evidence:** `SampleDataTests.Sample_data_is_opt_in_labelled_never_holds_stock_and_is_removed_with_its_quota`; AT-UI-17.
+
+## DEC-099 Product import from CSV, all or nothing (S1 carry-over in M6, ONB-004)
+- **Status:** Adopted. The checklist's optional `import` step was `Unavailable` because no import existed.
+- **Model:** `importProducts` (Idempotency-Key, `catalog.manage`) takes CSV text with a header row naming `sku`, `name`, `unit` (code of an
+  active unit) and `tracking`, and optionally `precision`, in any order; RFC 4180 quoting; at most 1000 rows. Every row is checked
+  before anything is written and every problem is returned as `rows[n].column` (422); then each product is created with its own
+  `ProductCreated` audit event, the SKU quota is reserved for the whole file, and the import is recorded by SHA-256 digest
+  (`product_import`; the file is not kept). A retry with the same key replays the result. The checklist's import step is Done after one.
+- **Limits:** general products only; medical products need a storage profile and stay one-by-one. Imports never create stock, and the
+  spec's "no forced live stock import" holds: there is no stock import at all.
+- **Evidence:** `ProductImportTests.A_file_imports_all_or_nothing_with_every_problem_named_and_a_retry_imports_it_once`; AT-UI-17.

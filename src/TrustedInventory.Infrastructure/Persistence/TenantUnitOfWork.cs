@@ -195,6 +195,9 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
     /// <summary>Raised by trigger stock_movement_count_lock (migration 0016, DEC-059).</summary>
     private const string CountLockSqlState = "TI001";
 
+    /// <summary>Raised by trigger sample_stock_guard (migration 0032, DEC-098).</summary>
+    private const string SampleStockSqlState = "TI002";
+
     private static Exception? Translate(PostgresException pg) => pg.SqlState switch
     {
         PostgresErrorCodes.UniqueViolation when pg.ConstraintName == IdempotencyStore.UniqueConstraint => new IdempotencyRace(),
@@ -204,6 +207,7 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
         PostgresErrorCodes.ForeignKeyViolation => new AppException(ErrorCode.ValidationFailed, "A referenced record does not exist."),
         PostgresErrorCodes.CheckViolation => new AppException(ErrorCode.ValidationFailed, "A value is outside the allowed range."),
         PostgresErrorCodes.InsufficientPrivilege => AppException.Forbidden(),
+        SampleStockSqlState => AppException.InvalidState("Sample data never holds stock; use your own products and warehouses (ONB-004)."),
         CountLockSqlState => new AppException(ErrorCode.CountLocked, "A stock count has locked this bin; wait until the count is posted or cancelled (EXC-003)."),
         _ => null,
     };

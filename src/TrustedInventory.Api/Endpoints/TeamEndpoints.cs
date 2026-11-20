@@ -48,6 +48,19 @@ public static class TeamEndpoints
         // Setup progress for any member once Ready (ONB-004, DEC-046).
         tenant.MapGet("/saas/setup-checklist", (SetupChecklistService svc, CancellationToken ct) => svc.GetAsync(ct))
             .WithName("getSetupChecklist").RequirePermission(Permissions.Member);
+        // Opt-in, labelled sample data that never holds stock (ONB-004, DEC-098).
+        tenant.MapGet("/saas/sample-data", async (HttpContext http, SampleDataService svc, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(ct)))
+            .WithName("getSampleData").RequirePermission(Permissions.CatalogRead);
+        tenant.MapPost("/saas/sample-data", async (HttpContext http, SampleDataService svc, CreateSampleData body, CancellationToken ct) =>
+            {
+                var created = await svc.CreateAsync(body, ct);
+                return Conventions.Created(http, "/api/v1/saas/sample-data", created);
+            })
+            .WithName("createSampleData").RequirePermission(Permissions.TenantConfigManage);
+        tenant.MapPost("/saas/sample-data/{id:guid}/remove", async (HttpContext http, SampleDataService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.RemoveAsync(id, Conventions.IfMatch(http), ct)))
+            .WithName("removeSampleData").RequirePermission(Permissions.TenantConfigManage);
         return tenant;
     }
 
