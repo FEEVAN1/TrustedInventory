@@ -1816,3 +1816,25 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Evidence:** AT-UI-10 (`web/e2e/public-signup.spec.ts`) reads the product page and plans signed out, signs in from the signup page
   as bob, provisions a workspace to Ready, opens it and finds it in the chooser, with the WCAG A and AA rules checked on each page; it
   passes at handheld and desktop widths (one earlier attempt hit the DEC-087 sign-in refusal and showed the MFA guidance as designed).
+
+## DEC-089 Platform operations and billing consoles (M6, section 29, SAS-003, SAS-004, SOD-8)
+- **Status:** Adopted.
+- **Surface:** `/platform`, a separate page of the web app against `/platform/v1`, with no tenant header and no workspace data (SAS-004).
+  Tabs: Health (aggregates only), Tenants (lifecycle, access, plan; security suspension and lift, retention hold set and release,
+  closure withdrawal, deletion approval, each with a reason and If-Match), Provisioning (failed jobs and retry), Alerts (acknowledge
+  with a note), Plans (read for both roles; billing operators draft plan versions, add prices and publish), Billing tasks
+  (reconciliation, unpaid invoices, disputes, refunds and chargebacks, resolved with a resolution) and Webhooks. Every tab renders
+  inside the error boundary (DEC-085).
+- **Roles stay apart:** the server decides each tab by the caller's platform list (`Platform:AdministratorSubjects` or
+  `Platform:BillingSubjects`); the console only shows the refusal. A synthetic `billing-operator` (subject ...0005) is added to the
+  development realm and configured as the billing operator, so the two consoles are exercised by two different people.
+- **Prices:** typed amounts become integer minor units by string handling (exponent 2), never floating point. XTS is the test
+  currency and is never shown to customers; publication remains the approval to display prices (DEC-067).
+- **Not built here:** complimentary access (section 29: independent approval and expiry) has no contract or requirement yet; it is
+  slice 8 of this round.
+- **Found while building:** the console first rendered an alert's `detail` as text; the contract defines it as a map of counts, and
+  rendering the object blanked the page. It now lists the counts, and the error boundary contains any such fault.
+- **Evidence:** AT-UI-11 (`web/e2e/platform.spec.ts`): the operations administrator suspends and lifts a synthetic workspace,
+  places and releases a retention hold, reads provisioning, alerts and plans, and is refused billing tasks; the billing operator is
+  refused workspaces, drafts a plan version and adds an XTS price marked "Not shown", and reads billing tasks and webhooks; WCAG A
+  and AA rules pass on each page; handheld and desktop widths, 20 Nov 2026 (one desktop attempt hit the DEC-087 sign-in refusal).

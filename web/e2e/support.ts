@@ -215,11 +215,12 @@ export async function onHand(bearer: string, productId: string): Promise<Record<
 }
 
 /** Runs `work` as another synthetic user in a separate browser context at the same width; screenshots its pages if it fails. */
-export async function asOtherUser(browser: Browser, info: TestInfo, user: string, work: (page: Page) => Promise<void>): Promise<void> {
+export async function asOtherUser(browser: Browser, info: TestInfo, user: string, work: (page: Page) => Promise<void>,
+  login: (page: Page, user: string) => Promise<void> = signInAs): Promise<void> {
   const context = await browser.newContext({ ...info.project.use });
   try {
     const page = await context.newPage();
-    await signInAs(page, user);
+    await login(page, user);
     await work(page);
   } catch (e) {
     for (const [i, p] of context.pages().entries()) await p.screenshot({ path: info.outputPath(`${user}-${i}.png`) }).catch(() => undefined);

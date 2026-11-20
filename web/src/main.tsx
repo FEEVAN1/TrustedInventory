@@ -8,6 +8,7 @@ import { Catalog, Locations } from "./catalog";
 import { Adjustments, Counts, Returns, Tasks, Transfers } from "./exceptions";
 import { Devices, Recalls, Traceability } from "./quality";
 import { Alerts, Approvals, NotFound, Orders, Putaway, Receive, StockExplorer, Workspaces } from "./screens";
+import { PlatformConsole } from "./platform";
 import { Landing, PublicPlans, Signup } from "./public";
 import { Loaded, ScreenBoundary, useLoad } from "./ui";
 import "./styles.css";
@@ -129,6 +130,8 @@ function App() {
   // Public surfaces (section 29, SAS-003): the product page, plans and signup do not need a workspace; signup asks for sign-in itself.
   if (location.pathname === "/plans") return <PublicPlans />;
   if (location.pathname === "/signup") return <Signup />;
+  // The platform console is a separate surface with its own authorization (SAS-003); it never shows workspace data.
+  if (location.pathname === "/platform") return <PlatformConsole />;
   if (!currentSession()) return <Landing />;
 
   if (location.pathname === "/billing/return" && tenant) return <main><CheckoutReturn /></main>;

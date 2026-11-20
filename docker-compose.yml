@@ -112,7 +112,8 @@ services:
       Auth__ReauthAudiences__1: trustedinventory-pwa
       Auth__RequireHttpsMetadata: "false"
       Platform__AdministratorSubjects__0: 00000000-0000-4000-8000-000000000001
-      # No synthetic platform-billing user exists yet (S2); the list is empty in development.
+      # Synthetic platform billing operator (DEC-089): a separate person from the operations administrator.
+      Platform__BillingSubjects__0: 00000000-0000-4000-8000-000000000005
       Cors__AllowedOrigins__0: http://localhost:5173
     volumes: [objects:/data/objects-simulated]
     ports: ["8081:8080"]

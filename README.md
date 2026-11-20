@@ -113,7 +113,7 @@ Building the images is memory-heavy. If Docker stops the build for low memory, c
 | Web | http://localhost:5173 |
 | PostgreSQL | localhost:55432 |
 
-Synthetic users: `platform-admin`, `alice`, `quinn`, `bob`, sharing the password and TOTP seed from `.env`.
+Synthetic users: `platform-admin` (platform operations), `billing-operator` (platform billing), `alice`, `quinn`, `bob`, sharing the password and TOTP seed from `.env`.
 For a browser login from the host, map `127.0.0.1 keycloak` in the hosts file (DEC-031). All data is
 synthetic; the outbox sink and checkpoint retention store are simulations.
 
