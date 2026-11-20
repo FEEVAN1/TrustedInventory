@@ -111,3 +111,13 @@ meter { width: 100%; height: 1rem; }
   .nav-group { flex-direction: column; align-items: stretch; }
   dl.facts { grid-template-columns: 1fr; }
 }
+
+/* Public surfaces (DEC-088). */
+.brand { color: var(--fg); text-decoration: none; }
+.hero { padding: 1.5rem 0; max-width: 46rem; }
+.hero h1 { font-size: 2rem; margin: 0 0 0.75rem; }
+a.button { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1rem; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--accent); color: #fff; text-decoration: none; margin: 0.25rem 0.5rem 0.25rem 0; }
+a.button.secondary { background: transparent; color: var(--accent); }
+a.button:focus-visible { outline: 3px solid #f2b600; outline-offset: 2px; }
+div.cards { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }

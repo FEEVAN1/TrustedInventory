@@ -47,6 +47,8 @@ export function Workspaces({ onSelected }: { onSelected: () => void }) {
           )
         }
       </Loaded>
+      {/* Section 29: an owner may start another workspace, subject to abuse review; nothing is inherited from this one (DEC-088). */}
+      <p><a href="/signup">Create another workspace</a> <span className="muted">· starts empty, with its own plan and subscription</span></p>
     </section>
   );
 }

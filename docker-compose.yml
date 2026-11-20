@@ -102,6 +102,8 @@ services:
       RateLimit__HumanPerMinute: "120"
       RateLimit__ServicePerMinute: "600"
       RateLimit__PerIdentityPerMinute: "1200"
+      # Development only (DEC-088): browser tests start real workspaces; production keeps the default of 3 per identity per day (ONB-007).
+      Saas__Abuse__SignupsPerIdentityPerDay: "50"
       Support__Contact: ${TI_SUPPORT_CONTACT:-Not configured}
       Auth__Authority: http://keycloak:8080/realms/trustedinventory
       Auth__Audience: trustedinventory-api

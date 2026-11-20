@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState, type JSX } from "react";
 import { createRoot } from "react-dom/client";
-import { completeSignIn, currentSession, signIn, signOut } from "./auth";
+import { completeSignIn, currentSession, signOut } from "./auth";
 import { currentTenant, request, selectTenant } from "./api";
 import { Billing, CheckoutReturn, RestrictionBanner, Workspace, type MyMembership } from "./account";
 import { Audit, Exports, JobFailures, SettingsScreen, Team } from "./admin";
@@ -8,6 +8,7 @@ import { Catalog, Locations } from "./catalog";
 import { Adjustments, Counts, Returns, Tasks, Transfers } from "./exceptions";
 import { Devices, Recalls, Traceability } from "./quality";
 import { Alerts, Approvals, NotFound, Orders, Putaway, Receive, StockExplorer, Workspaces } from "./screens";
+import { Landing, PublicPlans, Signup } from "./public";
 import { Loaded, ScreenBoundary, useLoad } from "./ui";
 import "./styles.css";
 
@@ -125,14 +126,10 @@ function App() {
   const [tenant, setTenant] = useState(currentTenant());
   const [epoch, setEpoch] = useState(0);
 
-  if (!currentSession())
-    return (
-      <main className="signin">
-        <h1>TrustedInventory</h1>
-        <p>Sign in with your organisation account. Multi-factor authentication is required.</p>
-        <button type="button" onClick={() => void signIn()}>Sign in</button>
-      </main>
-    );
+  // Public surfaces (section 29, SAS-003): the product page, plans and signup do not need a workspace; signup asks for sign-in itself.
+  if (location.pathname === "/plans") return <PublicPlans />;
+  if (location.pathname === "/signup") return <Signup />;
+  if (!currentSession()) return <Landing />;
 
   if (location.pathname === "/billing/return" && tenant) return <main><CheckoutReturn /></main>;
 
@@ -152,7 +149,7 @@ async function start() {
   if (location.pathname === "/callback") {
     try {
       const back = await completeSignIn();
-      history.replaceState(null, "", `/${back}`);
+      history.replaceState(null, "", back);
     } catch (e) {
       document.getElementById("root")!.textContent = e instanceof Error ? e.message : "Sign-in failed.";
       return;

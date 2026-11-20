@@ -73,16 +73,21 @@ export function currentSession(): Session | null {
   return session.expiresAt > Date.now() + 10_000 ? session : null;
 }
 
-export async function signIn(): Promise<void> {
+/**
+ * Starts sign-in. `returnTo` is a same-origin path to resume at (for example "/signup" or "/platform"); by default the current
+ * path and hash. Only paths starting with a single "/" are kept, so the return can never leave this site.
+ */
+export async function signIn(returnTo?: string): Promise<void> {
   const redirect = `${location.origin}/callback`;
   const { url, verifier, state } = await authorizeUrl({}, redirect);
   sessionStorage.setItem(VERIFIER, verifier);
   sessionStorage.setItem(STATE, state);
-  sessionStorage.setItem(RETURN, location.hash || "#/");
+  const back = returnTo ?? `${location.pathname}${location.search}${location.hash || "#/"}`;
+  sessionStorage.setItem(RETURN, /^\/(?!\/)/.test(back) ? back : "/#/");
   location.assign(url);
 }
 
-/** Completes the redirect back from the identity provider; returns the hash to resume at. */
+/** Completes the redirect back from the identity provider; returns the same-origin path to resume at. */
 export async function completeSignIn(): Promise<string> {
   const params = new URLSearchParams(location.search);
   const code = params.get("code");
@@ -93,7 +98,8 @@ export async function completeSignIn(): Promise<string> {
   sessionStorage.setItem(TOKEN, JSON.stringify(session));
   sessionStorage.removeItem(VERIFIER);
   sessionStorage.removeItem(STATE);
-  return sessionStorage.getItem(RETURN) ?? "#/";
+  const back = sessionStorage.getItem(RETURN) ?? "/#/";
+  return /^\/(?!\/)/.test(back) ? back : "/#/";
 }
 
 export function signOut(): void {

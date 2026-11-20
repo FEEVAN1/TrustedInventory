@@ -1,5 +1,6 @@
 // Shared helpers for the browser tests (AT-UI-01, DEC-082, DEC-085): synthetic users from .env, one-time codes, API setup calls and the
 // Keycloak sign-in. Every user and every value is synthetic; nothing here reaches a real identity provider or customer.
+import AxeBuilder from "@axe-core/playwright";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { type Browser, type Page, type TestInfo } from "@playwright/test";
@@ -75,15 +76,20 @@ export async function retireLeftoverWarehouses(bearer: string, pattern: RegExp):
 
 /** Signs in through the Keycloak pages. Waits for a fresh one-time-code window first: Keycloak accepts each code once. */
 export async function signInAs(page: Page, user: string): Promise<void> {
-  await nextWindow();
   await page.goto("/");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await keycloakLogin(page, user, () => page.getByRole("button", { name: "Sign in" }).click());
+  await page.getByTestId("workspace-Synthetic Tenant A").click();
+}
+
+/** Completes the Keycloak password and one-time-code pages after `start` sends the browser there (DEC-088). */
+export async function keycloakLogin(page: Page, user: string, start: () => Promise<void>): Promise<void> {
+  await nextWindow();
+  await start();
   await page.locator("#username").fill(user);
   await page.locator("#password").fill(env.TI_DEV_USER_PASSWORD!);
   await page.locator("#kc-login").click();
   await page.locator("#otp").fill(totp(env.TI_DEV_OTP_SECRET!));
   await page.locator("#kc-login").click();
-  await page.getByTestId("workspace-Synthetic Tenant A").click();
 }
 
 /** A keyboard-wedge scan: the scanner types the code and presses Enter. */
@@ -221,4 +227,10 @@ export async function asOtherUser(browser: Browser, info: TestInfo, user: string
   } finally {
     await context.close();
   }
+}
+
+/** WCAG 2.0, 2.1 and 2.2 A and AA rules (axe-core): one readable line per violation and element (AT-UI-03, DEC-086). */
+export async function axeViolations(page: Page, where: string): Promise<string[]> {
+  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"]).analyze();
+  return result.violations.flatMap((v) => v.nodes.map((n) => `${where}: ${v.id} (${v.impact}) ${n.target.join(" ")} — ${v.help}`));
 }

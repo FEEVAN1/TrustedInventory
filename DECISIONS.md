@@ -1785,8 +1785,34 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   `iat - auth_time = 0` carried `amr ["pwd","otp"]` and was accepted; both with `iat - auth_time = 1` carried `amr []` and were
   refused by the API's MFA requirement, which is the correct behaviour for such a token. Later traces showed the same split (three
   refusals in all, each with `amr []` one second after `auth_time`) and accepted tokens with only `amr ["otp"]`, where the password
-  step had happened a second before the one-time code: each method drops out of the claim once a second has passed. The proposal is to set the max age to the
+  step had happened a second before the one-time code: each method drops out of the claim once a second has passed. One later refusal
+  (DEC-088 signup run) had `amr []` with `iat - auth_time = 0`, so those two claims are only a proxy: the max age is measured from when
+  each login step ran, which can be a second before both `auth_time` and `iat` are stamped. The proposed fix is unchanged. The proposal is to set the max age to the
   realm's session maximum (36000 s), so the methods a session used stay in its tokens; sensitive actions still need a
   re-authentication under 300 s old (DEC-009). This changes how MFA evidence is issued, so it waits for the owner. Until then, browser
   runs fail intermittently at sign-in, more often on a loaded machine. The browser test helper now reports a refused token's `amr`,
   `acr` and `iat` (never the token).
+
+## DEC-088 Public product, plans and signup pages; creating another workspace (M6, section 29, SAS-003, ONB-001, ONB-002, ONB-007)
+- **Status:** Adopted.
+- **Routes:** `/` (product page when signed out), `/plans` and `/signup` are path routes served by the same web app (SAS-003); the
+  workspace keeps its hash routes. Sign-in now remembers the full same-origin path to return to (`/signup`, later `/platform`); a
+  return value that does not start with a single `/` is replaced by `/#/`, so it can never leave the site.
+- **Plans:** read from the public `GET /saas/plans` with no token. A price appears only when the server marks it approved for display
+  (section 28); otherwise the plan says "Pricing is not published yet". No price, badge or compliance claim is invented; the
+  medical section says the customer must validate the controls for regulated use.
+- **Signup:** asks the visitor to sign in first (the owner is always the signed-in, email-verified, MFA identity, ONB-001); takes
+  business name, workspace address, billing country, plan and acceptance of the terms and privacy versions; submits once per attempt
+  with an Idempotency-Key that a retry reuses (ONB-002); then polls the bounded provisioning status and offers to open the workspace
+  when Ready, or shows the stable failure code and reference when Failed (ONB-007). A 403 explains email verification and MFA; a 429
+  explains the daily limit. The terms and privacy versions are `draft-2026-11`, shown as drafts: the legal texts are launch
+  dependencies the owner supplies, and the accepted version is recorded as the server already does.
+- **Account creation** stays with the identity provider (registration is off in the development realm; D02); the page says accounts are
+  managed by the organisation's sign-in provider.
+- **Another workspace:** the workspace chooser links to `/signup` ("starts empty, with its own plan and subscription"); abuse review
+  and trial eligibility stay on the server (ONB-003).
+- **Development setting:** the Compose stack sets `Saas:Abuse:SignupsPerIdentityPerDay` to 50 so repeated browser runs can start real
+  workspaces. Production keeps the default of 3 (ONB-007); `AbuseLimitTests` still prove the limit and its 429.
+- **Evidence:** AT-UI-10 (`web/e2e/public-signup.spec.ts`) reads the product page and plans signed out, signs in from the signup page
+  as bob, provisions a workspace to Ready, opens it and finds it in the chooser, with the WCAG A and AA rules checked on each page; it
+  passes at handheld and desktop widths (one earlier attempt hit the DEC-087 sign-in refusal and showed the MFA guidance as designed).
