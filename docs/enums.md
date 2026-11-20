@@ -83,6 +83,7 @@ Changing a value requires a DECISIONS.md entry and a migration.
 | PlanVersionStatus | `Draft`, `Published`, `Retired` | ENT-001; immutable once referenced |
 | ReconciliationTaskKind | `SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`, `UnknownBillingReference`, `Dispute`, `Refund`, `Chargeback` | BIL-006, BIL-008 |
 | ReconciliationTaskStatus | `Open`, `Resolved` | |
+| ComplimentaryAccessStatus | `Pending`, `Active`, `Expired`, `Revoked` | Computed at read time from approval, revocation and expiry (DEC-094) |
 
 ## Stock movement types
 

@@ -144,7 +144,8 @@ internal sealed class PurchaseOrderLineConfiguration() : TenantEntityConfigurati
 
 internal sealed class ApprovalConfiguration() : TenantEntityConfiguration<Domain.Operations.Approval>("approval")
 {
-    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.Approval> builder) { }
+    protected override void ConfigureEntity(EntityTypeBuilder<Domain.Operations.Approval> builder) =>
+        builder.Property(a => a.Proposal).HasColumnType("jsonb");
 }
 
 internal sealed class AdjustmentConfiguration() : TenantEntityConfiguration<Domain.Operations.Adjustment>("adjustment")

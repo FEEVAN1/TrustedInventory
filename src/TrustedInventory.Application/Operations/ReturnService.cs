@@ -19,7 +19,7 @@ namespace TrustedInventory.Application.Operations;
 public sealed record ReturnDto(
     Guid Id, int Version, DateTimeOffset CreatedAt, string CreatedBy, DateTimeOffset UpdatedAt, Guid ShipmentLineId, Guid WarehouseId, Quantity Quantity,
     Guid QuarantineBinId, IReadOnlyList<string> SerialNumbers, string Reason, ReturnStatus Status, Guid BucketId, ReturnDisposition? Disposition,
-    Quantity InspectedQuantity, Guid? ApprovalId) : IVersioned;
+    Quantity InspectedQuantity, Guid? ApprovalId, Guid ProductId) : IVersioned;
 
 public sealed record CreateReturn(Guid ShipmentLineId, Quantity Quantity, Guid QuarantineBinId, IReadOnlyList<string>? SerialNumbers, string Reason);
 
@@ -155,10 +155,23 @@ public sealed class ReturnService(
                 throw AppException.Validation("quantity", $"The quantity exceeds the product's precision of {product.BasePrecision} decimal places.");
             if (quantity > ret.RemainingToInspect)
                 throw AppException.Validation("quantity", $"Only {Quantity.Format(ret.RemainingToInspect)} of this return remains to inspect.");
-            if (cmd.Disposition == ReturnDisposition.Release && product.HandlingProfile == HandlingProfile.Medical)
-                throw AppException.Validation("disposition", "Medical returns stay in quarantine here; release them through POST /quality/release with a QA approval (DEC-075).");
-
             var source = await s.Db.Set<StockBucket>().AsNoTracking().SingleAsync(b => b.Id == ret.BucketId, c);
+            // Releasing returned medical goods is a QA release (DEC-091): quality.release, the release checks of the quarantined stock,
+            // and an independent ReturnRelease approval of this return at its current version, used once. Lock order: return → approval.
+            Approval? approval = null;
+            var medicalRelease = cmd.Disposition == ReturnDisposition.Release && product.HandlingProfile == HandlingProfile.Medical;
+            if (!medicalRelease && cmd.ApprovalId is not null)
+                throw AppException.Validation("approvalId", "Only releasing medical goods takes an approval.");
+            if (medicalRelease)
+            {
+                caller.RequireWarehouse(Permissions.QualityRelease, ret.WarehouseId);
+                if (cmd.ApprovalId is not { } approvalId)
+                    throw AppException.Validation("approvalId", "Releasing medical goods needs a signed ReturnRelease approval from QA (DEC-091).");
+                var problems = QualityRules.ReleaseProblems(await QualityService.FactsAsync(s, source, product, c));
+                if (problems.Count > 0)
+                    throw QualityService.Ineligible(problems);
+                approval = await ApprovalSubjects.RequireBindingAsync(s, await ApprovalSubjects.ReturnAsync(s, ret.Id, c), approvalId, c);
+            }
             Guid? target = cmd.Disposition switch
             {
                 ReturnDisposition.Release => await ReleaseTargetAsync(s, caller, ret, source, product, cmd.TargetBinId!.Value, c),
@@ -182,18 +195,21 @@ public sealed class ReturnService(
                 source.SerialId, source.Id, target, quantity, ret.Id, $"{cmd.Disposition}: {cmd.Reason}", caller.Subject, s.Now, caller.CorrelationId);
             s.Db.Add(movement);
             var before = await DtoAsync(s, ret, c);
-            DomainGuard.Run(() => ret.Inspect(cmd.Disposition, quantity, s.Now));
+            if (approval is not null)
+                DomainGuard.Run(() => approval.Consume($"return-release:{ret.Id:D}:{movement.Id:D}", s.Now));
+            DomainGuard.Run(() => ret.Inspect(cmd.Disposition, quantity, s.Now, approval?.Id));
             await s.Db.SaveChangesAsync(c);
             await s.Db.Database.ExecuteSqlAsync($"""
                 INSERT INTO ti.customer_return_inspection (tenant_id, return_id, disposition, qty, reason, movement_id, approval_id, created_at, created_by)
-                VALUES ({caller.TenantId}, {ret.Id}, {cmd.Disposition.ToString()}::ti.return_disposition, {quantity}, {cmd.Reason}, {movement.Id}, NULL,
+                VALUES ({caller.TenantId}, {ret.Id}, {cmd.Disposition.ToString()}::ti.return_disposition, {quantity}, {cmd.Reason}, {movement.Id}, {approval?.Id},
                         {s.Now}, {caller.Subject})
                 """, c);
 
             var dto = await DtoAsync(s, ret, c);
             await RecordAsync(s, caller, operationKey, "ReturnInspection", dto, c);
             s.Audit(new AuditEntry("ReturnInspected", "CustomerReturn", ret.Id, ret.Version, cmd.Reason, before,
-                new { @return = dto, disposition = cmd.Disposition.ToString(), quantity = Quantity.Format(quantity), movementId = movement.Id }));
+                new { @return = dto, disposition = cmd.Disposition.ToString(), quantity = Quantity.Format(quantity), movementId = movement.Id, approvalId = approval?.Id,
+                    approver = approval?.ApproverSubject }));
             s.Publish("ReturnInspected", new { returnId = ret.Id, disposition = cmd.Disposition.ToString(), movementId = movement.Id });
             await s.Db.SaveChangesAsync(c);
             return new CommandOutcome(200, JsonSerializer.SerializeToNode(dto, JsonDefaults.Options));
@@ -253,7 +269,7 @@ public sealed class ReturnService(
             ? await s.Db.Set<Serial>().AsNoTracking().Where(x => x.Id == sid).Select(x => x.SerialNumber).ToListAsync(ct)
             : [];
         return new ReturnDto(r.Id, r.Version, r.CreatedAt, r.CreatedBy, r.UpdatedAt, r.ShipmentLineId, r.WarehouseId, Quantity.From(r.ReturnedQty),
-            r.QuarantineBinId, serials, r.Reason, r.Status, r.BucketId, r.Disposition, Quantity.From(r.InspectedQty), r.ApprovalId);
+            r.QuarantineBinId, serials, r.Reason, r.Status, r.BucketId, r.Disposition, Quantity.From(r.InspectedQty), r.ApprovalId, r.ProductId);
     }
 
     private sealed record ShipmentLineRow(Guid Id, Guid ProductId, Guid? LotId, Guid? SerialId, decimal Shipped, decimal Returned, Guid WarehouseId);

@@ -21,6 +21,16 @@ public static class BillingEndpoints
             .WithName("listInvoices").RequirePermission(Permissions.BillingRead);
         tenant.MapGet("/saas/invoices/{id:guid}", (SubscriptionService svc, Guid id, CancellationToken ct) => svc.GetInvoiceAsync(id, ct))
             .WithName("getInvoice").RequirePermission(Permissions.BillingRead);
+        // Invoice documents through a short-lived link (BIL-006, TEN-005, DEC-092).
+        tenant.MapGet("/saas/invoices/{id:guid}/download-link", async (InvoiceDocumentService svc, Guid id, CancellationToken ct) =>
+                Results.Ok(await svc.LinkAsync(id, ct)))
+            .WithName("getInvoiceDownloadLink").RequirePermission(Permissions.BillingRead);
+        tenant.MapGet("/saas/invoices/{id:guid}/download", async (InvoiceDocumentService svc, Guid id, [FromQuery] string token, CancellationToken ct) =>
+            {
+                var file = await svc.DownloadAsync(id, token, ct);
+                return Results.File(file.Content, file.MediaType, file.FileName);
+            })
+            .WithName("downloadInvoice").RequirePermission(Permissions.BillingRead);
 
         tenant.MapPost("/saas/checkout/preview", (CheckoutService svc, CheckoutPreviewRequest body, CancellationToken ct) => svc.PreviewAsync(body, ct))
             .WithName("previewCheckout").RequirePermission(Permissions.BillingManage);
@@ -149,6 +159,28 @@ public static class BillingEndpoints
                 [FromQuery] WebhookProcessingState? state, CancellationToken ct) =>
                 svc.ListWebhookEventsAsync(PlatformEndpoints.Caller(http), state, q.ToPage(), ct))
             .WithName("listWebhookEvents").RequirePermission(Permissions.PlatformBillingManage);
+
+        // Complimentary access (section 29, DEC-094): billing requests; any other platform operator approves; either role revokes.
+        var complimentary = app.MapGroup("/platform/v1/billing/complimentary-access")
+            .RequireAuthorization(p => PlatformEndpoints.PlatformPolicy(p, PlatformEndpoints.AdministratorsKey, PlatformEndpoints.BillingKey));
+        var eitherRole = $"{Permissions.PlatformTenantsManage}|{Permissions.PlatformBillingManage}";
+        complimentary.MapGet("", (HttpContext http, ComplimentaryAccessService svc, [AsParameters] ListQuery q, [FromQuery] Guid? tenantId,
+                [FromQuery] ComplimentaryAccessStatus? status, CancellationToken ct) =>
+                svc.ListAsync(PlatformEndpoints.Caller(http), tenantId, status, q.ToPage(), ct))
+            .WithName("listComplimentaryAccess").RequirePermission(eitherRole);
+        complimentary.MapPost("", async (HttpContext http, ComplimentaryAccessService svc, CreateComplimentaryAccessRequest body, CancellationToken ct) =>
+            {
+                var grant = await svc.RequestAsync(PlatformEndpoints.Caller(http), body, ct);
+                Conventions.SetETag(http, grant.Version);
+                return Results.Created($"/platform/v1/billing/complimentary-access/{grant.Id}", grant);
+            })
+            .WithName("requestComplimentaryAccess").RequirePermission(Permissions.PlatformBillingManage);
+        complimentary.MapPost("/{id:guid}/approve", async (HttpContext http, ComplimentaryAccessService svc, Guid id, ComplimentaryDecisionRequest body,
+                CancellationToken ct) => Conventions.Ok(http, await svc.ApproveAsync(PlatformEndpoints.Caller(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("approveComplimentaryAccess").RequirePermission(eitherRole);
+        complimentary.MapPost("/{id:guid}/revoke", async (HttpContext http, ComplimentaryAccessService svc, Guid id, ComplimentaryDecisionRequest body,
+                CancellationToken ct) => Conventions.Ok(http, await svc.RevokeAsync(PlatformEndpoints.Caller(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("revokeComplimentaryAccess").RequirePermission(eitherRole);
         return app;
     }
 }

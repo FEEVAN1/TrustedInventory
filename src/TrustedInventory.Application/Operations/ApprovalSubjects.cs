@@ -31,6 +31,8 @@ internal static class ApprovalSubjects
         ApprovalSubjectType.QualityRelease or ApprovalSubjectType.HoldRelease or ApprovalSubjectType.QualityDisposition => await BucketAsync(s, type, id, ct),
         ApprovalSubjectType.RecallClosure => await RecallAsync(s, id, ct),
         ApprovalSubjectType.ExcursionDisposition => await ExcursionAsync(s, id, ct),
+        ApprovalSubjectType.ExpiryCorrection => await LotAsync(s, id, ct),
+        ApprovalSubjectType.ReturnRelease => await ReturnAsync(s, id, ct),
         _ => throw AppException.Validation("subjectType", "This subject type is not supported yet; it arrives with its workflow."),
     };
 
@@ -84,6 +86,48 @@ internal static class ApprovalSubjects
         var outstanding = await Inbound.RecallService.OutstandingAsync(s, id, ct);
         return new SubjectState(ApprovalSubjectType.RecallClosure, recall.Id, recall.Version, Inbound.RecallService.Digest(recall, outstanding),
             recall.CreatedBy, recall.LastModifiedBy, [Domain.Security.Permissions.ApprovalsSignQuality], recall.Status == "Open", ApprovalAction.Close, "recall");
+    }
+
+    /// <summary>
+    /// A lot as the subject of an expiry correction (section 07, DEC-090): QA signs; whoever received the lot or last corrected it
+    /// cannot. The digest binds the lot and how each unit is held, so any stock change after the request makes the approval stale.
+    /// Open whatever the stock: holding is checked when approval is requested and again when the correction is applied.
+    /// </summary>
+    public static async Task<SubjectState> LotAsync(ITenantSession s, Guid id, CancellationToken ct)
+    {
+        var lot = await Inbound.LotService.LockAsync(s, id, ct);
+        var hold = await Inbound.LotService.HoldStateAsync(s, id, ct);
+        var lastCorrector = await s.Db.Database.SqlQuery<string>(
+            $"SELECT created_by AS \"Value\" FROM ti.lot_expiry_correction WHERE lot_id = {id} ORDER BY created_at DESC, id DESC LIMIT 1").ToListAsync(ct);
+        return new SubjectState(ApprovalSubjectType.ExpiryCorrection, lot.Id, lot.Version, Inbound.LotService.Digest(lot, hold), lot.CreatedBy,
+            lastCorrector.FirstOrDefault() ?? lot.CreatedBy, [Domain.Security.Permissions.ApprovalsSignQuality], true, ApprovalAction.Correct, "lot");
+    }
+
+    /// <summary>
+    /// A customer return as the subject of releasing its medical goods (EXC-005, DEC-091): QA signs; whoever received the return cannot.
+    /// The digest binds the return's state and its quarantined stock, so any inspection or movement after the request makes it stale.
+    /// </summary>
+    public static async Task<SubjectState> ReturnAsync(ITenantSession s, Guid id, CancellationToken ct)
+    {
+        if ((await s.Db.Database.SqlQuery<Guid>($"SELECT id AS \"Value\" FROM ti.customer_return WHERE id = {id} FOR UPDATE").ToListAsync(ct)).Count == 0)
+            throw AppException.NotFound("Return");
+        var ret = await s.Db.Set<CustomerReturn>().AsNoTracking().SingleAsync(r => r.Id == id, ct);
+        var bucket = await s.Db.Set<Domain.Inbound.StockBucket>().AsNoTracking().SingleAsync(b => b.Id == ret.BucketId, ct);
+        var text = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"return|{ret.Id:D}|{ret.Version}|{ret.ProductId:D}|{ret.Status}|{Quantity.Format(ret.ReturnedQty)}|{Quantity.Format(ret.InspectedQty)}|{ret.BucketId:D}|{bucket.QualityStatus}|{Quantity.Format(bucket.OnHandQty)}|{Quantity.Format(bucket.ReservedQty)}");
+        return new SubjectState(ApprovalSubjectType.ReturnRelease, ret.Id, ret.Version,
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)), ret.CreatedBy, ret.CreatedBy,
+            [Domain.Security.Permissions.ApprovalsSignQuality], ret.Status == ReturnStatus.Received, ApprovalAction.Release, "return");
+    }
+
+    /// <summary>An expiry correction may be requested only for held stock and a date that differs from the lot's (section 07, DEC-090).</summary>
+    public static async Task EnsureProposalAsync(ITenantSession s, SubjectState subject, ApprovalProposal proposal, CancellationToken ct)
+    {
+        var lot = await s.Db.Set<Domain.Inbound.Lot>().AsNoTracking().SingleAsync(l => l.Id == subject.Id, ct);
+        if (lot.ExpiryDate == proposal.ExpiryDate)
+            throw AppException.Validation("proposal.expiryDate", "The lot already has this expiry date.");
+        if (!(await Inbound.LotService.HoldStateAsync(s, subject.Id, ct)).AllHeld)
+            throw AppException.InvalidState("Hold all stock of this lot first: nothing may be available, reserved or in transit (section 07).");
     }
 
     /// <summary>An excursion as the subject of its QA disposition (TEL-003, DEC-077): QA signs; whoever last changed it cannot.</summary>

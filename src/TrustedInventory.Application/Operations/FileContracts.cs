@@ -14,7 +14,7 @@ public interface IObjectStore
 /// <summary>What a download link points at (DEC-061).</summary>
 public enum DownloadKind
 {
-    Attachment, Export,
+    Attachment, Export, Invoice,
 }
 
 /// <summary>

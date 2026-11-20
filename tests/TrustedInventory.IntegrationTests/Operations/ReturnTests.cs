@@ -54,6 +54,8 @@ public sealed class ReturnTests(ApiFixture fx)
     [Fact]
     [Trait("Requirement", "EXC-005")]
     [Trait("Requirement", "STK-004")]
+    [Trait("Requirement", "SOD-2")]
+    [Trait("Requirement", "IAM-003")]
     public async Task Inspections_split_a_return_into_release_damage_supplier_return_and_disposal_and_medical_release_waits_for_QA()
     {
         var w = await WorldAsync("ret-inspect");
@@ -87,11 +89,32 @@ public sealed class ReturnTests(ApiFixture fx)
             """, ("t", w.Tenant)));
         Assert.Equal(4L, await CountAsync("SELECT count(*) FROM ti.customer_return_inspection WHERE tenant_id = @t", w.Tenant));
 
-        // Medical returns are released only through QA quality release (M5).
+        // Medical returns are released only with QA: quality.release, the release checks and an independent ReturnRelease approval of
+        // this return, used once (DEC-091). The manager received the return and asks; the QA inspector signs and releases.
         var medicalLine = await ShipmentLineAsync(w, w.Medical, 2, lot: "M-1");
-        var medical = (string)(await (await Return(w, Guid.NewGuid(), medicalLine, "2", w.ColdQuarantine)).ExpectAsync(HttpStatusCode.Created))["id"]!;
+        var medicalReturn = await (await Return(w, Guid.NewGuid(), medicalLine, "2", w.ColdQuarantine)).ExpectAsync(HttpStatusCode.Created);
+        var medical = (string)medicalReturn["id"]!;
+        Assert.Equal(w.Medical, (string?)medicalReturn["productId"]);
         await (await Inspect(w.Inspector, medical, "1", "Release", "2", w.C01)).ExpectProblemAsync(HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
-        await (await Inspect(w.Inspector, medical, "1", "Disposal", "2", null)).ExpectAsync(HttpStatusCode.OK);
+        var approval = (string)(await (await w.Manager.PostJsonAsync("/api/v1/approvals", new
+        {
+            subjectType = "ReturnRelease", subjectId = medical, subjectVersion = 1, action = "Release", reason = "Seals intact; cold chain logger clean",
+        })).ExpectAsync(HttpStatusCode.Created))["id"]!;
+        Task<HttpResponseMessage> Release(string quantity, string version) => PostAsync(w.Inspector, $"/api/v1/returns/{medical}/inspect", Guid.NewGuid(),
+            $"\"{version}\"", new { disposition = "Release", quantity, targetBinId = w.C01, approvalId = approval, reason = "Released by QA" });
+        await (await Release("1", "1")).ExpectProblemAsync(HttpStatusCode.Conflict, "APPROVAL_STALE"); // not signed yet
+        await (await w.Inspector.PostJsonAsync($"/api/v1/approvals/{approval}/sign",
+            new { reauthToken = TestTokens.Issue(w.InspectorSubject), meaning = "QualityRelease", reason = "Return records checked" }, "\"1\"")).ExpectAsync(HttpStatusCode.OK);
+        // Only a medical release takes an approval.
+        await (await PostAsync(w.Inspector, $"/api/v1/returns/{medical}/inspect", Guid.NewGuid(), "\"1\"",
+            new { disposition = "Disposal", quantity = "1", approvalId = approval, reason = "x" })).ExpectProblemAsync(HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        var released = await (await Release("1", "1")).ExpectAsync(HttpStatusCode.OK);
+        Assert.Equal(approval, (string?)released["approvalId"]);
+        Assert.Equal("1|Available", await InBinAsync(w.C01, w.Medical));
+        Assert.Equal("Consumed", await ScalarAsync<string>("SELECT status::text FROM ti.approval WHERE id = @a", ("a", Guid.Parse(approval))));
+        Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.customer_return_inspection WHERE tenant_id = @t AND approval_id IS NOT NULL", w.Tenant));
+        await (await Release("1", $"{(int)released["version"]!}")).ExpectProblemAsync(HttpStatusCode.Conflict, "APPROVAL_STALE"); // used once
+        await (await Inspect(w.Inspector, medical, $"{(int)released["version"]!}", "Disposal", "1", null)).ExpectAsync(HttpStatusCode.OK);
         await ReconcileAsync();
         Assert.Equal(0L, await CountAsync("SELECT count(*) FROM ti.alert WHERE tenant_id = @t AND type = 'ReconciliationMismatch'", w.Tenant));
     }
@@ -99,7 +122,7 @@ public sealed class ReturnTests(ApiFixture fx)
     // ---------------------------------------------------------------------------------------------------------------
 
     private sealed record World(Guid Tenant, HttpClient Manager, HttpClient Inspector, string Warehouse, string A01, string Q01, string C01, string ColdQuarantine,
-        string General, string Medical, string Customer);
+        string General, string Medical, string Customer, string InspectorSubject);
 
     private async Task<World> WorldAsync(string label)
     {
@@ -132,7 +155,7 @@ public sealed class ReturnTests(ApiFixture fx)
             INSERT INTO ti.role_grant (tenant_id, membership_id, grantee_subject, role, reason, granted_by, created_by)
             VALUES (@t, @m, @s, 'QaOfficer', 'test seed', 'seed', 'seed')
             """, ("t", tenant.TenantId), ("m", membership), ("s", inspector));
-        return new World(tenant.TenantId, admin, fx.Client(inspector, tenant.TenantId), warehouse, a01, q01, c01, cq, general, medical, customer);
+        return new World(tenant.TenantId, admin, fx.Client(inspector, tenant.TenantId), warehouse, a01, q01, c01, cq, general, medical, customer, inspector);
     }
 
     /// <summary>A dispatched shipment line written as the superuser (the dispatch flow itself is covered by M3's DispatchTests).</summary>

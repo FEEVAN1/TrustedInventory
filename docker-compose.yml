@@ -99,7 +99,9 @@ services:
       # S3 lifecycle and service (DEC-070, DEC-072, DEC-073, DEC-074): proposed defaults until the owner approves them.
       Lifecycle__ExportWindowDays: "90"
       Lifecycle__BackupRetentionDays: "35"
-      RateLimit__HumanPerMinute: "120"
+      # Development only (DEC-092): screens resolve row names one request each, so fast browser runs exceed 120 a minute; the
+      # production budget is an open owner decision (DEC-073) and should weigh that fan-out.
+      RateLimit__HumanPerMinute: "600"
       RateLimit__ServicePerMinute: "600"
       RateLimit__PerIdentityPerMinute: "1200"
       # Development only (DEC-088): browser tests start real workspaces; production keeps the default of 3 per identity per day (ONB-007).

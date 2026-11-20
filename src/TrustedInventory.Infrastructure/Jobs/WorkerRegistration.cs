@@ -22,6 +22,7 @@ public static class WorkerRegistration
         services.AddSingleton<OutboxDispatcher>();
         services.AddSingleton<IdempotencyCleanupJob>();
         services.AddSingleton<AuditCheckpointJob>();
+        services.AddSingleton<AuditCheckpointVerificationJob>();
         services.AddSingleton<LedgerReconciliationJob>();
         services.AddSingleton<ReservationExpiryJob>();
         services.AddSingleton<ExportGenerationJob>();

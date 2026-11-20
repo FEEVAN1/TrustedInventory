@@ -1983,7 +1983,7 @@ paths:
       tags:
         - Quality
       summary: Correct lot expiry (QA)
-      description: Requires a signed ExpiryCorrection approval and all stock of the lot held (section 07).
+      description: Requires a signed ExpiryCorrection approval of the lot at its current version whose proposal names this expiryDate, and all stock of the lot held (no Available stock, no reservation, nothing in transit) (section 07, DEC-090). Refused with 409 INVALID_STATE when stock is not held and 409 APPROVAL_STALE when the approval does not bind this lot, version or date.
       x-permission: quality.hold
       x-access: routine-write
       x-entitlement: core_inventory
@@ -8688,6 +8688,52 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /saas/invoices/{id}/download:
+    get:
+      operationId: downloadInvoice
+      tags:
+        - Billing
+      summary: Download the invoice document through a short-lived link
+      description: A PDF rendered from the invoice snapshot, which never changes (BIL-001); an invoice from the billing simulator is marked SIMULATED (AGT-004). The token from getInvoiceDownloadLink is bound to the tenant, the caller, this invoice and an expiry at most 15 minutes ahead; an invalid, foreign or expired token returns 404 (TEN-005, DEC-092).
+      x-permission: billing.read
+      x-access: billing
+      x-requirements:
+        - BIL-006
+        - TEN-005
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 20
+            maxLength: 1024
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: The invoice as a PDF document.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                contentMediaType: application/pdf
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /saas/billing-portal:
     post:
       operationId: createBillingPortalSession
@@ -10105,6 +10151,200 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/billing/complimentary-access:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: listComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: List complimentary access grants
+      description: Newest first. Status is computed at the request time (Pending, Active, Expired, Revoked) (section 29, DEC-094).
+      x-permission: platform.tenants.manage|platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ComplimentaryAccessStatus"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccessPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: requestComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: Request complimentary access for a workspace
+      description: A platform billing operator asks for a published plan's features and limits for a workspace until an expiry at most 366 days ahead, with a reason. It has no effect until another platform operator approves it (section 29, DEC-094). One open (Pending or Active) grant per workspace; audited in the workspace's chain.
+      x-permission: platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+        - SOD-8
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateComplimentaryAccessRequest"
+      responses:
+        "201":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/billing/complimentary-access/{id}/approve:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: approveComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: Approve complimentary access (another operator)
+      description: Independent approval (section 29); the approver must be a different platform operator from the requester (409 APPROVAL_SELF). Only a pending grant whose expiry has not passed is approved; from then until expiry, revocation, a security suspension or closure, the workspace has the plan's features and limits and no billing restriction (DEC-094).
+      x-permission: platform.tenants.manage|platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+        - SOD-8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplimentaryDecisionRequest"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/billing/complimentary-access/{id}/revoke:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: revokeComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: Revoke complimentary access
+      description: Ends a pending or active grant at once, with a reason; billing restrictions apply again from the subscription (DEC-094).
+      x-permission: platform.tenants.manage|platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+        - SOD-8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplimentaryDecisionRequest"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /platform/v1/billing/webhook-events:
     servers:
       - url: /
@@ -10771,6 +11011,11 @@ components:
             - string
             - "null"
           maxLength: 1000
+        proposal:
+          anyOf:
+            - $ref: "#/components/schemas/ApprovalProposal"
+            - type: "null"
+          description: What the requester proposes and the signer approves, bound to the approval (DEC-090). Present only for ExpiryCorrection.
       required:
         - id
         - version
@@ -10789,6 +11034,7 @@ components:
         - signedAt
         - expiresAt
         - consumedAt
+        - proposal
     ApprovalAction:
       type: string
       enum:
@@ -10797,6 +11043,15 @@ components:
         - Close
         - Correct
         - Dispose
+    ApprovalProposal:
+      type: object
+      description: The change a signer approves, stored with the approval and unchangeable after the request (IAM-003, DEC-090). Required for ExpiryCorrection and refused for every other subject type.
+      properties:
+        expiryDate:
+          $ref: "#/components/schemas/Date"
+      required:
+        - expiryDate
+      additionalProperties: false
     ApprovalPage:
       type: object
       properties:
@@ -11484,6 +11739,114 @@ components:
       required:
         - resolution
       additionalProperties: false
+    ComplimentaryAccess:
+      type: object
+      description: Free access to a plan for a workspace until an expiry, effective only once a second platform operator approves it (section 29, DEC-094).
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+        tenantId:
+          $ref: "#/components/schemas/Uuid"
+        tenantName:
+          type: string
+          maxLength: 200
+        planVersionId:
+          $ref: "#/components/schemas/Uuid"
+        planCode:
+          type: string
+          maxLength: 64
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+        reason:
+          $ref: "#/components/schemas/Reason"
+        status:
+          $ref: "#/components/schemas/ComplimentaryAccessStatus"
+        requestedBy:
+          type: string
+          maxLength: 255
+        requestedAt:
+          $ref: "#/components/schemas/Timestamp"
+        approvedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        approvedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        approvalReason:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        revokedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        revokedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        revokeReason:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+      required:
+        - id
+        - version
+        - tenantId
+        - tenantName
+        - planVersionId
+        - planCode
+        - expiresAt
+        - reason
+        - status
+        - requestedBy
+        - requestedAt
+        - approvedBy
+        - approvedAt
+        - approvalReason
+        - revokedBy
+        - revokedAt
+        - revokeReason
+    ComplimentaryAccessPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComplimentaryAccess"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
+    ComplimentaryAccessStatus:
+      type: string
+      enum:
+        - Pending
+        - Active
+        - Expired
+        - Revoked
+    ComplimentaryDecisionRequest:
+      type: object
+      properties:
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - reason
+      additionalProperties: false
     Count:
       type: object
       description: Counting locks the bins against quantity movements (EXC-003, DEC-008).
@@ -11688,6 +12051,8 @@ components:
           $ref: "#/components/schemas/ApprovalAction"
         reason:
           $ref: "#/components/schemas/Reason"
+        proposal:
+          $ref: "#/components/schemas/ApprovalProposal"
       required:
         - subjectType
         - subjectId
@@ -11737,6 +12102,23 @@ components:
           $ref: "#/components/schemas/Reason"
       required:
         - settings
+        - reason
+      additionalProperties: false
+    CreateComplimentaryAccessRequest:
+      type: object
+      properties:
+        tenantId:
+          $ref: "#/components/schemas/Uuid"
+        planVersionId:
+          $ref: "#/components/schemas/Uuid"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - tenantId
+        - planVersionId
+        - expiresAt
         - reason
       additionalProperties: false
     CreateCountRequest:
@@ -12898,7 +13280,7 @@ components:
           description: Required for Release.
         approvalId:
           $ref: "#/components/schemas/Uuid"
-          description: Required when releasing medical goods.
+          description: Required when releasing medical goods - a signed ReturnRelease approval of this return at its current version; the caller also needs quality.release and the stock must pass the quality release checks (DEC-091).
         reason:
           $ref: "#/components/schemas/Reason"
       required:
@@ -15827,6 +16209,9 @@ components:
           $ref: "#/components/schemas/Uuid"
         warehouseId:
           $ref: "#/components/schemas/Uuid"
+        productId:
+          $ref: "#/components/schemas/Uuid"
+          description: The returned product; releasing a medical product needs a signed ReturnRelease approval (DEC-091).
         quantity:
           $ref: "#/components/schemas/PositiveQuantity"
         quarantineBinId:
@@ -15867,6 +16252,7 @@ components:
         - bucketId
         - disposition
         - inspectedQuantity
+        - productId
     ReturnDisposition:
       type: string
       enum:
@@ -16766,6 +17152,11 @@ components:
           $ref: "#/components/schemas/QuotaLimits"
         usage:
           $ref: "#/components/schemas/QuotaUsage"
+        complimentaryUntil:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+          description: Set while an approved complimentary grant is in force; its plan's features and limits apply and no billing restriction does (DEC-094).
       required:
         - id
         - version
@@ -16788,6 +17179,7 @@ components:
         - restrictionReasons
         - limits
         - usage
+        - complimentaryUntil
     SubscriptionChange:
       type: object
       properties:

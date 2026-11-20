@@ -1838,3 +1838,128 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   places and releases a retention hold, reads provisioning, alerts and plans, and is refused billing tasks; the billing operator is
   refused workspaces, drafts a plan version and adds an XTS price marked "Not shown", and reads billing tasks and webhooks; WCAG A
   and AA rules pass on each page; handheld and desktop widths, 20 Nov 2026 (one desktop attempt hit the DEC-087 sign-in refusal).
+
+## DEC-090 Lot expiry correction with an approval bound to the exact date (M5 carry-over in M6, section 07, MED-003, IAM-003)
+- **Status:** Adopted.
+- **Rule (section 07):** a lot's expiry is fixed at receipt except through an audited QA correction with the lot's stock held.
+- **Approval binds the date (contract change):** an approval's subject and digest bind the lot as it stands, not the date being
+  requested, so a signature alone would let the requester apply any date. `CreateApprovalRequest` gains an optional `proposal`
+  (`{expiryDate}`), required for `ExpiryCorrection` and refused for every other subject type; the approval stores and returns it, and
+  `approval_guard` makes it part of the unchangeable binding. The correction must name exactly the proposed date (409
+  `APPROVAL_STALE` otherwise). The inbox shows the signer the exact date.
+- **Subject:** the lot (`ExpiryCorrection`, action `Correct`, signed with `approvals.sign.quality`). The digest covers the lot's identity,
+  expiry and version and every bucket of the lot (status, on hand, reserved) plus stock in transit, so any change after the request
+  makes the approval stale. The receiver of the lot and its last corrector cannot sign (SOD-1).
+- **Held means:** no Available stock of the lot, nothing reserved and nothing in transit; checked when approval is requested and again
+  when the correction is applied (409 `INVALID_STATE`).
+- **Command:** `POST /lots/{id}/expiry-correction` (`quality.hold`, If-Match on the lot, Idempotency-Key) writes, in one transaction, an
+  append-only `lot_expiry_correction` row, the new expiry and version, the consumed approval, the `LotExpiryCorrected` audit event
+  (before and after) and an outbox event. `expiryCorrected` on a lot is true once a correction exists. No stock moves.
+- **Database backstop (migration 0030):** trigger `lot_guard` refuses changes to a lot's product, number or handling profile, and any
+  change of its expiry without a matching correction row written in the same transaction (matched by transaction id). The new table
+  has tenant row-level security, the purge policy and grant, and is in the tenant archive.
+- **Screens:** the lot traceability report has "Correct the expiry date (QA)": choose the date, request approval of it, apply once
+  signed; the report then shows the corrected date and "Expiry corrected by QA".
+- **Evidence:** `LotExpiryCorrectionTests` (two tests: the full rule set including replay, single use, version and date binding; the
+  database guards) on PostgreSQL 16; `correctLotExpiry` is removed from the conformance test's exceptions; AT-UI-12
+  (`web/e2e/expiry-correction.spec.ts`).
+- **Found while deploying:** only the `db-bootstrap` service builds the migrator image, so rebuilding `api` and `worker` alone leaves
+  new migrations unapplied; `docker compose up -d --build` (README) builds it.
+
+## DEC-091 Releasing returned medical goods through the return workflow (M5 carry-over in M6, EXC-005, SOD-2, IAM-003)
+- **Status:** Adopted. Replaces the 422 refusal of DEC-060 ("medical returns stay in quarantine; release them through quality release").
+- **Rule:** inspecting a return with `Release` for a medical product needs, besides `returns.inspect`: `quality.release` in the warehouse;
+  the quality release checks on the quarantined stock (identifiers and expiry, not expired in the warehouse's time zone, inspections
+  passed, storage suitable, no open recall or excursion; 422 `RELEASE_INELIGIBLE` otherwise); and a signed `ReturnRelease` approval of
+  this return at its current version (409 `APPROVAL_STALE` otherwise), used once. Any other disposition, or a general product, refuses an
+  `approvalId` (422).
+- **Subject:** the return (`ReturnRelease`, action `Release`, signed with `approvals.sign.quality`). The digest binds the return's
+  version, status, returned and inspected quantities and its quarantine bucket (status, on hand, reserved). Whoever received the return
+  cannot sign it (SOD-1); the signer must be QA (SOD-2).
+- **Record:** the inspection row and the return name the approval; the approval is consumed as `return-release:<return>:<movement>`; the
+  `ReturnInspected` audit event names the approval and approver.
+- **Contract:** `Return` gains `productId`, so the screen knows when the QA step applies; `InspectReturnRequest.approvalId` documents
+  the rule.
+- **Screens:** the return card shows "Release with QA approval" behind the approval gate for medical products, and the ordinary
+  "Record inspection" otherwise.
+- **Evidence:** `ReturnTests.Inspections_split_a_return_into_release_damage_supplier_return_and_disposal_and_medical_release_waits_for_QA`
+  now drives the medical release end to end (refused without approval, refused before signing, refused with an approval on a
+  non-release, released once with the signed approval, refused on reuse). The medical release screen is built but not yet driven in
+  the browser (it needs a cold-chain product, zone and lot set up end to end); AT-UI-07 covers the general return card.
+
+## DEC-092 Invoice documents; downloads from the screens fixed (S2 carry-over in M6, BIL-006, TEN-005, AGT-004)
+- **Status:** Adopted.
+- **Invoice documents:** `GET /saas/invoices/{id}/download-link` (now implemented) issues a short-lived token bound to the tenant, the
+  caller, the invoice and an expiry of at most 15 minutes, like exports (DEC-061); the new contract route `GET /saas/invoices/{id}/download`
+  returns a PDF rendered on request from the invoice snapshot. The snapshot never changes (BIL-001), so the document needs no storage
+  and always shows what was billed: number, status and latest payment status, the business's legal name and country, period, issue,
+  due and paid dates, lines, subtotal, tax and total in integer minor units with the currency's exponent, and the provider. Tax
+  references are never shown (section 27). Draft invoices have no document (409). An invoice from the billing simulator is marked
+  "SIMULATED INVOICE ... not a demand for payment" (AGT-004). Both the link and the download are audited (`InvoiceLinkIssued`,
+  `InvoiceDownloaded`).
+- **Renderer:** a plain PDF 1.4 writer in Infrastructure (A4, standard Helvetica fonts, text only, deterministic), so no package is
+  added; text outside Latin-1 is replaced with "?". A production template with the owner's legal details is an owner decision.
+- **Downloads from the screens were broken (found here):** the screens opened the download link with `window.open`. The link is an API
+  path (`/api/v1/...`), so the browser resolved it against the web app's own origin, without the bearer token: the web server answered
+  with its own page (200 text/html) and no export or archive could actually be downloaded. AT-UI-02's download check made the same
+  mistake through Playwright's request context and passed on that HTML page, so its earlier evidence for downloads was not valid. The
+  screens now fetch the link from the API with the session's bearer token and workspace, and save the file
+  (`downloadThroughLink`); the API exposes `Content-Disposition` to the web origin for the file name. AT-UI-02 now clicks Download,
+  requires a real `.jsonl` file from the browser, and fetches the link from the API with the token.
+- **Screens:** the billing screen's "PDF" button is back for every non-draft invoice.
+- **Rate budget bursts (found by the browser runs):** a screen that resolves many names at once (for example the return form's
+  shipment list) can exceed the per-person budget (120 a minute in development); the next request is refused with 429 and a dropdown
+  stays disabled, or a write is refused. The web client now waits for the server's `Retry-After` (at most 10 seconds) and tries once
+  more. The rate limiter refuses before any handler runs (and the application's own 429s refuse without acting), so a 429 means
+  nothing happened and one retry cannot act twice; writes keep their Idempotency-Key. One retry is not enough once a minute's budget
+  is spent: list screens resolve each row's product, bin, warehouse or partner name with its own request, so with the synthetic data
+  of these runs a quick pass over the screens exceeds 120 requests a minute. **For the owner (DEC-073):** the proposed 120 per person
+  per minute is tight for that fan-out; returning names in list responses would remove most of it. The development stack now uses 600
+  (`RateLimit__HumanPerMinute`) so browser runs measure the screens, not the budget; the production value stays open.
+- **Evidence:** `SubscriptionReadTests.An_invoice_document_downloads_once_linked_only_for_its_tenant_and_caller_and_marks_the_simulator`
+  (PDF structure, simulator mark, escaped text and totals; token bound to invoice, tenant and caller; no link for a member without
+  `billing.read`; none for drafts; audit events); `getInvoiceDownloadLink` leaves the conformance test's exceptions, which now list only
+  the two health checks. No development invoice exists for the shared tenant (its subscription was seeded, D09), so the PDF button is
+  not driven in the browser.
+
+## DEC-093 Audit reordering evidence and independent verification of external checkpoints (M1 carry-over in M6, AT-AUD-01, AUD-003)
+- **Status:** Adopted.
+- **Reordering:** each event hash covers the previous event's hash, so swapping events breaks the links even though each event still
+  matches its own content. `AuditTrailTests.Reordered_events_fail_verification_at_the_first_moved_sequence` swaps two events' sequence
+  numbers (as a database superuser bypassing the append-only trigger could) and verification fails with `HashMismatch` at the first
+  moved sequence and opens the High alert. No code change was needed; the evidence was missing.
+- **External checkpoints:** until now nothing read the signed checkpoints back: `POST /audit/verify` compares the chain with the
+  checkpoint row in the same database, so an attacker able to rewrite both the events and that row would not be noticed. A new worker
+  job, `AuditCheckpointVerificationJob`, runs on the checkpoint schedule. For every checkpoint kept in the separately administered
+  retention store it checks the HMAC signature with the checkpoint key (`SignatureInvalid`, `UnknownSigningKey`), that the event at
+  the signed sequence still exists with the signed hash (`EventMissing`, `EventHashMismatch`), and that the database's own checkpoint
+  row agrees (`DatabaseCheckpointMissing`, `DatabaseCheckpointMismatch`); a database checkpoint with no external copy is `NotExternal`.
+  Any problem opens one High `AuditChainFailure` alert (deduplicated) with the problems listed; the API has no access to the key or the
+  store, so this check runs only in the worker. `IRetentionStore` gains `ReadCheckpointsAsync`; the simulated store reads its files.
+- **Evidence:** `WorkerJobTests.External_checkpoints_catch_a_rewritten_chain_with_a_matching_database_checkpoint_and_a_forged_signature`:
+  an intact chain has no problems; rewriting the event at the checkpoint and the database checkpoint to agree gives two problems and
+  one alert; a forged signature in the external file adds a third, still one alert. With this, AT-AUD-01's altered, deleted and
+  reordered events and the external checkpoint check all have evidence. Production retention storage and key custody remain D06.
+
+## DEC-094 Complimentary access with independent approval (S2 carry-over in M6, section 29, BIL-008, SOD-8, LFC-001)
+- **Status:** Adopted; the commercial policy (who may receive a grant, typical terms) is an owner decision with D09.
+- **Model:** a platform billing operator (`platform.billing.manage`) requests a published plan version for one workspace until an
+  expiry at most 366 days ahead, with a reason. The plan's features and quotas are copied into the grant, so the grant shows exactly
+  what was approved even if the catalog changes. Nothing changes until a **different** platform operator (operations or billing)
+  approves it with a reason (409 `APPROVAL_SELF` for the requester, also enforced by a CHECK). Either platform role revokes a pending
+  or active grant with a reason. One open (pending or active) grant per workspace; the tenant row is locked for the request.
+- **Effect:** `cp.tenant_access()` (migration 0031) also returns the latest approved, unrevoked grant. `TenantAccessState` applies it
+  only while the request clock is before its expiry: there is then no billing restriction, and features and limits come from the
+  grant. Closure, deletion, provisioning and a security suspension are decided before billing and are never lifted by a grant. The
+  subscription itself is untouched (a trial stays Trialing), so when the grant ends or is revoked the subscription's state applies
+  again at that instant, with no job involved. `GET /saas/subscription` adds `complimentaryUntil` while a grant is in force and
+  reports the grant's limits.
+- **Controls:** request fields are immutable and the approval and revocation are written once (trigger); rows are never deleted; every
+  step is audited in the workspace's own chain (`ComplimentaryAccessRequested`, `...Approved`, `...Revoked`). The grant never changes
+  stock, audit history or billing records, and no invoice is raised for it.
+- **Evidence:** `ComplimentaryAccessTests` (request, self-approval refusal, stale version, approval, access back to Normal with the
+  grant's limits, listing, revocation restoring the restriction, audit events, immutable rows) and
+  `AccessMatrixTests.Complimentary_access_replaces_billing_and_entitlements_until_its_expiry_but_never_lifts_security_or_closure`.
+- **Follow-up (20 Nov 2026):** the full integration run found that `DispatchTests` arranged an expiry by updating `ti.lot` directly, which the
+  0030 guard now refuses (as intended). The test now uses a test-only helper that switches triggers off for that one statement as a database
+  superuser, standing in for time passing; no application path can do this. The required schema version moved to `0031_complimentary_access`.

@@ -116,6 +116,27 @@ public sealed class AuditTrailTests(ApiFixture fx)
     }
 
     [Fact]
+    [Trait("Requirement", "AT-AUD-01")]
+    [Trait("Requirement", "AUD-002")]
+    public async Task Reordered_events_fail_verification_at_the_first_moved_sequence()
+    {
+        // Swap two adjacent events' sequence numbers: every hash still matches its own content, but the links do not (DEC-093).
+        var tenant = await AuditedTenantAsync("reorder");
+        const int first = FirstWarehouseSequence;
+        await TamperAsync($"UPDATE ti.audit_event SET sequence = 999999 WHERE tenant_id = @t AND sequence = {first}", tenant.TenantId);
+        await TamperAsync($"UPDATE ti.audit_event SET sequence = {first} WHERE tenant_id = @t AND sequence = {first + 1}", tenant.TenantId);
+        await TamperAsync($"UPDATE ti.audit_event SET sequence = {first + 1} WHERE tenant_id = @t AND sequence = 999999", tenant.TenantId);
+
+        var result = await (await fx.Client(tenant.Admin, tenant.TenantId).PostJsonAsync("/api/v1/audit/verify", new { }))
+            .ExpectAsync(HttpStatusCode.OK);
+        Assert.False((bool)result["verified"]!);
+        Assert.Equal("HashMismatch", (string?)result["failure"]);
+        Assert.Equal(first, (long)result["firstFailureSequence"]!);
+        Assert.Equal(1L, await TenantProvisioning.ScalarAsSuperuserAsync(fx,
+            "SELECT count(*) FROM ti.alert WHERE tenant_id = @t AND type = 'AuditChainFailure' AND status = 'Open'", ("t", tenant.TenantId)));
+    }
+
+    [Fact]
     [Trait("Requirement", "AT-TEN-01")]
     [Trait("Requirement", "IAM-001")]
     public async Task Audit_events_are_tenant_isolated_and_need_audit_read()

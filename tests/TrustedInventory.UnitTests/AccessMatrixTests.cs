@@ -70,6 +70,31 @@ public class AccessMatrixTests
             cancelAtPeriodEnd, 1, 1, new HashSet<string> { FeatureKeys.CoreInventory }, new Dictionary<QuotaKey, long>(), null);
 
     [Fact]
+    [Trait("Requirement", "BIL-008")]
+    [Trait("Requirement", "LFC-001")]
+    public void Complimentary_access_replaces_billing_and_entitlements_until_its_expiry_but_never_lifts_security_or_closure()
+    {
+        var until = Now.AddDays(10);
+        var granted = new HashSet<string> { FeatureKeys.CoreInventory, FeatureKeys.AdvancedReporting };
+        var limits = new Dictionary<QuotaKey, long> { [QuotaKey.ActiveWarehouses] = 7 };
+        var ended = State(sub: SubscriptionState.Cancelled) with { ComplimentaryUntil = until, ComplimentaryFeatures = granted, ComplimentaryLimits = limits };
+
+        Assert.Equal(AccessMode.Normal, ended.Mode(Now));
+        Assert.Empty(ended.Reasons(Now));
+        Assert.True(ended.HasFeature(FeatureKeys.AdvancedReporting, Now));
+        Assert.Equal(7, ended.Limit(QuotaKey.ActiveWarehouses, Now));
+        Assert.Equal(0, ended.Limit(QuotaKey.ActiveSkus, Now));
+
+        // The expiry is exact, computed with the clock; nothing waits for a job.
+        Assert.Equal(AccessMode.BillingRestricted, ended.Mode(until));
+        Assert.Equal([RestrictionReason.SubscriptionEnded], ended.Reasons(until));
+        Assert.False(ended.HasFeature(FeatureKeys.AdvancedReporting, until));
+
+        Assert.Equal(AccessMode.SecuritySuspended, (ended with { SecuritySuspendedAt = Now.AddDays(-1) }).Mode(Now));
+        Assert.Equal(AccessMode.Closed, (ended with { Lifecycle = TenantLifecycle.Archived }).Mode(Now));
+    }
+
+    [Fact]
     [Trait("Requirement", "LFC-001")]
     [Trait("Requirement", "AT-BIL-04")]
     public void Precedence_is_deleted_closed_security_billing_provisioning()

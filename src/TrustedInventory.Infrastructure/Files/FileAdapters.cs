@@ -107,6 +107,7 @@ public static class FileRegistration
         services.AddSingleton<IObjectStore>(new SimulatedFileObjectStore(DependencyInjection.Required(configuration, "Storage:Directory")));
         services.AddSingleton<IDownloadLinks>(new HmacDownloadLinks(Convert.FromBase64String(DependencyInjection.Required(configuration, "Storage:LinkKey"))));
         services.AddSingleton<IAttachmentScanner, SimulatedAttachmentScanner>();
+        services.AddSingleton<TrustedInventory.Application.Billing.IInvoiceDocuments, PdfInvoiceDocuments>();
         return services;
     }
 }

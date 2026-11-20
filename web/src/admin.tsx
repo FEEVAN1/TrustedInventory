@@ -2,7 +2,7 @@
 // the audit trail with chain verification; controlled exports; and failed jobs. Every change is server-authorised and audited.
 import { useCallback, useState } from "react";
 import { request } from "./api";
-import { Act, Choice, Field, list, openLink, PagedList, Pick, Screen, Tabs, usePaged, when } from "./kit";
+import { Act, Choice, Field, list, downloadThroughLink, PagedList, Pick, Screen, Tabs, usePaged, when } from "./kit";
 import { Empty, Loaded, useLoad } from "./ui";
 
 const ROLES = ["TenantAdministrator", "WarehouseManager", "Receiver", "Picker", "Dispatcher", "QaOfficer", "InventoryApprover", "Auditor", "TelemetryIntegration", "BillingAdministrator"] as const;
@@ -273,7 +273,7 @@ export function Exports() {
             <tbody>{rows.map((x) => (
               <tr key={x.id}><td>{x.type}</td><td>{when(x.createdAt)}</td><td><span className="badge">{x.status}</span>{x.failureReason && <span className="muted"> {x.failureReason}</span>}</td>
                 <td>{x.manifest?.fileCount ?? "-"}</td><td>{when(x.retainUntil)}</td>
-                <td>{x.status === "Completed" && <Act label="Download" secondary run={() => openLink(`/exports/${x.id}/download-link`)} onDone={() => undefined} okText="Link opened." />}</td></tr>
+                <td>{x.status === "Completed" && <Act label="Download" secondary run={() => downloadThroughLink(`/exports/${x.id}/download-link`, `export-${x.type}.jsonl`)} onDone={() => undefined} okText="Downloaded." />}</td></tr>
             ))}</tbody>
           </table>
         )}

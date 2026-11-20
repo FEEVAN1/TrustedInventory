@@ -9,7 +9,7 @@ export const env = Object.fromEntries(
   readFileSync(new URL("../../.env", import.meta.url), "utf8").split(/\r?\n/).filter((l) => l && !l.startsWith("#") && l.includes("="))
     .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
 ) as Record<string, string>;
-const api = process.env.TI_API_URL ?? "http://localhost:8081";
+export const api = process.env.TI_API_URL ?? "http://localhost:8081";
 const keycloak = "http://localhost:8080/realms/trustedinventory";
 export const tenantA = "10000000-0000-4000-8000-00000000000a";
 

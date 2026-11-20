@@ -14,9 +14,21 @@ public sealed record ApprovalDto(
     Guid Id, int Version, DateTimeOffset CreatedAt, string CreatedBy, DateTimeOffset UpdatedAt, ApprovalSubjectType SubjectType, Guid SubjectId,
     int SubjectVersion, ApprovalAction Action, string Reason, string ContentDigest, ApprovalStatus Status, string RequesterSubject,
     string? ApproverSubject, SignatureMeaning? Meaning, string? SignatureReason, DateTimeOffset? ReauthVerifiedAt, DateTimeOffset? SignedAt,
-    DateTimeOffset? ExpiresAt, DateTimeOffset? ConsumedAt, string? InvalidatedReason) : IVersioned;
+    DateTimeOffset? ExpiresAt, DateTimeOffset? ConsumedAt, string? InvalidatedReason, ApprovalProposal? Proposal) : IVersioned;
 
-public sealed record CreateApproval(ApprovalSubjectType SubjectType, Guid SubjectId, int SubjectVersion, ApprovalAction Action, string Reason);
+/// <summary>The change a signer approves (DEC-090): an expiry correction names its new date in the approval.</summary>
+public sealed record ApprovalProposal(DateOnly ExpiryDate)
+{
+    /// <summary>Canonical JSON kept with the approval; the database guard keeps it unchangeable.</summary>
+    public string ToJson() => $"{{\"expiryDate\":\"{ExpiryDate:yyyy-MM-dd}\"}}";
+
+    public static ApprovalProposal? FromJson(string? json) =>
+        json is null ? null : new(DateOnly.Parse(System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("expiryDate").GetString()!,
+            System.Globalization.CultureInfo.InvariantCulture));
+}
+
+public sealed record CreateApproval(ApprovalSubjectType SubjectType, Guid SubjectId, int SubjectVersion, ApprovalAction Action, string Reason,
+    ApprovalProposal? Proposal = null);
 
 public sealed record SignApproval(string ReauthToken, SignatureMeaning Meaning, string Reason);
 
@@ -29,6 +41,10 @@ public sealed class CreateApprovalValidator : AbstractValidator<CreateApproval>
         RuleFor(x => x.SubjectId).NotEmpty();
         RuleFor(x => x.SubjectVersion).GreaterThan(0);
         RuleFor(x => x.Reason).ValidReason();
+        RuleFor(x => x.Proposal).NotNull().When(x => x.SubjectType == ApprovalSubjectType.ExpiryCorrection)
+            .WithMessage("An expiry correction names the proposed expiry date.");
+        RuleFor(x => x.Proposal).Null().When(x => x.SubjectType != ApprovalSubjectType.ExpiryCorrection)
+            .WithMessage("Only an expiry correction carries a proposal.");
     }
 }
 
@@ -80,8 +96,10 @@ public sealed class ApprovalService(
             foreach (var lapsed in existing)
                 DomainGuard.Run(() => lapsed.Expire(s.Now));
 
+            if (cmd.Proposal is { } proposal && subject.Type == ApprovalSubjectType.ExpiryCorrection)
+                await ApprovalSubjects.EnsureProposalAsync(s, subject, proposal, c);
             var approval = DomainGuard.Run(() => Approval.Request(caller.TenantId, subject.Type, subject.Id, subject.Version, subject.Digest, cmd.Action,
-                cmd.Reason, caller.Subject, s.Now));
+                cmd.Reason, caller.Subject, s.Now, cmd.Proposal?.ToJson()));
             s.Db.Add(approval);
             var dto = Dto(approval, s.Now);
             s.Audit(new AuditEntry("ApprovalRequested", "Approval", approval.Id, approval.Version, cmd.Reason, null, dto));
@@ -212,5 +230,5 @@ public sealed class ApprovalService(
     internal static ApprovalDto Dto(Approval a, DateTimeOffset now) => new(
         a.Id, a.Version, a.CreatedAt, a.CreatedBy, a.UpdatedAt, a.SubjectType, a.SubjectId, a.SubjectVersion, a.Action, a.RequestReason,
         Convert.ToHexStringLower(a.ContentDigest), a.EffectiveStatus(now), a.RequesterSubject, a.ApproverSubject, a.Meaning, a.SignReason,
-        a.ReauthVerifiedAt, a.SignedAt, a.ExpiresAt, a.ConsumedAt, a.InvalidatedReason);
+        a.ReauthVerifiedAt, a.SignedAt, a.ExpiresAt, a.ConsumedAt, a.InvalidatedReason, ApprovalProposal.FromJson(a.Proposal));
 }

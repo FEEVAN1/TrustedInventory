@@ -2,8 +2,8 @@
 // checklist, ownership transfer and workspace closure, and the access-restriction banner. Billing runs only against the labelled simulator
 // (or Paystack test mode); nothing here is proof of payment: the server's answer is (SUI-001).
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, request, type Failure } from "./api";
-import { Act, Field, list, money, openLink, PagedList, Screen, usePaged, when, withReauth } from "./kit";
+import { ApiError, currentTenant, request, type Failure } from "./api";
+import { Act, Field, list, money, downloadThroughLink, PagedList, Screen, usePaged, when, withReauth } from "./kit";
 import { Empty, FailureView, Loaded, useLoad } from "./ui";
 
 export interface MyMembership {
@@ -50,7 +50,7 @@ interface Subscription {
   id: string; version: number; state: string; planCode: string; interval: string | null; trialEnd: string | null; periodStart: string | null; periodEnd: string | null; graceEnd: string | null;
   cancelAtPeriodEnd: boolean; cancellationEffectiveAt: string | null; accessMode: string; restrictionReasons: string[];
   scheduledChange: { state: string; effectiveAt: string; blockers: { code: string; detail: string }[] } | null;
-  limits: Partial<Record<Quota, number>>; usage: Partial<Record<Quota, number>>;
+  limits: Partial<Record<Quota, number>>; usage: Partial<Record<Quota, number>>; complimentaryUntil: string | null;
 }
 interface Plan { id: string; planCode: string; version: number; name: string; status: string; features: string[]; limits: Partial<Record<Quota, number>>; trialDays: number; prices: { id: string; amount: Amount; interval: string; displayApproved: boolean }[] }
 interface Invoice { id: string; number: string; status: string; paymentStatus: string | null; total: Amount; periodStart: string; periodEnd: string; dueAt: string | null; paidAt: string | null }
@@ -75,6 +75,8 @@ export function Billing() {
               <h3>{s.planCode} <span className="badge">{s.state}</span>{s.interval && <span className="badge">{s.interval}ly</span>}</h3>
               <dl className="facts">
                 {s.trialEnd && <><dt>Trial ends</dt><dd>{when(s.trialEnd)}</dd></>}
+                {s.complimentaryUntil && <><dt>Complimentary access until</dt><dd>{when(s.complimentaryUntil)}</dd></>}
+                <dt>Workspace ID</dt><dd><code>{currentTenant()}</code></dd>
                 {s.periodEnd && <><dt>Current period</dt><dd>{when(s.periodStart)} to {when(s.periodEnd)}</dd></>}
                 {s.graceEnd && <><dt>Payment grace ends</dt><dd>{when(s.graceEnd)}</dd></>}
                 {s.cancelAtPeriodEnd && <><dt>Cancels</dt><dd>{when(s.cancellationEffectiveAt)} (data stays readable within the retention policy)</dd></>}
@@ -108,8 +110,8 @@ export function Billing() {
             <tbody>{rows.map((i) => (
               <tr key={i.id}><td>{i.number}</td><td>{when(i.periodStart)} to {when(i.periodEnd)}</td><td>{money(i.total)}</td>
                 <td><span className="badge">{i.status}</span>{i.paymentStatus && <span className="badge">{i.paymentStatus}</span>}</td><td>{when(i.dueAt)}</td>
-                {/* Invoice documents are not produced yet (getInvoiceDownloadLink is not implemented, DEC-087): no button that can only fail. */}
-                <td><span className="muted">PDF not available yet</span></td></tr>
+                {/* A PDF rendered from the invoice snapshot, fetched through a short-lived link with the session token (DEC-092). */}
+                <td>{i.status !== "Draft" && <Act label="PDF" secondary run={() => downloadThroughLink(`/saas/invoices/${i.id}/download-link`, `invoice-${i.number}.pdf`)} onDone={() => undefined} okText="Downloaded." />}</td></tr>
             ))}</tbody>
           </table>
         )}
@@ -351,7 +353,7 @@ function ClosurePanel({ slug }: { slug: string }) {
           <>
             <p>Closure <span className="badge">{c.status}</span> requested {when(c.requestedAt)} by {c.requestedBy}{c.requestedDeletion ? ", with deletion after the export window" : ""}.</p>
             {c.exportWindowEndsAt && <p>Your data can be exported until {when(c.exportWindowEndsAt)}.</p>}
-            {c.archiveExportId && <Act label="Download the workspace archive" secondary run={() => openLink(`/exports/${c.archiveExportId}/download-link`)} onDone={() => undefined} okText="Opened." />}
+            {c.archiveExportId && <Act label="Download the workspace archive" secondary run={() => downloadThroughLink(`/exports/${c.archiveExportId}/download-link`, "tenant-archive.zip")} onDone={() => undefined} okText="Downloaded." />}
             {c.outstandingInvoiceCount > 0 && <p>{c.outstandingInvoiceCount} invoice(s) are still open.</p>}
             {c.blockers.length > 0 && <div role="alert" className="alert problem"><p>Blocked until resolved:</p><ul>{c.blockers.map((b, i) => <li key={i}>{b.detail}</li>)}</ul></div>}
           </>

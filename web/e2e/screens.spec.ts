@@ -1,7 +1,8 @@
 // AT-UI-02 (UI-SCREENS, UI-002, SUI-001, DEC-085): every screen in the menu loads against the running stack without a failure state, and
 // the catalog, locations, audit and export screens complete a real write. Signed in through Keycloak as the synthetic owner alice.
 import { expect, test, type Page } from "@playwright/test";
-import { call, retireLeftoverWarehouses, signInAs, token } from "./support";
+import { readFileSync } from "node:fs";
+import { api, call, retireLeftoverWarehouses, signInAs, tenantA, token } from "./support";
 
 /** Waits until a screen has finished loading: no "Loading …" status left. */
 async function settled(page: Page): Promise<void> {
@@ -82,9 +83,17 @@ test("every screen in the menu loads, and setup, audit and export screens write 
   await expect.poll(async () => (await call<{ status: string }>(alice, `/exports/${exportId}`)).status, { timeout: 90_000, intervals: [2_000] })
     .toBe("Completed");
   await page.getByRole("button", { name: "Refresh" }).click();
-  await expect(page.getByRole("button", { name: "Download" }).first()).toBeVisible();
+  // The screen downloads through the short-lived link with the session token (DEC-092): a real file, not this site's own page.
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download" }).first().click();
+  const file = await downloaded;
+  expect(file.suggestedFilename()).toMatch(/^export-[A-Za-z]+-[0-9a-f]{32}\.jsonl$/);
+  expect(readFileSync((await file.path())!, "utf8").trimStart().startsWith("<")).toBe(false);
+  // The link itself is an API path: fetched from the API with the bearer token, it returns the export's JSON Lines.
   const link = await call<{ url: string }>(alice, `/exports/${exportId}/download-link`);
-  expect((await page.request.get(link.url)).status()).toBe(200);
+  const fetched = await fetch(`${api}${link.url}`, { headers: { Authorization: `Bearer ${alice}`, "X-Tenant-Id": tenantA } });
+  expect(fetched.status).toBe(200);
+  expect(fetched.headers.get("content-type")).toContain("application/x-ndjson");
 
   // Account: the subscription (simulator) and the setup checklist load with their states.
   await page.goto("/#/billing");

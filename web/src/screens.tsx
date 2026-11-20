@@ -321,7 +321,7 @@ function PickTask({ pick, staging, onDone }: { pick: Pick; staging: Bin[]; onDon
   );
 }
 
-interface Approval { id: string; version: number; subjectType: string; subjectId: string; action: string; reason: string; contentDigest: string; requesterSubject: string; status: string }
+interface Approval { id: string; version: number; subjectType: string; subjectId: string; action: string; reason: string; contentDigest: string; requesterSubject: string; status: string; proposal: { expiryDate: string } | null }
 
 /** QA and approval inbox: the exact version and digest are shown; signing needs a fresh re-authentication (section 17, IAM-004). */
 export function Approvals() {
@@ -352,6 +352,7 @@ function Sign({ approval, onDone }: { approval: Approval; onDone: () => void }) 
     <div className="panel">
       <p><strong>{approval.subjectType}</strong> {approval.action} — version digest <code>{approval.contentDigest.slice(0, 12)}…</code></p>
       <p className="muted">Requested by {approval.requesterSubject}: {approval.reason}</p>
+      {approval.proposal && <p>You approve the expiry date <strong>{approval.proposal.expiryDate}</strong> exactly.</p>}
       <label>Meaning <select value={meaning} onChange={(e) => setMeaning(e.target.value)}>{["Approval", "QualityRelease", "Disposition"].map((m) => <option key={m}>{m}</option>)}</select></label>
       <label>Reason <input value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
       <button type="button" disabled={!reason || command.state === "sending"} onClick={() => { setPending("Re-authenticate in the window that opened."); send(); }}>Sign</button>

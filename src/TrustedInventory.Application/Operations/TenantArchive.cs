@@ -27,7 +27,7 @@ public static class TenantArchive
         "purchase_order", "purchase_order_line", "receipt", "receipt_line", "receipt_line_serial", "warehouse_task",
         "outbound_order", "outbound_order_line", "reservation", "pick", "pick_confirmation", "shipment", "shipment_line",
         "transfer", "transfer_line", "stock_count", "stock_count_bin", "stock_count_line", "adjustment",
-        "customer_return", "customer_return_inspection", "approval", "attachment", "alert", "export_job", "audit_checkpoint",
+        "customer_return", "customer_return_inspection", "approval", "lot_expiry_correction", "attachment", "alert", "export_job", "audit_checkpoint",
         "recall", "recall_item", "recall_outreach",
         "device", "device_zone_assignment", "telemetry_reading", "excursion", "excursion_bucket", "excursion_shipment_flag",
     ];

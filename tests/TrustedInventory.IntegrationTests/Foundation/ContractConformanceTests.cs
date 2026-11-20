@@ -63,8 +63,6 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
         {
             ["getLiveness"] = "mapped with MapHealthChecks (/health/live), which carries no endpoint name",
             ["getReadiness"] = "mapped with MapHealthChecks (/health/ready), which carries no endpoint name",
-            ["correctLotExpiry"] = "needs approvals for lot corrections, not supported yet (DEC-085, DEC-087)",
-            ["getInvoiceDownloadLink"] = "invoice documents are not produced by the billing simulator yet (S2, DEC-087)",
         };
         var implemented = ImplementedEndpoints().Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
         var missing = LoadContract().Select(o => o.Id).Where(id => !implemented.Contains(id) && !notMapped.ContainsKey(id)).ToList();

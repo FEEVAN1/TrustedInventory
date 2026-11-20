@@ -70,6 +70,7 @@ public static class BillingRegistration
         services.AddSingleton<WebhookInbox>();
         services.AddSingleton<IWebhookInbox>(sp => sp.GetRequiredService<WebhookInbox>());
         services.AddSingleton<IBillingConsoleStore, BillingConsoleStore>();
+        services.AddSingleton<IComplimentaryAccessStore, ComplimentaryAccessStore>();
         services.AddSingleton<BillingReconciliationJob>();
         services.AddSingleton<BillingReminderJob>();
         services.AddSingleton<SubscriptionPeriodEndJob>();

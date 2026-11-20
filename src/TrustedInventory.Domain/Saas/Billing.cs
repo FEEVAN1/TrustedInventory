@@ -61,6 +61,15 @@ public enum ReconciliationTaskKind
     Chargeback,
 }
 
+/// <summary>Complimentary access status at an instant (DEC-094); Expired is computed from the expiry, never written.</summary>
+public enum ComplimentaryAccessStatus
+{
+    Pending,
+    Active,
+    Expired,
+    Revoked,
+}
+
 public enum ReconciliationTaskStatus
 {
     Open,

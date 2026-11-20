@@ -195,6 +195,7 @@ export const when = (iso: string | null | undefined) => (iso ? new Date(iso).toL
 export interface Approval {
   id: string; version: number; subjectType: string; subjectId: string; subjectVersion: number; action: string; reason: string;
   status: string; requesterSubject: string; approverSubject: string | null; signedAt: string | null; expiresAt: string | null; contentDigest: string;
+  proposal: { expiryDate: string } | null;
 }
 
 /**
@@ -202,20 +203,24 @@ export interface Approval {
  * exact version on screen, and hands the signed approval's id to the action that needs it. Signing happens in the approval inbox by
  * someone else, with re-authentication; the browser only shows what the server says.
  */
-export function ApprovalGate({ subjectType, subjectId, subjectVersion, action, children }: {
+export function ApprovalGate({ subjectType, subjectId, subjectVersion, action, proposal, children }: {
   subjectType: string; subjectId: string; subjectVersion: number; action: string; children: (approvalId: string) => ReactNode;
+  /** What the signer approves, bound to the approval (DEC-090): an expiry correction names its new date. */
+  proposal?: { expiryDate: string };
 }) {
   const [approvals, reload] = useLoad(() => list<Approval>(`/approvals?subjectType=${subjectType}&subjectId=${subjectId}&limit=20`), [subjectType, subjectId, subjectVersion]);
   const [reason, setReason] = useState("");
-  const requestIt = useCallback(() => request<Approval>("/approvals", { body: { subjectType, subjectId, subjectVersion, action, reason } }),
-    [subjectType, subjectId, subjectVersion, action, reason]);
+  const requestIt = useCallback(() => request<Approval>("/approvals", { body: { subjectType, subjectId, subjectVersion, action, reason, proposal } }),
+    [subjectType, subjectId, subjectVersion, action, reason, proposal]);
   if (approvals.state !== "ready") return <Loaded2 load={approvals} onRetry={reload} what="approvals" />;
-  const current = approvals.data.filter((a) => a.subjectVersion === subjectVersion);
+  // An approval counts only for this version and, when it carries a proposal, for exactly this proposal.
+  const current = approvals.data.filter((a) => a.subjectVersion === subjectVersion && (!proposal || a.proposal?.expiryDate === proposal.expiryDate));
   const signed = current.find((a) => a.status === "Approved");
   const pending = current.find((a) => a.status === "Pending");
   return (
     <div className="gate">
       <h4>Independent approval ({subjectType}, version {subjectVersion})</h4>
+      {proposal && <p>Proposed expiry date: <strong>{proposal.expiryDate}</strong></p>}
       {signed ? (
         <>
           <p className="ok">Signed by {signed.approverSubject} at {when(signed.signedAt)}; valid until {when(signed.expiresAt)}.</p>
@@ -328,7 +333,35 @@ export async function uploadAttachment(file: File, entityType?: string, entityId
 }
 
 /** Opens a short-lived signed download link fetched from the server (exports, attachments, invoices). */
-export async function openLink(path: string): Promise<void> {
+/**
+ * Downloads a file through a short-lived link (exports, invoices; TEN-005): asks the server for the link, fetches it from the API with
+ * the session's bearer token and workspace (the server re-checks both), and saves it in the browser. Opening the link in a new tab
+ * would resolve it against this site and carry no token (DEC-092).
+ */
+export async function downloadThroughLink(path: string, fallbackName: string): Promise<void> {
   const link = await request<{ url: string; expiresAt: string }>(path);
-  window.open(link.url, "_blank", "noopener");
+  const session = currentSession();
+  if (!session) throw new ApiError({ kind: "unauthorized" });
+  const headers: Record<string, string> = { Authorization: `Bearer ${session.accessToken}` };
+  const tenant = currentTenant();
+  if (tenant) headers["X-Tenant-Id"] = tenant;
+  let response: Response;
+  try {
+    response = await fetch(`${config.apiUrl}${link.url}`, { headers });
+  } catch {
+    throw new ApiError({ kind: "offline" });
+  }
+  if (!response.ok) {
+    const problem = ((await response.json().catch(() => null)) ?? { status: response.status, code: "UNKNOWN" }) as Problem;
+    throw new ApiError(response.status === 401 ? { kind: "unauthorized", problem } : { kind: "problem", problem });
+  }
+  const named = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") ?? "")?.[1];
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = named ? decodeURIComponent(named) : fallbackName;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

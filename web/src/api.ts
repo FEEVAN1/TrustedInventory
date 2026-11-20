@@ -60,7 +60,23 @@ function methodOf(options: Options): string {
   return options.body !== undefined || options.ifMatch !== undefined || options.idempotencyKey ? "POST" : "GET";
 }
 
+/**
+ * A request refused for the rate budget (429) waits for the server's Retry-After (at most 10 seconds) and tries once more, so a
+ * screen that resolves many names at once does not fail on a short burst (DEC-092). The rate limiter refuses before any handler runs,
+ * so a 429 means nothing happened and one retry cannot act twice; writes also keep their Idempotency-Key.
+ */
 export async function request<T>(path: string, options: Options = {}): Promise<T> {
+  try {
+    return await send<T>(path, options);
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.failure.kind !== "problem" || e.failure.problem.status !== 429) throw e;
+    const retryAfter = Number(e.failure.problem.retryAfterSeconds ?? 1);
+    await new Promise((resolve) => window.setTimeout(resolve, Math.min(Math.max(retryAfter, 1), 10) * 1000));
+    return send<T>(path, options);
+  }
+}
+
+async function send<T>(path: string, options: Options): Promise<T> {
   const session = currentSession();
   if (!session) {
     await signIn();
@@ -94,6 +110,7 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
   if (response.ok) return body as T;
   const problem = (body ?? { status: response.status, code: "UNKNOWN" }) as Problem;
   if (response.status === 401) throw new ApiError({ kind: "unauthorized", problem });
+  if (response.status === 429) problem.retryAfterSeconds = Number(response.headers.get("Retry-After") ?? 1);
   throw new ApiError({ kind: "problem", problem });
 }
 

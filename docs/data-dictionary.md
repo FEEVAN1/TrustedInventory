@@ -173,7 +173,19 @@ Supplier or customer, code unique per tenant. No payment or patient data.
 | supplier_ref | text ≤ 200 | Y | |
 | Std | | | |
 
-Expiry is immutable after receipt except through an audited QA correction (`ExpiryCorrection` approval) while stock is held. The application enforces this; see the invariants section.
+Expiry is immutable after receipt except through an audited QA correction (`ExpiryCorrection` approval) while stock is held. Since migration 0030 the database enforces it too: trigger `lot_guard` refuses any change of product, number or handling profile, and any change of `expiry_date` without a matching `lot_expiry_correction` row written in the same transaction (DEC-090).
+
+### lot_expiry_correction (append-only)
+| Column | Type | Null | Constraint |
+|--------|------|------|------------|
+| lot_id | uuid | N | FK `(tenant_id, lot_id) → lot` |
+| previous_expiry, new_expiry | date | Y, N | Must differ |
+| approval_id | uuid | N | FK `→ approval`; unique, so one correction per approval |
+| reason | reason_text | N | |
+| transaction_id | xid8 | N | Defaults to the writing transaction; `lot_guard` matches it |
+| created_at, created_by | | N | Who applied the correction and when |
+
+Row-level security by tenant; included in the tenant archive and the approved purge.
 
 ### serial
 `serial_number` is an `identifier_text`. Unique `(tenant_id, product_id, serial_number)`. The optional `lot_id` is checked by FK `(tenant_id, product_id, lot_id) → lot`.
@@ -312,6 +324,7 @@ Created by migration 0013 (DEC-056), with `reauth_verified_at` and `invalidated_
 | meaning, sign_reason, reauth_reference, signed_at | | Y | All required once signed. `reauth_reference` is a digest only, never a credential (DEC-009). |
 | expires_at | timestamptz | Y | Equals `signed_at + 30 min` when Approved or Consumed |
 | consumed_at, consumed_operation | | Y | Set exactly when Consumed. `consumed_operation` is unique, so one approval allows one posting. |
+| proposal | jsonb | Y | What the signer approves; present exactly for `ExpiryCorrection` (`{"expiryDate": …}`); part of the binding `approval_guard` keeps unchangeable (DEC-090) |
 | Std | | | |
 
 ## 8. Telemetry and excursions
@@ -439,6 +452,7 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 | provisioning_job | Resumable signup provisioning | `signup_key` unique; tenant id allocated up front; Ready ⇔ ready_at | none |
 | terms_acceptance | Terms/privacy/subscription-terms evidence | Append-only | none |
 | deletion_record | Closure, deletion register; `idempotency_key`, `outstanding_invoice_count`, `archive_export_id`, `version` (0022); `scope` records rows and objects removed and what was retained (DEC-072) | One open per tenant; key unique per tenant; Deleted needs approval, completed_at and backup expiry; Blocked needs hold_results | SELECT own (`tenant_read`, 0022) |
+| complimentary_access | Free access to a published plan for one workspace until an expiry (0031, DEC-094): plan features and quotas copied at the request, reason, requester, approver and approval reason, revoker and revoke reason, `version` (ETag) | Expiry after the request and at most 366 days ahead; approver differs from requester (CHECK); request fields never change, approval and revocation are written once (trigger); no delete; status (Pending, Active, Expired, Revoked) is computed at read time | none (read through `cp.tenant_access()`) |
 | platform_alert | Persisted platform alerts (0024, DEC-074): kind, severity, status, counts-only detail, opened/last seen, acknowledgement | One non-closed alert per `dedupe_key`; Closed ⇔ closed_at; acknowledgement needs who and when | none |
 
 Money columns everywhere: `bigint` minor units + `char(3)` currency + `smallint` exponent (BIL-001).
@@ -447,7 +461,8 @@ Money columns everywhere: `bigint` minor units + `char(3)` currency + `smallint`
 
 `cp.tenant_access()` (SECURITY DEFINER, owner `cp_access_reader`, EXECUTE for `ti_app` only) returns the
 current tenant's lifecycle, security suspension, subscription state and clocks, and current entitlement
-version, features and limits. It takes no tenant argument and reads `app.tenant_id`, so a request can only
+version, features and limits, and (0031) the expiry, features and limits of the latest approved, unrevoked complimentary grant;
+C# applies the grant only while its expiry is in the future (DEC-094). It takes no tenant argument and reads `app.tenant_id`, so a request can only
 ask about its own tenant and gets nothing without context. Access mode is computed in C# from this row.
 `ti.user_memberships_v2(subject)` replaces `ti.user_memberships` and adds slug, lifecycle and a suspension
 flag for the tenant selector.

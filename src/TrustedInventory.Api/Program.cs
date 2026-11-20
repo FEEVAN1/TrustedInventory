@@ -52,7 +52,7 @@ builder.Services.AddRateLimiter(o =>
 var allowedOrigins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins)
     .WithHeaders("Authorization", "Content-Type", "If-Match", "Idempotency-Key", TenantContextMiddleware.TenantHeader, "X-Correlation-Id")
-    .WithExposedHeaders("ETag", "Location", "Retry-After")
+    .WithExposedHeaders("ETag", "Location", "Retry-After", "Content-Disposition")
     .WithMethods("GET", "POST", "PATCH")));
 
 var app = builder.Build();

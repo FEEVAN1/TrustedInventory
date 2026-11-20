@@ -103,6 +103,9 @@ public static class InboundEndpoints
         tenant.MapGet("/lots/{id:guid}", async (HttpContext http, LotService svc, Guid id, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.GetLotAsync(id, ct)))
             .WithName("getLot").RequirePermission(Permissions.StockRead);
+        tenant.MapPost("/lots/{id:guid}/expiry-correction", async (HttpContext http, LotService svc, Guid id, ExpiryCorrectionRequest body,
+                CancellationToken ct) => Conventions.Outcome(http, await svc.CorrectExpiryAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("correctLotExpiry").RequirePermission(Permissions.QualityHold);
         tenant.MapGet("/serials", (LotService svc, [AsParameters] ListQuery q, [FromQuery] Guid? productId, [FromQuery] Guid? lotId,
                 [FromQuery] string? serialNumber, CancellationToken ct) =>
                 svc.ListSerialsAsync(new SerialFilter(productId, lotId, serialNumber), q.ToPage(), ct))

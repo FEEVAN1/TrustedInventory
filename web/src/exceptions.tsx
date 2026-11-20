@@ -456,7 +456,7 @@ function AdjustmentDetail({ id, onChanged }: { id: string; onChanged: () => void
 
 // ---------------------------------------------------------------- Returns (EXC-005)
 
-interface Return { id: string; version: number; shipmentLineId: string; warehouseId: string; quantity: string; quarantineBinId: string; serialNumbers: string[]; reason: string; status: string; disposition: string | null; inspectedQuantity: string }
+interface Return { id: string; version: number; shipmentLineId: string; warehouseId: string; productId: string; quantity: string; quarantineBinId: string; serialNumbers: string[]; reason: string; status: string; disposition: string | null; inspectedQuantity: string }
 interface Shipment { id: string; orderId: string; warehouseId: string; customerId: string; dispatchReference: string; dispatchedAt: string; lines: { id: string; productId: string; lotId: string | null; serialNumbers: string[]; quantity: string; returnedQuantity: string }[] }
 
 export function Returns() {
@@ -521,6 +521,8 @@ function ReturnCard({ ret, onDone }: { ret: Return; onDone: () => void }) {
   const [quantity, setQuantity] = useState(ret.quantity);
   const [target, setTarget] = useState("");
   const [reason, setReason] = useState("");
+  const [product] = useLoad(() => request<{ handlingProfile: string; sku: string }>(`/products/${ret.productId}`), [ret.productId]);
+  const medical = product.state === "ready" && product.data.handlingProfile === "Medical";
   return (
     <div className="panel">
       <p><strong>{ret.quantity}</strong> returned · <span className="badge">{ret.status}</span>{ret.disposition && <span className="badge">{ret.disposition}</span>}</p>
@@ -532,10 +534,21 @@ function ReturnCard({ ret, onDone }: { ret: Return; onDone: () => void }) {
           <Field label="Quantity" value={quantity} onChange={setQuantity} inputMode="decimal" />
           {disposition === "Release" && <Choice<Bin> label="Put back into bin" path={`/bins?warehouseId=${ret.warehouseId}&kind=Storage&active=true`} show={(b) => b.code} value={target} onChange={setTarget} />}
           <Field label="Inspection notes" value={reason} onChange={setReason} />
-          <p className="muted">The server decides whether goods can be released; medical goods also need QA approval.</p>
-          <Act label="Record inspection" disabled={!quantity || !reason || (disposition === "Release" && !target)}
-            run={(key) => request(`/returns/${ret.id}/inspect`, { idempotencyKey: key, ifMatch: ret.version, body: { disposition, quantity, reason, targetBinId: disposition === "Release" ? target : undefined } })}
-            onDone={onDone} okText="Inspection recorded." />
+          {medical && disposition === "Release" ? (
+            // Releasing returned medical goods needs QA: another person signs this return's release; it is then used once (DEC-091).
+            <ApprovalGate subjectType="ReturnRelease" subjectId={ret.id} subjectVersion={ret.version} action="Release">
+              {(approvalId) => <Act label="Release with QA approval" disabled={!quantity || !reason || !target}
+                run={(key) => request(`/returns/${ret.id}/inspect`, { idempotencyKey: key, ifMatch: ret.version, body: { disposition, quantity, reason, targetBinId: target, approvalId } })}
+                onDone={onDone} okText="Released by QA." />}
+            </ApprovalGate>
+          ) : (
+            <>
+              <p className="muted">The server decides whether goods can be released.</p>
+              <Act label="Record inspection" disabled={!quantity || !reason || (disposition === "Release" && !target)}
+                run={(key) => request(`/returns/${ret.id}/inspect`, { idempotencyKey: key, ifMatch: ret.version, body: { disposition, quantity, reason, targetBinId: disposition === "Release" ? target : undefined } })}
+                onDone={onDone} okText="Inspection recorded." />
+            </>
+          )}
         </details>
       )}
     </div>

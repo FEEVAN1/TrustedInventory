@@ -21,7 +21,7 @@ public sealed record SubscriptionDto(
     Guid? PriceVersionId, BillingInterval? Interval, DateTimeOffset? TrialStart, DateTimeOffset? TrialEnd, DateTimeOffset? PeriodStart,
     DateTimeOffset? PeriodEnd, DateTimeOffset? GraceEnd, bool CancelAtPeriodEnd, DateTimeOffset? CancellationEffectiveAt,
     SubscriptionChangeDto? ScheduledChange, AccessMode AccessMode, IReadOnlyList<RestrictionReason> RestrictionReasons,
-    IReadOnlyDictionary<string, long> Limits, IReadOnlyDictionary<string, long> Usage) : IVersioned;
+    IReadOnlyDictionary<string, long> Limits, IReadOnlyDictionary<string, long> Usage, DateTimeOffset? ComplimentaryUntil = null) : IVersioned;
 
 public sealed record InvoiceLineDto(string Description, int Quantity, MoneyDto UnitAmount, MoneyDto Discount, MoneyDto Tax, MoneyDto Subtotal,
     MoneyDto Total);
@@ -74,7 +74,10 @@ public sealed class SubscriptionService(ITenantUnitOfWork uow, ICallerAccessor c
             row.TrialStart, row.TrialEnd, row.PeriodStart, row.PeriodEnd, row.GraceEnd, row.CancelAtPeriodEnd,
             row.CancelAtPeriodEnd ? row.PeriodEnd : row.CancelledAt,
             change is null ? null : ChangeDto(change), state.Mode(s.Now), state.Reasons(s.Now),
-            state.Limits.ToDictionary(l => SaasWire.Quota(l.Key), l => l.Value), usage);
+            // While complimentary access is in force its limits apply (DEC-094).
+            (state.ComplimentaryInForce(s.Now) ? state.ComplimentaryLimits ?? new Dictionary<QuotaKey, long>() : state.Limits)
+                .ToDictionary(l => SaasWire.Quota(l.Key), l => l.Value), usage,
+            state.ComplimentaryInForce(s.Now) ? state.ComplimentaryUntil : null);
     }
 
     public Task<Page<InvoiceDto>> ListInvoicesAsync(InvoiceStatus? status, PageRequest page, CancellationToken ct)

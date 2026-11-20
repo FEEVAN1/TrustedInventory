@@ -26,6 +26,8 @@ builder.Services.AddSingleton<TrustedInventory.Application.Administration.IReaut
 builder.Services.AddHostedService(sp => new ScheduledJob<OutboxDispatcher>(sp, sp.GetRequiredService<WorkerOptions>().OutboxInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<IdempotencyCleanupJob>(sp, sp.GetRequiredService<WorkerOptions>().IdempotencyCleanupInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<AuditCheckpointJob>(sp, sp.GetRequiredService<WorkerOptions>().CheckpointInterval));
+// Independent check of the chain against the external checkpoints, on the same schedule (AT-AUD-01, DEC-093).
+builder.Services.AddHostedService(sp => new ScheduledJob<AuditCheckpointVerificationJob>(sp, sp.GetRequiredService<WorkerOptions>().CheckpointInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<LedgerReconciliationJob>(sp, sp.GetRequiredService<WorkerOptions>().ReconciliationInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<ReservationExpiryJob>(sp, sp.GetRequiredService<WorkerOptions>().ReservationExpiryInterval));
 builder.Services.AddHostedService(sp => new ScheduledJob<ExportGenerationJob>(sp, sp.GetRequiredService<WorkerOptions>().ExportInterval));

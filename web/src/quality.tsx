@@ -1,7 +1,7 @@
 // Quality, recalls, traceability and telemetry (section 17 screen inventory, DEC-085). Holds take effect at once; releases and
 // dispositions need an independent signed approval bound to the stock line's version (MED-001, IAM-003). Recall and safety screens stay
 // readable in every access mode (SUI-003): the server decides what may change.
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { request } from "./api";
 import {
   Act, ApprovalGate, Choice, Field, list, Name, PagedList, Pick, Screen, SearchPicker, Tabs, usePaged, when, type Bucket, type ProductRow,
@@ -123,7 +123,7 @@ interface Recall {
   };
   outreach: { customerId: string; status: string; note: string | null; recordedAt: string; recordedBy: string }[];
 }
-interface Lot { id: string; lotNumber: string; expiryDate: string | null; productId: string }
+interface Lot { id: string; version: number; lotNumber: string; expiryDate: string | null; productId: string; expiryCorrected: boolean }
 
 export function Recalls() {
   const [status, setStatus] = useState("Open");
@@ -281,6 +281,7 @@ function LotTrace({ lotId }: { lotId: string }) {
         {(t) => (
           <>
             <h3>{t.product.sku} lot {t.lot.lotNumber}{t.lot.expiryDate ? ` · expires ${t.lot.expiryDate}` : ""}</h3>
+            {t.lot.expiryCorrected && <p><span className="badge warn">Expiry corrected by QA</span> The audit trail keeps the earlier date.</p>}
             <Act label="Export traceability report" secondary run={() => request("/exports", { body: { type: "Traceability", filters: { lotId } } })} onDone={() => undefined}
               okText="Export queued; download it from Exports when it is ready." />
             <h4>Received</h4>
@@ -300,6 +301,7 @@ function LotTrace({ lotId }: { lotId: string }) {
             <h4>Movements ({t.movements.length})</h4>
             <table><thead><tr><th>When</th><th>Type</th><th>Quantity</th><th>Document</th></tr></thead>
               <tbody>{t.movements.map((m) => <tr key={m.id}><td>{when(m.occurredAt)}</td><td>{m.type}</td><td>{m.baseQuantity}</td><td>{m.documentType}</td></tr>)}</tbody></table>
+            <ExpiryCorrection lot={t.lot} onDone={reload} />
             <h4>Recalls and excursions</h4>
             {t.recalls.length + t.excursions.length === 0 ? <Empty>None affect this lot.</Empty> : (
               <ul>
@@ -311,6 +313,36 @@ function LotTrace({ lotId }: { lotId: string }) {
         )}
       </Loaded>
     </div>
+  );
+}
+
+/**
+ * Lot expiry correction (section 07, MED-003, DEC-090): the expiry is fixed at receipt and changes only by an audited QA correction with
+ * all the lot's stock held and another QA officer's signature on the exact new date. The server checks all of it.
+ */
+function ExpiryCorrection({ lot, onDone }: { lot: Lot; onDone: () => void }) {
+  const [date, setDate] = useState("");
+  const [reason, setReason] = useState("");
+  const proposal = useMemo(() => (date ? { expiryDate: date } : undefined), [date]);
+  return (
+    <details className="subpanel">
+      <summary>Correct the expiry date (QA)</summary>
+      <p className="muted">Hold all stock of this lot first (nothing available, reserved or in transit). Another QA officer signs the exact new
+        date; the correction applies once and the earlier date stays in the audit trail.</p>
+      <Field label="Correct expiry date" type="date" value={date} onChange={setDate} />
+      {proposal && (
+        <ApprovalGate subjectType="ExpiryCorrection" subjectId={lot.id} subjectVersion={lot.version} action="Correct" proposal={proposal}>
+          {(approvalId) => (
+            <>
+              <Field label="Correction reason" value={reason} onChange={setReason} />
+              <Act label="Apply the correction" disabled={!reason.trim()} confirm={`Change the expiry of lot ${lot.lotNumber} to ${date}?`}
+                run={(key) => request(`/lots/${lot.id}/expiry-correction`, { idempotencyKey: key, ifMatch: lot.version, body: { expiryDate: date, reason, approvalId } })}
+                onDone={onDone} okText="Expiry corrected." />
+            </>
+          )}
+        </ApprovalGate>
+      )}
+    </details>
   );
 }
 

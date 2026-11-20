@@ -52,7 +52,8 @@ public sealed class CustomerReturn : TenantEntity
         return ret;
     }
 
-    public void Inspect(ReturnDisposition disposition, decimal qty, DateTimeOffset now)
+    /// <summary>Records an inspection; a medical release names the QA approval it used (DEC-091).</summary>
+    public void Inspect(ReturnDisposition disposition, decimal qty, DateTimeOffset now, Guid? approvalId = null)
     {
         if (Status != ReturnStatus.Received)
             throw new DomainException("This return is already fully inspected.");
@@ -60,6 +61,8 @@ public sealed class CustomerReturn : TenantEntity
             throw new DomainException("An inspection cannot exceed what remains to inspect.");
         InspectedQty += qty;
         Disposition = disposition;
+        if (approvalId is not null)
+            ApprovalId = approvalId;
         if (InspectedQty == ReturnedQty)
             Status = ReturnStatus.Inspected;
         Touch(now);

@@ -124,6 +124,53 @@ public sealed class SubscriptionReadTests(ApiFixture fx)
         Assert.Equal(0L, await VisiblePlanCountAsync(null, planId));
     }
 
+    [Fact]
+    [Trait("Requirement", "BIL-006")]
+    [Trait("Requirement", "TEN-005")]
+    [Trait("Requirement", "AGT-004")]
+    public async Task An_invoice_document_downloads_once_linked_only_for_its_tenant_and_caller_and_marks_the_simulator()
+    {
+        // DEC-092: a PDF rendered from the invoice snapshot through a short-lived link bound to tenant, caller and invoice.
+        var mine = await TenantProvisioning.SignUpAsync(fx, "inv-doc");
+        var other = await TenantProvisioning.SignUpAsync(fx, "inv-doc-other");
+        var paid = await InvoiceAsync(mine.TenantId, "Paid", DateTimeOffset.UtcNow.AddDays(-20), payments: ["Succeeded"]);
+        var draft = await InvoiceAsync(mine.TenantId, "Draft", DateTimeOffset.UtcNow.AddDays(-5), payments: []);
+        var owner = fx.Client(mine.Admin, mine.TenantId);
+
+        var link = await (await owner.GetAsync($"/api/v1/saas/invoices/{paid}/download-link")).ExpectAsync(HttpStatusCode.OK);
+        var url = (string)link["url"]!;
+        Assert.StartsWith($"/api/v1/saas/invoices/{paid}/download?token=", url, StringComparison.Ordinal);
+        Assert.True(DateTimeOffset.Parse((string)link["expiresAt"]!, System.Globalization.CultureInfo.InvariantCulture) <= DateTimeOffset.UtcNow.AddMinutes(15).AddSeconds(5));
+
+        var response = await owner.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/pdf", response.Content.Headers.ContentType?.MediaType);
+        var text = System.Text.Encoding.Latin1.GetString(await response.Content.ReadAsByteArrayAsync());
+        Assert.StartsWith("%PDF-1.4", text, StringComparison.Ordinal);
+        Assert.EndsWith("%%EOF\n", text, StringComparison.Ordinal);
+        Assert.Contains("SIMULATED INVOICE", text, StringComparison.Ordinal);
+        Assert.Contains("Fixture plan \\(monthly\\)", text, StringComparison.Ordinal); // escaped PDF string
+        Assert.Contains("Total: XTS 10.75", text, StringComparison.Ordinal);
+
+        // The token is bound: another invoice, a changed token, another tenant's caller and a non-billing member all get nothing.
+        var token = url[(url.IndexOf("token=", StringComparison.Ordinal) + 6)..];
+        await (await owner.GetAsync($"/api/v1/saas/invoices/{draft}/download?token={token}")).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+        await (await owner.GetAsync($"{url}x")).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+        await (await fx.Client(other.Admin, other.TenantId).GetAsync(url)).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+        await (await fx.Client(fx.Seed.A.Admin, fx.Seed.A.TenantId).GetAsync($"/api/v1/saas/invoices/{paid}/download-link"))
+            .ExpectProblemAsync(HttpStatusCode.Forbidden, "FORBIDDEN");
+        await (await owner.GetAsync($"/api/v1/saas/invoices/{draft}/download-link")).ExpectProblemAsync(HttpStatusCode.Conflict, "INVALID_STATE");
+
+        await using var su = new NpgsqlConnection(fx.SuperuserConnection);
+        await su.OpenAsync();
+        await using var events = new NpgsqlCommand("""
+            SELECT string_agg(event_type, ',' ORDER BY sequence) FROM ti.audit_event
+            WHERE tenant_id = @t AND event_type IN ('InvoiceLinkIssued', 'InvoiceDownloaded')
+            """, su);
+        events.Parameters.AddWithValue("t", mine.TenantId);
+        Assert.Equal("InvoiceLinkIssued,InvoiceDownloaded", (string?)await events.ExecuteScalarAsync());
+    }
+
     private async Task<long> VisiblePlanCountAsync(Guid? tenantId, Guid planId)
     {
         await using var conn = new NpgsqlConnection(fx.AppConnection);

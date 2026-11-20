@@ -262,7 +262,7 @@ public sealed class QualityService(
             SELECT id AS "BucketId", quality_status::text AS "Quality", version AS "Version" FROM ti.stock_bucket WHERE id = {id}
             """).ToListAsync(ct)).Select(r => new BucketQualityDto(r.BucketId, Enum.Parse<QualityStatus>(r.Quality), r.Version)).Single();
 
-    private static AppException Ineligible(IReadOnlyList<(ReleaseIneligibility Code, string Detail)> problems) =>
+    internal static AppException Ineligible(IReadOnlyList<(ReleaseIneligibility Code, string Detail)> problems) =>
         new(ErrorCode.ReleaseIneligible, "This stock cannot be released; no signature can override these checks (MED-001).")
         {
             Extensions = new JsonObject

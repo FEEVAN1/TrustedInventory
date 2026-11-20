@@ -42,7 +42,7 @@ function List<T>({ list, what, empty, children }: { list: ReturnType<typeof useP
   );
 }
 
-const TABS = ["Health", "Tenants", "Provisioning", "Alerts", "Plans", "Billing tasks", "Webhooks"] as const;
+const TABS = ["Health", "Tenants", "Provisioning", "Alerts", "Plans", "Billing tasks", "Complimentary", "Webhooks"] as const;
 
 export function PlatformConsole() {
   const [tab, setTab] = useState<string>("Health");
@@ -73,6 +73,7 @@ export function PlatformConsole() {
         {tab === "Alerts" && <Alerts />}
         {tab === "Plans" && <Plans />}
         {tab === "Billing tasks" && <BillingTasks />}
+        {tab === "Complimentary" && <Complimentary />}
         {tab === "Webhooks" && <Webhooks />}
         </ScreenBoundary>
       </main>
@@ -394,6 +395,84 @@ function TaskCard({ task, onDone }: { task: Task; onDone: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- Complimentary access (section 29, BIL-008, SOD-8, DEC-094)
+
+interface Grant {
+  id: string; version: number; tenantId: string; tenantName: string; planVersionId: string; planCode: string; expiresAt: string; reason: string; status: string;
+  requestedBy: string; requestedAt: string; approvedBy: string | null; approvedAt: string | null; approvalReason: string | null;
+  revokedBy: string | null; revokedAt: string | null; revokeReason: string | null;
+}
+
+function Complimentary() {
+  const [status, setStatus] = useState("");
+  const list = usePlatformList<Grant>(`/billing/complimentary-access?limit=50${status ? `&status=${status}` : ""}`);
+  return (
+    <section aria-labelledby="comp">
+      <h2 id="comp">Complimentary access</h2>
+      <p className="muted">A billing operator requests free access to a published plan for one workspace; a different platform operator approves it.
+        While it is in force the workspace has the plan&apos;s features and limits and no billing restriction. Closure and security suspensions still apply.</p>
+      <Pick label="Status" value={status} onChange={setStatus} options={["", "Pending", "Active", "Expired", "Revoked"]} />
+      <List list={list} what="complimentary grants" empty="No complimentary grant matches.">
+        {(rows) => <ul className="cards">{rows.map((g) => <li key={`${g.id}-${g.version}`}><GrantCard grant={g} onDone={list.reload} /></li>)}</ul>}
+      </List>
+      <RequestGrant onDone={list.reload} />
+    </section>
+  );
+}
+
+function GrantCard({ grant, onDone }: { grant: Grant; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const open = grant.status === "Pending" || grant.status === "Active";
+  const mine = currentSession()?.subject === grant.requestedBy;
+  return (
+    <div className="panel">
+      <p><strong>{grant.tenantName}</strong> <span className="badge">{grant.planCode}</span> <span className="badge">{grant.status}</span></p>
+      <p>Until {when(grant.expiresAt)} · {grant.reason}</p>
+      <p className="muted">Requested by {grant.requestedBy} {when(grant.requestedAt)}
+        {grant.approvedBy && ` · approved by ${grant.approvedBy}: ${grant.approvalReason}`}
+        {grant.revokedBy && ` · revoked by ${grant.revokedBy}: ${grant.revokeReason}`}</p>
+      {open && (
+        <div className="row">
+          <Field label="Reason" value={reason} onChange={setReason} />
+          {grant.status === "Pending" && (mine
+            ? <span className="muted">Another platform operator must approve your request.</span>
+            : <Act label="Approve" disabled={!reason.trim()} confirm={`Give ${grant.tenantName} ${grant.planCode} free until ${when(grant.expiresAt)}?`}
+                run={() => platform(`/billing/complimentary-access/${grant.id}/approve`, { ifMatch: grant.version, body: { reason } })} onDone={onDone} okText="Approved." />)}
+          <Act label="Revoke" secondary disabled={!reason.trim()} confirm={`End complimentary access for ${grant.tenantName} now?`}
+            run={() => platform(`/billing/complimentary-access/${grant.id}/revoke`, { ifMatch: grant.version, body: { reason } })} onDone={onDone} okText="Revoked." />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RequestGrant({ onDone }: { onDone: () => void }) {
+  const [plans] = useLoad(() => platform<Page<PlanVersion>>("/plan-versions?status=Published&limit=100").then((p) => p.items), []);
+  const [tenantId, setTenantId] = useState("");
+  const [plan, setPlan] = useState("");
+  const [days, setDays] = useState("30");
+  const [reason, setReason] = useState("");
+  const published = plans.state === "ready" ? plans.data : [];
+  const label = (p: PlanVersion) => `${p.planCode} v${p.version}`;
+  const chosen = published.find((p) => label(p) === plan);
+  const valid = /^[0-9a-f-]{36}$/i.test(tenantId.trim()) && chosen && /^\d+$/.test(days) && Number(days) >= 1 && Number(days) <= 366 && reason.trim();
+  return (
+    <details className="panel">
+      <summary>Request complimentary access</summary>
+      <p className="muted">Platform billing only. The workspace ID is shown to the workspace owner under Billing.</p>
+      <div className="grid">
+        <Field label="Workspace ID" value={tenantId} onChange={setTenantId} />
+        <Pick label="Plan version" value={plan} onChange={setPlan} options={["", ...published.map(label)]} />
+        <Field label="Days (1 to 366)" value={days} onChange={setDays} inputMode="numeric" />
+      </div>
+      <Field label="Reason" value={reason} onChange={setReason} />
+      <Act label="Request" disabled={!valid} run={() => platform("/billing/complimentary-access", { body: {
+          tenantId: tenantId.trim(), planVersionId: chosen?.id, expiresAt: new Date(Date.now() + Number(days) * 86_400_000).toISOString(), reason } })}
+        onDone={() => { setTenantId(""); setReason(""); onDone(); }} okText="Requested; another operator must approve it." />
+    </details>
   );
 }
 
