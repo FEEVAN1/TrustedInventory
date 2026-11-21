@@ -163,8 +163,14 @@ public sealed class InboundLedgerSchemaTests(ApiFixture fx)
         var bin2 = await Create("/api/v1/bins", new { zoneId = zone, code = "B2", kind = "Storage" });
         var unit = await Create("/api/v1/units", new { code = "EA", name = "Each" });
         var supplier = await Create("/api/v1/partners", new { code = "SUP", name = "Supplier", type = "Supplier" });
-        object Product(string sku, string profile, string tracking) =>
-            new { sku, name = sku, handlingProfile = profile, trackingMode = tracking, baseUomId = unit, basePrecision = 0 };
+        var profile = await Create("/api/v1/storage-profiles", new
+        {
+            name = "Ambient medical", minC = 15, maxC = 25, monitoringRequired = false,
+            excursionPolicy = new { immediateHold = true, notes = "Synthetic policy" }, reason = "CFG-002 needs a profile (DEC-100)",
+        });
+        object Product(string sku, string handling, string tracking) =>
+            new { sku, name = sku, handlingProfile = handling, trackingMode = tracking, baseUomId = unit, basePrecision = 0,
+                  storageProfileId = handling == "Medical" ? (object)profile : null };
         var general = await Create("/api/v1/products", Product("GEN", "General", "Quantity"));
         var serialized = await Create("/api/v1/products", Product("SER", "General", "Serial"));
         var medical = await Create("/api/v1/products", Product("MED", "Medical", "Lot"));

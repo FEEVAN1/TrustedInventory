@@ -48,6 +48,10 @@ public sealed class CreateProductValidator : AbstractValidator<CreateProduct>
         RuleFor(x => x.RotationRule).Must(r => r is null or RotationRule.FEFO)
             .When(x => x.HandlingProfile == HandlingProfile.Medical)
             .WithMessage("Medical products use FEFO rotation only.");
+        // CFG-002 (DEC-100): a medical product is active from creation, so it needs its temperature limits and excursion policy then.
+        RuleFor(x => x.StorageProfileId).NotNull()
+            .When(x => x.HandlingProfile == HandlingProfile.Medical)
+            .WithMessage("Medical products need a storage profile with temperature limits and an excursion policy.");
         RuleFor(x => x.BasePrecision).Equal(0)
             .When(x => x.TrackingMode is TrackingMode.Serial or TrackingMode.LotAndSerial)
             .WithMessage("Serial-tracked products require basePrecision 0 (whole units).");
@@ -125,6 +129,8 @@ public sealed class ProductService(
             Versioning.EnsureVersion(product.Version, expectedVersion);
             if (cmd.StorageProfileId.IsSet)
                 await EnsureActiveProfile(s, cmd.StorageProfileId.Value, c);
+            if (product.HandlingProfile == HandlingProfile.Medical && cmd.StorageProfileId is { IsSet: true, Value: null })
+                throw AppException.Validation("storageProfileId", "Medical products need a storage profile with temperature limits and an excursion policy.");
             var before = ProductDto.From(product);
 
             DomainGuard.Run(() => product.Update(cmd.Name.GetValueOrDefault(product.Name),

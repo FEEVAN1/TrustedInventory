@@ -1214,7 +1214,7 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
-      description: Medical products (handlingProfile Medical) additionally require the medical_storage feature; the service checks it because it depends on the body (DEC-038).
+      description: Medical products (handlingProfile Medical) additionally require the medical_storage feature; the service checks it because it depends on the body (DEC-038). They are lot-tracked, FEFO only and need an active storage profile, which carries the temperature limits and the excursion policy (CFG-002, DEC-100); a missing profile is 422 on storageProfileId, and updateProduct cannot clear it.
   /products/{id}:
     get:
       operationId: getProduct

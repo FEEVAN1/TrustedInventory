@@ -313,8 +313,13 @@ public sealed class OffboardingTests(ApiFixture fx)
         var zone = await Create("/api/v1/zones", new { warehouseId = warehouse, code = "MZ", name = "Ambient" });
         var bin = await Create("/api/v1/bins", new { zoneId = zone, code = "MB1", kind = "Storage" });
         var unit = await Create("/api/v1/units", new { code = "EA", name = "Each" });
+        var profile = await Create("/api/v1/storage-profiles", new
+        {
+            name = "Ambient medical", minC = 15, maxC = 25, monitoringRequired = false,
+            excursionPolicy = new { immediateHold = true, notes = "Synthetic policy" }, reason = "CFG-002 needs a profile (DEC-100)",
+        });
         var product = await Create("/api/v1/products",
-            new { sku = "MED-1", name = "Synthetic medical item", handlingProfile = "Medical", trackingMode = "Lot", baseUomId = unit, basePrecision = 0 });
+            new { sku = "MED-1", name = "Synthetic medical item", handlingProfile = "Medical", trackingMode = "Lot", baseUomId = unit, basePrecision = 0, storageProfileId = profile });
         var lot = await ScalarAsync<Guid>("""
             INSERT INTO ti.lot (tenant_id, product_id, handling_profile, lot_number, expiry_date, created_by)
             VALUES (@t, @p, 'Medical', 'LOT-SYN-1', current_date + 365, 'test') RETURNING id

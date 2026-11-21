@@ -2034,3 +2034,25 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Limits:** general products only; medical products need a storage profile and stay one-by-one. Imports never create stock, and the
   spec's "no forced live stock import" holds: there is no stock import at all.
 - **Evidence:** `ProductImportTests.A_file_imports_all_or_nothing_with_every_problem_named_and_a_retry_imports_it_once`; AT-UI-17.
+
+## DEC-100 A medical product needs its storage profile from creation (M5 carry-over in M6, CFG-002)
+- **Status:** Adopted (tightening; nothing relaxed).
+- **Finding:** CFG-002 blocks activating a temperature-controlled product without valid limits and an excursion policy. Limits and the
+  policy live on the storage profile, which cannot exist without them and cannot be retired while a product uses it, but a Medical
+  product could be created, and so be active, with no profile at all.
+- **Resolution:** `createProduct` refuses a Medical product without `storageProfileId` (422 on that field) and `updateProduct` cannot
+  clear it. Products are active from creation, so creation is the activation point. General products keep the profile optional; a
+  general product with a profile is equally bound by its limits. Four tests that created medical products without a profile now give
+  them one; the browser tests already did.
+- **Evidence:** `CatalogTests.Medical_and_serial_product_rules_are_enforced`.
+
+## DEC-101 Reversal limits enforced in the ledger (M2 carry-over in M6, section 09, STK-PRECISION)
+- **Status:** Adopted. Open owner question: whether users need a reversal command at all.
+- **Finding:** the ledger has `Reversal` movements with `reversal_of_id`, and movement lists report the unreversed quantity, but nothing
+  enforced "a reversal cannot reverse more than its unreversed quantity", and no command posts reversals: corrections run through
+  adjustments with independent approval and through returns, which the spec allows ("an explicit return/correction workflow").
+- **Resolution:** migration 0034 adds trigger `stock_movement_reversal_guard`: a reversal must move the product of the movement it
+  reverses, a reversal is never reversed, and the reversals of one movement never sum to more than it. Reversals of one movement are
+  serialized by a transaction-scoped advisory lock, so two concurrent reversals cannot both pass. Any future reversal command inherits
+  the rule. A user-facing reversal command is not added in passing: it is a new stock path and needs the owner's say on who may use it.
+- **Evidence:** `ReversalGuardTests.Reversals_stop_at_the_unreversed_quantity_and_are_never_reversed_themselves`.

@@ -16,7 +16,7 @@ independent approvals with re-authentication, adjustments, bin and warehouse tra
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
 storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrived with M5.
 **M5 (medical) code complete; gate not yet assessed** (DEC-075 to DEC-078): QA quality hold, release and disposition with MED-001 eligibility checks, recalls that block stock at once and close only with QA approval, telemetry devices with rotating credentials, excursions with automatic holds, stale-telemetry blocking, late-reading shipment flags, tenant alerts, and lot traceability. Devices are simulated (D07); medical policies (D04) need QA validation.
-**M6 (release readiness) in progress** (DEC-079 to DEC-094): structured JSON logs and Prometheus metrics, a backup restore drill
+**M6 (release readiness) in progress** (DEC-079 to DEC-101): structured JSON logs and Prometheus metrics, a backup restore drill
 with deletion replay, ledger reconciliation and audit verification, an opt-in section 18 benchmark, and the web app for
 receive-to-dispatch, the QA inbox and alerts, plus the rest of the screen inventory: catalog, locations, transfers, counts,
 adjustments, returns, tasks, recalls, traceability, temperature devices, team, settings, audit, exports, billing and the workspace

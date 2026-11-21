@@ -126,12 +126,14 @@ public sealed class CatalogTests(ApiFixture fx)
 
     [Fact]
     [Trait("Requirement", "DATA-07")]
+    [Trait("Requirement", "CFG-002")]
     public async Task Medical_and_serial_product_rules_are_enforced()
     {
         var admin = AdminA;
         var unit = await CreateUnitAsync(admin);
 
-        var medical = await CreateProductAsync(admin, unit, new { handlingProfile = "Medical", trackingMode = "Lot" });
+        var profile = (string)(await CreateProfileAsync(admin))["id"]!;
+        var medical = await CreateProductAsync(admin, unit, new { handlingProfile = "Medical", trackingMode = "Lot", storageProfileId = profile });
         Assert.Equal("FEFO", (string?)medical["rotationRule"]);
         var general = await CreateProductAsync(admin, unit);
         Assert.Equal("FIFO", (string?)general["rotationRule"]);
@@ -142,7 +144,15 @@ public sealed class CatalogTests(ApiFixture fx)
         Assert.Contains("trackingMode", await Rejected(new
         {
             sku = Code("SKU"), name = "Bad", handlingProfile = "Medical", trackingMode = "Quantity", baseUomId = unit, basePrecision = 0,
+            storageProfileId = profile,
         }));
+        // CFG-002 (DEC-100): no medical product without temperature limits and an excursion policy, at creation or later.
+        Assert.Contains("storageProfileId", await Rejected(new
+        {
+            sku = Code("SKU"), name = "No profile", handlingProfile = "Medical", trackingMode = "Lot", baseUomId = unit, basePrecision = 0,
+        }));
+        var unprofiled = await admin.PatchJsonAsync($"/api/v1/products/{medical["id"]}", new { storageProfileId = (string?)null, reason = "drop the profile" }, "\"1\"");
+        Assert.Contains("storageProfileId", Fields(await unprofiled.ExpectProblemAsync(HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED")));
         Assert.Contains("rotationRule", await Rejected(new
         {
             sku = Code("SKU"), name = "Bad", handlingProfile = "Medical", trackingMode = "Lot", baseUomId = unit, basePrecision = 0,
