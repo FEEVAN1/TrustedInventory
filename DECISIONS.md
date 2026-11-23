@@ -2056,3 +2056,16 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   serialized by a transaction-scoped advisory lock, so two concurrent reversals cannot both pass. Any future reversal command inherits
   the rule. A user-facing reversal command is not added in passing: it is a new stock path and needs the owner's say on who may use it.
 - **Evidence:** `ReversalGuardTests.Reversals_stop_at_the_unreversed_quantity_and_are_never_reversed_themselves`.
+
+## DEC-102 Reservation and excursion state machines enforced in the database; responses checked against the contract (M6, STATE-13, API-16)
+- **Status:** Adopted (tightening).
+- **State machines:** reservations and excursions change state through SQL in their commands, so their transitions had no table test
+  and nothing stopped another path from reviving a consumed reservation or reopening a resolved excursion. Migration 0035 adds
+  `reservation_state_guard` (Active to Picked, Released or Expired; Picked to Active, Consumed or Released; the rest final) and
+  `excursion_status_guard` (Open to Acknowledged or Resolved; Acknowledged to Resolved; a resolved excursion never changes). The
+  allowed arrows are exactly those the code uses; the picking, allocation, dispatch and telemetry suites pass under the guards.
+  Approval, count and quality machines have unit transition tables (`StateMachineTests`).
+- **Responses:** `ResponseConformanceTests` compares every declared response type with its 200/201 schema and calls every
+  parameterless tenant GET as a member holding every tenant role, checking each returned object and list item: every field is in the
+  contract and every required field is present. No difference was found. With `RequestBodyConformanceTests` (DEC-101 batch) the contract
+  is now checked in both directions.

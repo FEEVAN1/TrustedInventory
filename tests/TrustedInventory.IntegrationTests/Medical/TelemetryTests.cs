@@ -13,6 +13,7 @@ public sealed class TelemetryTests(ApiFixture fx)
 
     [Fact]
     [Trait("Requirement", "AT-TEL-01")]
+    [Trait("Requirement", "STATE-13")]
     [Trait("Requirement", "TEL-001")]
     [Trait("Requirement", "TEL-003")]
     [Trait("Requirement", "TEL-005")]
@@ -69,6 +70,13 @@ public sealed class TelemetryTests(ApiFixture fx)
         var resolved = await (await w.PostAsync($"/api/v1/excursions/{excursion["id"]}/resolve", Guid.NewGuid(), $"\"{acknowledged["version"]}\"",
             new { disposition = "Release", reason = "Excursion within stability budget", approvalId = approval })).ExpectAsync(HttpStatusCode.OK);
         Assert.Equal("Resolved", (string?)resolved["status"]);
+        // A resolved excursion is final, whatever path tries to reopen or extend it (STATE-13, DEC-102).
+        foreach (var change in new[] { "status = 'Acknowledged'", "ended_at = NULL" })
+        {
+            var refused = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => w.ExecAsync($"UPDATE ti.excursion SET {change} WHERE id = @id",
+                ("id", Guid.Parse((string)excursion["id"]!))));
+            Assert.Contains("resolved excursion is final", refused.MessageText, StringComparison.Ordinal);
+        }
         Assert.Equal("10|0|Available", await w.StateAsync(await w.SiblingAsync(c01, "Available")));
         Assert.Equal("Closed", (string?)(await w.GetAsync($"/api/v1/alerts/{alert["id"]}"))["status"]);
     }

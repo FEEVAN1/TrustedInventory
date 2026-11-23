@@ -19,6 +19,7 @@ public sealed class DispatchTests(ApiFixture fx)
 {
     [Fact]
     [Trait("Requirement", "AT-STK-03")]
+    [Trait("Requirement", "STATE-13")]
     [Trait("Requirement", "STK-002")]
     [Trait("Requirement", "OUT-005")]
     [Trait("Requirement", "STK-004")]
@@ -46,6 +47,12 @@ public sealed class DispatchTests(ApiFixture fx)
         Assert.Equal("Consumed", await ScalarAsync<string>(
             "SELECT state::text FROM ti.reservation r JOIN ti.outbound_order_line l ON l.id = r.order_line_id WHERE l.order_id = @o",
             ("o", Guid.Parse(order))));
+        // A consumed reservation is final, whatever path tries to revive it (STATE-13, DEC-102).
+        var revived = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => ExecAsync("""
+            UPDATE ti.reservation r SET state = 'Active', expires_at = now() + interval '1 hour'
+            FROM ti.outbound_order_line l WHERE l.id = r.order_line_id AND l.order_id = @o
+            """, ("o", Guid.Parse(order))));
+        Assert.Contains("cannot move from Consumed to Active", revived.MessageText, StringComparison.Ordinal);
         Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.stock_movement WHERE tenant_id = @t AND movement_type = 'Dispatch' AND reservation_id IS NOT NULL",
             w.Tenant));
         await ReconcileAsync();
