@@ -76,6 +76,8 @@ Run `npm run test:e2e` in `web/` against `docker compose up` (see README).
 
 | 20 Nov 2026 (later) | Development stack reset twice (DEC-095), then DEC-095 to DEC-099 | AT-UI-14, AT-UI-15, AT-UI-16 and AT-UI-17 passed at handheld and desktop widths; AT-UI-11 and the billing screen rerun and passed. Findings fixed on the way: external checkpoint copies lost on every worker rebuild and a false genesis failure, both blocking all stock (DEC-095); QA release in staging stranding putaway (DEC-096); recalls hidden from a workspace without entitlement (DEC-097). Reruns not counted: AT-UI-16 once for the empty-`amr` refusal and once for a failed image build |
 
+| 24 Nov 2026 | Stack rebuilt with migration 0035 (DEC-102), full regression run spec by spec | All 18 specs (AT-UI-01 to AT-UI-17 and AT-SEC-01) passed at handheld and desktop widths. Reruns not counted: public signup and expiry correction once each (not reproduced), billing and medical return once each for a refused test sign-in at the identity provider, and complimentary access twice because the spec relied on a trial workspace from another spec; it now signs up its own workspace and reads access from /me |
+
 The first run found two screen defects and two stack configuration gaps, all fixed before this result (DEC-082, DEC-084).
 
 ## Known limitations at this release candidate

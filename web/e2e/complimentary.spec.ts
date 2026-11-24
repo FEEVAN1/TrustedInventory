@@ -1,7 +1,7 @@
 // AT-UI-13 (section 29, BIL-008, SOD-8, DEC-094): complimentary access in the platform console. The billing operator requests a
-// published plan for a synthetic workspace that AT-UI-10 created and cannot approve their own request; the operations administrator,
-// a different person, approves it, and the workspace's subscription then reports the grant; revoking ends it at once. Every page
-// passes the WCAG A and AA rules.
+// published plan for a synthetic workspace bob signs up through the API (without a trial, since he has used his one, so it starts
+// billing-restricted) and cannot approve their own request; the operations administrator, a different person, approves it, and the
+// workspace's access becomes Normal; revoking restricts it again at once. Every page passes the WCAG A and AA rules.
 import { expect, test, type Page } from "@playwright/test";
 import { api, asOtherUser, axeViolations, keycloakLogin, token } from "./support";
 
@@ -13,20 +13,21 @@ async function openConsole(page: Page, user: string): Promise<void> {
   await expect(page.getByRole("heading", { level: 2, name: "Complimentary access" })).toBeVisible();
 }
 
-async function platform<T>(bearer: string, path: string, body?: unknown, ifMatch?: number): Promise<T> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${bearer}` };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (ifMatch !== undefined) headers["If-Match"] = `"${ifMatch}"`;
-  const response = await fetch(`${api}/platform/v1${path}`, { method: body === undefined ? "GET" : "POST", headers, body: body === undefined ? undefined : JSON.stringify(body) });
+// One direct sign-in for bob: a new one can wait half a minute for a fresh one-time-code window.
+let bob: string | null = null;
+
+async function asBob<T>(path: string, body?: unknown): Promise<T> {
+  bob ??= await token("bob");
+  const headers: Record<string, string> = { Authorization: `Bearer ${bob}` };
+  if (body !== undefined) Object.assign(headers, { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() });
+  const response = await fetch(`${api}/api/v1${path}`, { method: body === undefined ? "GET" : "POST", headers, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
   return (await response.json()) as T;
 }
 
-async function complimentaryUntil(tenantId: string): Promise<string | null> {
-  const response = await fetch(`${api}/api/v1/saas/subscription`, { headers: { Authorization: `Bearer ${await token("bob")}`, "X-Tenant-Id": tenantId } });
-  if (!response.ok) throw new Error(`subscription: ${response.status} ${await response.text()}`);
-  return ((await response.json()) as { complimentaryUntil: string | null }).complimentaryUntil;
-}
+/** The workspace's access mode as bob sees it; a workspace without a trial has no subscription to read, so this comes from /me. */
+const accessOf = async (tenantId: string) =>
+  (await asBob<{ memberships: { tenantId: string; accessMode: string }[] }>("/me")).memberships.find((m) => m.tenantId === tenantId)?.accessMode;
 
 test("billing requests complimentary access, another operator approves it, and revoking ends it", async ({ page, browser }, info) => {
   test.setTimeout(420_000);
@@ -34,15 +35,17 @@ test("billing requests complimentary access, another operator approves it, and r
   const found: string[] = [];
   page.on("dialog", (d) => void d.accept()); // approving and revoking ask first
 
-  // A ready synthetic workspace owned by bob (AT-UI-10); close any grant a previous run left open.
-  const admin = await token("platform-admin");
-  const tenants = await platform<{ items: { tenant: { id: string; name: string; accessMode: string } }[] }>(admin,
-    "/tenants?search=Synthetic%20Signup&lifecycle=Ready&limit=50");
-  const workspace = tenants.items.map((t) => t.tenant).find((t) => t.accessMode === "Normal");
-  if (!workspace) throw new Error("Run public-signup.spec.ts first: no ready Synthetic Signup workspace.");
-  const leftovers = await platform<{ items: { id: string; version: number; status: string }[] }>(admin, `/billing/complimentary-access?tenantId=${workspace.id}&limit=50`);
-  for (const g of leftovers.items.filter((x) => x.status === "Pending" || x.status === "Active"))
-    await platform(admin, `/billing/complimentary-access/${g.id}/revoke`, { reason: "AT-UI-13 cleanup of an earlier run" }, g.version);
+  // A fresh synthetic workspace for bob. If it happens to get his one trial, a second one is made, so the grant is what lifts access.
+  const plans = await (await fetch(`${api}/api/v1/saas/plans?limit=50`)).json() as { items: { id: string }[] };
+  const signUp = async (name: string, slug: string) => {
+    const accepted = await asBob<{ tenantId: string; provisioningJobId: string }>("/saas/signup", { businessName: name, requestedSlug: slug,
+      billingCountry: "NG", planVersionId: plans.items[0]!.id, termsVersion: "draft-2026-11", privacyVersion: "draft-2026-11" });
+    await expect.poll(async () => (await asBob<{ status: string }>(`/saas/provisioning/${accepted.provisioningJobId}`)).status, { timeout: 60_000 }).toBe("Ready");
+    return { id: accepted.tenantId, name };
+  };
+  let workspace = await signUp(`Synthetic Grant ${run}`, `grant-${run}`.toLowerCase());
+  if (await accessOf(workspace.id) === "Normal") workspace = await signUp(`Synthetic Grant ${run} b`, `grant-${run}-b`.toLowerCase());
+  expect(await accessOf(workspace.id)).toBe("BillingRestricted");
 
   // The billing operator requests it and is told someone else must approve.
   await asOtherUser(browser, info, "billing-operator", async (billing) => {
@@ -62,7 +65,7 @@ test("billing requests complimentary access, another operator approves it, and r
     await expect(card.getByRole("button", { name: "Approve" })).toHaveCount(0);
     found.push(...(await axeViolations(billing, "complimentary (billing)")));
   }, openConsole);
-  expect(await complimentaryUntil(workspace.id), "a pending grant changes nothing").toBeNull();
+  expect(await accessOf(workspace.id), "a pending grant changes nothing").toBe("BillingRestricted");
 
   // The operations administrator approves it; the workspace's subscription reports the grant.
   await openConsole(page, "platform-admin");
@@ -74,13 +77,13 @@ test("billing requests complimentary access, another operator approves it, and r
   await expect(active).toContainText("Active");
   await expect(active).toContainText(`approved by`);
   found.push(...(await axeViolations(page, "complimentary (operations)")));
-  expect(await complimentaryUntil(workspace.id)).not.toBeNull();
+  await expect.poll(() => accessOf(workspace.id)).toBe("Normal");
 
   // Revoking ends it at once.
   await active.getByLabel("Reason").fill(`AT-UI-13 pilot over ${run}`);
   await active.getByRole("button", { name: "Revoke" }).click();
   await expect(page.locator("ul.cards > li > .panel", { hasText: `AT-UI-13 pilot ${run}` })).toContainText("Revoked");
-  expect(await complimentaryUntil(workspace.id)).toBeNull();
+  await expect.poll(() => accessOf(workspace.id)).toBe("BillingRestricted");
   await expect(page.getByTestId("failure")).toHaveCount(0);
 
   expect(found.join("\n"), "WCAG rule violations").toBe("");
