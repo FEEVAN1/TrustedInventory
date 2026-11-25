@@ -8,6 +8,8 @@ COPY src/ src/
 COPY db/ db/
 # The migrator embeds the fixture plan catalog (DEC-062).
 COPY docs/entitlement-catalog.json docs/
+# The API embeds the contract for its Development-only Swagger UI (DEC-103).
+COPY docs/openapi.yaml docs/
 ENV CI=true
 RUN dotnet restore src/TrustedInventory.Api/TrustedInventory.Api.csproj --locked-mode \
  && dotnet restore src/TrustedInventory.Worker/TrustedInventory.Worker.csproj --locked-mode \

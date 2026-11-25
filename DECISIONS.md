@@ -2069,3 +2069,20 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   parameterless tenant GET as a member holding every tenant role, checking each returned object and list item: every field is in the
   contract and every required field is present. No difference was found. With `RequestBodyConformanceTests` (DEC-101 batch) the contract
   is now checked in both directions.
+
+## DEC-103 Swagger UI over the contract, in Development only (M6, DEC-003, API-001)
+- **Status:** Adopted (developer tooling; no control changed).
+- **What:** the API serves Swagger UI at `/swagger` and the contract at `/openapi.yaml` when `ASPNETCORE_ENVIRONMENT` is
+  `Development` (the Compose stack). The page shows `docs/openapi.yaml` as written, embedded in the API assembly; nothing is generated
+  from code, so the contract stays the source of truth (DEC-003). The one change is the placeholder OpenID Connect discovery address,
+  replaced with the configured `Auth:Authority`, so "Authorize" signs in through the development PWA client with PKCE, password and
+  one-time code like the web app. Calls made from the page pass the same authentication, MFA, tenant, permission, entitlement, quota
+  and rate checks as any other client.
+- **Limits:** no other environment maps these routes, so health probes stay the only unauthenticated API routes there (API-001).
+  The pages get their own content security policy (scripts and styles from the API, inline styles, calls to the identity
+  provider; still no framing); every other API response keeps `default-src 'none'`. The development realm adds
+  `http://localhost:8081/swagger/oauth2-redirect.html` as a redirect and `http://localhost:8081` as a web origin of the PWA client;
+  a running Keycloak picks this up when its container is recreated (the realm is imported at start). Package:
+  `Swashbuckle.AspNetCore.SwaggerUI` 10.3.1 (static UI only, no document generation).
+- **Evidence:** `ContractDocsTests` (absent outside Development; in Development the served contract equals the file apart from the
+  discovery address, the page forbids framing and the API keeps its no-page policy).

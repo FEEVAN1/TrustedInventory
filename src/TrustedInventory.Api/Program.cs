@@ -75,6 +75,7 @@ app.Use(async (http, next) =>
     h.CacheControl = "no-store";
     await next();
 });
+app.UseContractDocs(); // Development only: Swagger UI over docs/openapi.yaml (DEC-103)
 app.UseCors();
 app.UseAuthentication();
 app.UseRateLimiter();

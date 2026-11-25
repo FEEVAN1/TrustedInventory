@@ -112,6 +112,7 @@ Building the images is memory-heavy. If Docker stops the build for low memory, c
 | Service | URL |
 |---------|-----|
 | API | http://localhost:8081 (`/health/ready`, `/api/v1/...`) |
+| API contract (Swagger UI, Development only, DEC-103) | http://localhost:8081/swagger (Authorize signs in with a development user) |
 | Keycloak | http://localhost:8080 (realm `trustedinventory`) |
 | Web | http://localhost:5173 |
 | PostgreSQL | localhost:55432 |
