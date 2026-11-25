@@ -27,7 +27,21 @@ const FEATURE_TEXT: Record<string, string> = {
   advanced_reporting: "Advanced reporting",
   service_api: "Service API access",
 };
-const LIMIT_TEXT: Record<string, string> = { active_seats: "seats", active_warehouses: "warehouses", active_skus: "active SKUs", active_devices: "devices", attachment_bytes: "bytes of attachments" };
+const LIMIT_TEXT: Record<string, string> = { active_seats: "Team seats", active_warehouses: "Warehouses", active_skus: "Active SKUs", active_devices: "Temperature devices", attachment_bytes: "Attachment storage" };
+const LIMIT_ORDER = ["active_seats", "active_warehouses", "active_skus", "active_devices", "attachment_bytes"];
+
+/** A limit as people read it: storage in GB or MB, counts with separators, zero as "Not included". */
+function limitValue(key: string, value: number): string {
+  if (value === 0) return "Not included";
+  if (key === "attachment_bytes") {
+    const gb = value / 1024 ** 3;
+    return gb >= 1 ? `${Number(gb.toFixed(1)).toLocaleString()} GB` : `${Math.round(value / 1024 ** 2).toLocaleString()} MB`;
+  }
+  return value.toLocaleString();
+}
+
+/** Smallest plan first, by seats then SKUs, so the page reads from starter to largest. */
+const planSize = (p: PublicPlan) => (p.limits.active_seats ?? 0) * 1e9 + (p.limits.active_skus ?? 0);
 
 /** Reads a public route: no token, no tenant (listPlans is `security: []`). */
 async function publicGet<T>(path: string): Promise<T> {
@@ -163,15 +177,30 @@ function usePlans(): [PublicPlan[] | null, Failure | null, () => void] {
 
 function PlanCard({ plan, children }: { plan: PublicPlan; children?: ReactNode }) {
   const prices = plan.prices.filter((p) => p.displayApproved);
+  // Development fixtures are named "Growth (fixture)": the marker stays visible, set apart from the name.
+  const marker = /\s*\(fixture\)$/i;
+  const fixture = marker.test(plan.name);
+  const name = plan.name.replace(marker, "");
+  const rank = (k: string) => { const i = LIMIT_ORDER.indexOf(k); return i < 0 ? LIMIT_ORDER.length : i; };
+  const limits = Object.entries(plan.limits).sort(([a], [b]) => rank(a) - rank(b));
   return (
     <div className="panel plan">
-      <h3>{plan.name}</h3>
-      {prices.length > 0
-        ? <p>{prices.map((p) => <span key={p.id} className="badge">{money(p.amount)} per {p.interval.toLowerCase()}</span>)}</p>
-        : <p className="muted">Pricing is not published yet.</p>}
-      {plan.trialDays > 0 && <p>{plan.trialDays}-day trial for a new business; one trial per workspace.</p>}
+      <div className="plan-head">
+        <h3>{name}{fixture && <span className="chip quiet"> fixture</span>}</h3>
+        {plan.trialDays > 0 && <span className="chip trial">{plan.trialDays}-day free trial</span>}
+      </div>
+      <div className="plan-price">
+        {prices.length > 0
+          ? prices.map((p) => <p key={p.id} className="price"><span className="badge">{money(p.amount)}</span> per {p.interval.toLowerCase()}</p>)
+          : <p className="muted">Pricing is not published yet.</p>}
+        {plan.trialDays > 0 && <p className="fine">The trial is for a new business; one trial per workspace.</p>}
+      </div>
+      <h4 className="plan-sub">What&apos;s included</h4>
       <ul className="ticks">{plan.features.map((f) => <li key={f}>{FEATURE_TEXT[f] ?? f}</li>)}</ul>
-      <p className="muted">{Object.entries(plan.limits).map(([k, v]) => `${v.toLocaleString()} ${LIMIT_TEXT[k] ?? k}`).join(" · ")}</p>
+      <h4 className="plan-sub">Limits</h4>
+      <dl className="plan-limits">
+        {limits.map(([k, v]) => <div key={k}><dt>{LIMIT_TEXT[k] ?? k}</dt><dd>{limitValue(k, v)}</dd></div>)}
+      </dl>
       {children}
     </div>
   );
@@ -184,14 +213,25 @@ export function PublicPlans() {
     <>
       <PublicHeader />
       <main className="public">
-        <section aria-labelledby="plans" className="page-intro">
-          <h1 id="plans">Plans</h1>
-          <p>Billing is monthly or yearly. You confirm the recurring amount before any payment, and cancelling the subscription never deletes
-            your workspace.</p>
+        <section aria-labelledby="plans" className="plans-page">
+          <div className="plans-intro">
+            <p className="eyebrow">Pricing and plans</p>
+            <h1 id="plans">Plans</h1>
+            <p className="lead">Billing is monthly or yearly. You confirm the recurring amount before any payment, and cancelling the subscription never deletes
+              your workspace.</p>
+            <ul className="assurances">
+              <li>Confirm the amount before paying</li>
+              <li>Cancelling keeps your workspace</li>
+              <li>One free trial per business</li>
+            </ul>
+          </div>
           {failure ? <FailureView failure={failure} onRetry={reload} />
-            : !plans ? <p role="status" className="muted">Loading plans…</p>
+            : !plans ? <p role="status" className="muted center">Loading plans…</p>
             : plans.length === 0 ? <Empty>No plan is published yet.</Empty>
-            : <div className="cards">{plans.map((p) => <PlanCard key={p.id} plan={p}><a className="button" href={`/signup?plan=${p.id}`}>Start with {p.name}</a></PlanCard>)}</div>}
+            : <div className="cards plan-grid">{[...plans].sort((a, b) => planSize(a) - planSize(b)).map((p) => (
+                <PlanCard key={p.id} plan={p}><a className="button large" href={`/signup?plan=${p.id}`}>Start with {p.name}</a></PlanCard>
+              ))}</div>}
+          <p className="plans-help muted">Not sure which plan fits? Start small: you can change plan from Billing inside your workspace.</p>
         </section>
       </main>
       <PublicFooter />

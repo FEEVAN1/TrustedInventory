@@ -2094,7 +2094,9 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   drawn inline (`web/src/brand.tsx`, plus `web/public/favicon.svg`) heads the product pages, the workspace and the platform console.
   The product page gains a hero with an illustration, a "Welcome back" band that opens sign-in for returning visitors, feature cards
   grouped under General warehouses and Medical goods, three onboarding steps and a footer; plans, signup and the platform sign-in use
-  the same styling. The page text claims nothing the product does not do.
+  the same styling. The plans page centres its introduction and the plan cards (smallest plan first), each with a trial tag, the
+  price or "Pricing is not published yet.", what is included and its limits in readable units (GB, "Not included"); a development
+  plan's "(fixture)" marker shows as a tag. The page text claims nothing the product does not do.
 - **Mobile:** the hero stacks with a smaller illustration, calls to action span the width, public links stay in one row, the
   signed-in header keeps Menu, Switch workspace and Sign out on one row, and tables become cards. Touch targets stay at least 44 px.
 - **Controls kept:** the web page policy is unchanged (no external fonts or images; icons are inline SVG). Every text colour pair

@@ -242,9 +242,44 @@ ul.ticks li::before { content: ""; position: absolute; left: 0.2rem; top: 0.55re
 
 .page-intro > h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); margin: 1rem 0 0.5rem; }
 .page-intro.narrow { max-width: 46rem; }
-.panel.plan { display: flex; flex-direction: column; border-top: 4px solid var(--accent); }
-.panel.plan h3 { font-size: 1.3rem; margin: 0.25rem 0 0.5rem; }
-.panel.plan a.button { margin-top: auto; align-self: flex-start; }
+/* Plans page: a centred introduction and a centred row of equal-height plan cards (DEC-104). */
+.plans-page { padding-top: 1rem; }
+.plans-intro { text-align: center; max-width: 44rem; margin: 0 auto 2rem; }
+.plans-intro h1 { font-size: clamp(2.1rem, 5vw, 3rem); margin: 0 0 0.75rem; color: #073b6b; letter-spacing: -0.02em; }
+.plans-intro .lead { margin: 0 auto; }
+.plans-intro .assurances { justify-content: center; margin-top: 1.25rem; }
+div.cards.plan-grid { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: 1.25rem; }
+.panel.plan { flex: 0 1 340px; display: flex; flex-direction: column; margin: 0; padding: 0 0 1.5rem; border: 1px solid var(--line); border-radius: 18px;
+  overflow: hidden; box-shadow: var(--shadow-lift); transition: transform 0.2s, box-shadow 0.2s; }
+.panel.plan:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgb(10 60 110 / 10%), 0 18px 40px rgb(10 60 110 / 16%); }
+.panel.plan > * { margin-left: 1.5rem; margin-right: 1.5rem; }
+.plan-head { margin: 0 !important; padding: 1.25rem 1.5rem 1rem; background: linear-gradient(135deg, #e6f3fe, #cfe6fb); border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+.plan-head h3 { margin: 0; font-size: 1.45rem; color: #073b6b; display: flex; align-items: center; gap: 0.5rem; }
+.chip { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+.chip.trial { background: #e3f4e8; color: #17602e; border: 1px solid #b8e0c4; }
+.chip.quiet { background: var(--panel); color: var(--muted); border: 1px solid var(--line); font-weight: 600; text-transform: lowercase; }
+.plan-price { padding: 1.1rem 0 0.9rem; border-bottom: 1px dashed var(--line); text-align: center; }
+.plan-price p { margin: 0; }
+.plan-price .muted { font-size: 1.1rem; font-weight: 600; }
+.plan-price .price { font-size: 1.1rem; }
+.plan-price .price .badge { font-size: 1.4rem; padding: 0.2rem 0.8rem; }
+.plan-price .fine { margin-top: 0.35rem; font-size: 0.85rem; color: var(--muted); }
+.plan-sub { margin-top: 1.1rem !important; margin-bottom: 0.25rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.panel.plan ul.ticks { margin-top: 0.25rem; }
+.plan-limits { margin-top: 0.35rem; margin-bottom: 1.5rem; }
+.plan-limits > div { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid #e6f0f9; }
+.plan-limits > div:last-child { border-bottom: none; }
+.plan-limits dt { color: var(--muted); }
+.plan-limits dd { margin: 0; font-weight: 700; text-align: right; }
+.panel.plan a.button { margin-top: auto; }
+.plans-help { text-align: center; margin: 2rem auto 0; max-width: 40rem; }
+.center { text-align: center; }
+@media (max-width: 600px) {
+  .panel.plan { flex-basis: 100%; }
+  .panel.plan > * { margin-left: 1.1rem; margin-right: 1.1rem; }
+  .plan-head { padding: 1rem 1.1rem 0.85rem; }
+}
 .another { margin-top: 1.25rem; }
 
 .site-footer { border-top: 1px solid var(--line); background: var(--accent-tint); padding: 1.5rem max(1rem, calc((100% - 1200px) / 2 + 1rem)); margin-top: 2rem; }
