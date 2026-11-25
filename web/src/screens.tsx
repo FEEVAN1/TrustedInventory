@@ -26,7 +26,8 @@ async function findBin(code: string, warehouseId?: string): Promise<Bin | null> 
 export function Workspaces({ onSelected }: { onSelected: () => void }) {
   const [me, reload] = useLoad(() => request<Me>("/me", { tenant: false }), []);
   return (
-    <section aria-labelledby="ws">
+    <section aria-labelledby="ws" className="page-intro">
+      <p className="eyebrow">Welcome back</p>
       <h2 id="ws">Choose a workspace</h2>
       <Loaded load={me} what="your workspaces" onRetry={reload}>
         {(data) =>
@@ -48,7 +49,7 @@ export function Workspaces({ onSelected }: { onSelected: () => void }) {
         }
       </Loaded>
       {/* Section 29: an owner may start another workspace, subject to abuse review; nothing is inherited from this one (DEC-088). */}
-      <p><a href="/signup">Create another workspace</a> <span className="muted">· starts empty, with its own plan and subscription</span></p>
+      <p className="another"><a href="/signup">Create another workspace</a> <span className="muted">· starts empty, with its own plan and subscription</span></p>
     </section>
   );
 }

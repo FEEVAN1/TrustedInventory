@@ -10,6 +10,7 @@ import { Devices, Recalls, Traceability } from "./quality";
 import { Alerts, Approvals, NotFound, Orders, Putaway, Receive, StockExplorer, Workspaces } from "./screens";
 import { PlatformConsole } from "./platform";
 import { Landing, PublicPlans, Signup } from "./public";
+import { Brand } from "./brand";
 import { Loaded, ScreenBoundary, useLoad } from "./ui";
 import "./styles.css";
 
@@ -103,8 +104,8 @@ function Shell({ tenant, hash, online, onSwitch }: { tenant: string; hash: strin
         return (
           <>
             <header>
-              <strong>TrustedInventory</strong>
-              <span className="badge">{membership.tenantName}</span>
+              <Brand href="#/" />
+              <span className="badge workspace-name">{membership.tenantName}</span>
               <button type="button" className="secondary menu-toggle" aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen(!menuOpen)}>Menu</button>
               <span className="spacer" />
               <button type="button" className="secondary" onClick={onSwitch}>Switch workspace</button>
@@ -139,8 +140,8 @@ function App() {
   if (!tenant)
     return (
       <>
-        <header><strong>TrustedInventory</strong><span className="spacer" /><button type="button" className="secondary" onClick={signOut}>Sign out</button></header>
-        <main><Workspaces onSelected={() => { setTenant(currentTenant()); setEpoch((e) => e + 1); location.hash = "#/"; }} /></main>
+        <header><Brand /><span className="spacer" /><button type="button" className="secondary" onClick={signOut}>Sign out</button></header>
+        <main className="chooser"><Workspaces onSelected={() => { setTenant(currentTenant()); setEpoch((e) => e + 1); location.hash = "#/"; }} /></main>
       </>
     );
 

@@ -2086,3 +2086,17 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   `Swashbuckle.AspNetCore.SwaggerUI` 10.3.1 (static UI only, no document generation).
 - **Evidence:** `ContractDocsTests` (absent outside Development; in Development the served contract equals the file apart from the
   discovery address, the page forbids framing and the API keeps its no-page policy).
+
+## DEC-104 Light-blue theme and a product page for first-time and returning visitors (M6, UI-002, section 29)
+- **Status:** Adopted (presentation only; no behaviour, permission or contract changed).
+- **What:** every screen uses one light-blue theme defined as colour tokens in `web/src/styles.css`: soft blue page and header
+  gradients, white cards with light shadows, rounded controls, pill navigation and themed tables, tabs, badges and alerts. A logo
+  drawn inline (`web/src/brand.tsx`, plus `web/public/favicon.svg`) heads the product pages, the workspace and the platform console.
+  The product page gains a hero with an illustration, a "Welcome back" band that opens sign-in for returning visitors, feature cards
+  grouped under General warehouses and Medical goods, three onboarding steps and a footer; plans, signup and the platform sign-in use
+  the same styling. The page text claims nothing the product does not do.
+- **Mobile:** the hero stacks with a smaller illustration, calls to action span the width, public links stay in one row, the
+  signed-in header keeps Menu, Switch workspace and Sign out on one row, and tables become cards. Touch targets stay at least 44 px.
+- **Controls kept:** the web page policy is unchanged (no external fonts or images; icons are inline SVG). Every text colour pair
+  meets WCAG AA; axe reported no violation on the product page, plans and six signed-in screens at both widths, and focus outlines
+  stay visible. The browser tests keep their names and roles: the one "Sign in" button, the level-1 heading, the "Medical goods" heading.

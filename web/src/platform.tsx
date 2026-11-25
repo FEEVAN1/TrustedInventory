@@ -5,6 +5,7 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { ApiError, request, type Failure, type Page } from "./api";
 import { currentSession, signIn, signOut } from "./auth";
+import { Brand, Logo } from "./brand";
 import { Act, Field, Pick, Tabs, when } from "./kit";
 import { Empty, FailureView, Loaded, ScreenBoundary, useLoad, type Load } from "./ui";
 
@@ -49,15 +50,18 @@ export function PlatformConsole() {
   if (!currentSession())
     return (
       <main className="signin">
-        <h1>TrustedInventory platform</h1>
-        <p>For platform operations and billing staff. Multi-factor authentication is required.</p>
-        <button type="button" onClick={() => void signIn("/platform")}>Sign in</button>
+        <div className="signin-card">
+          <Logo size={56} />
+          <h1>TrustedInventory platform</h1>
+          <p>For platform operations and billing staff. Multi-factor authentication is required.</p>
+          <button type="button" onClick={() => void signIn("/platform")}>Sign in</button>
+        </div>
       </main>
     );
   return (
     <>
       <header>
-        <strong>TrustedInventory platform</strong>
+        <Brand suffix="platform" />
         <span className="badge">No tenant stock is visible here</span>
         <span className="spacer" />
         <button type="button" className="secondary" onClick={signOut}>Sign out</button>

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ApiError, describe, request, selectTenant, type Failure } from "./api";
 import { config, currentSession, signIn } from "./auth";
+import { Brand, HeroArt, Icon } from "./brand";
 import { Empty, FailureView, useCommand } from "./ui";
 
 interface Amount { currency: string; minorUnits: number; exponent: number }
@@ -47,8 +48,8 @@ function money(m: Amount): string {
 
 function PublicHeader() {
   return (
-    <header>
-      <a href="/" className="brand"><strong>TrustedInventory</strong></a>
+    <header className="public-header">
+      <Brand href="/" />
       <nav aria-label="Public">
         <a href="/plans">Plans</a>
         <a href="/signup">Start a workspace</a>
@@ -59,40 +60,88 @@ function PublicHeader() {
   );
 }
 
+function PublicFooter() {
+  return (
+    <footer className="site-footer">
+      <Brand />
+      <p className="muted">Synthetic development environment: billing runs against a labelled simulator and no real goods or payments are involved.</p>
+    </footer>
+  );
+}
+
 /** Product page (section 29): what the product does for general and medical stock, with no invented claims or badges. */
 export function Landing() {
   return (
     <>
       <PublicHeader />
-      <main>
+      <main className="public">
         <section aria-labelledby="hero" className="hero">
-          <h1 id="hero">Stock you can account for</h1>
-          <p>TrustedInventory records every receipt, move, pick and dispatch in an append-only ledger, so on-hand quantities can always be
-            traced back to the documents that changed them.</p>
-          <p><a className="button" href="/signup">Start a workspace</a> <a className="button secondary" href="/plans">Compare plans</a></p>
+          <div className="hero-text">
+            <p className="eyebrow">Inventory control for general and medical stock</p>
+            <h1 id="hero">Stock you can account for</h1>
+            <p className="lead">TrustedInventory records every receipt, move, pick and dispatch in an append-only ledger, so on-hand quantities can always be
+              traced back to the documents that changed them.</p>
+            <p className="cta"><a className="button large" href="/signup">Start a workspace</a> <a className="button secondary large" href="/plans">Compare plans</a></p>
+            <ul className="assurances">
+              <li>Append-only stock ledger</li>
+              <li>Second-person approvals</li>
+              <li>Made for handheld scanners</li>
+            </ul>
+          </div>
+          <HeroArt />
         </section>
-        <div className="grid">
-          <section className="panel" aria-labelledby="general">
-            <h2 id="general">General warehouses</h2>
-            <ul>
-              <li>Receiving with barcode scans, putaway suggestions and blind cycle counts</li>
-              <li>Allocation by FIFO, LIFO or expiry, picking with scan checks, and dispatch</li>
-              <li>Transfers, adjustments and returns that need a second person to approve</li>
-            </ul>
+
+        <section aria-labelledby="returning" className="welcome-back">
+          <div>
+            <h2 id="returning">Welcome back</h2>
+            <p>Already have a workspace? Pick up where your team left off: open receipts, tasks waiting for you and approvals to sign.</p>
+          </div>
+          <button type="button" onClick={() => void signIn("/")}>Open my workspace</button>
+        </section>
+
+        <section aria-labelledby="features" className="features">
+          <h2 id="features">Everything a warehouse floor needs</h2>
+          <section aria-labelledby="general" className="feature-group">
+            <h3 id="general" className="group-title">General warehouses</h3>
+            <div className="feature-grid">
+              <Feature icon="scan" title="Receive with a scan">Receiving with barcode scans, putaway suggestions and blind cycle counts.</Feature>
+              <Feature icon="truck" title="Pick and dispatch">Allocation by FIFO, LIFO or expiry, picking with scan checks, and dispatch.</Feature>
+              <Feature icon="approve" title="Two people, not one">Transfers, adjustments and returns that need a second person to approve.</Feature>
+            </div>
           </section>
-          <section className="panel" aria-labelledby="medical">
-            <h2 id="medical">Medical goods</h2>
-            <ul>
-              <li>Quarantine on arrival and quality release by a QA officer</li>
-              <li>Recalls that block stock at once, with customer outreach and lot traceability</li>
-              <li>Temperature devices, excursions and holds</li>
-            </ul>
-            <p className="muted">Your organisation remains responsible for validating these controls for regulated use.</p>
+          <section aria-labelledby="medical" className="feature-group">
+            <h3 id="medical" className="group-title">Medical goods</h3>
+            <div className="feature-grid">
+              <Feature icon="shield" title="Quality release">Quarantine on arrival and quality release by a QA officer.</Feature>
+              <Feature icon="recall" title="Recalls that block at once">Recalls that block stock at once, with customer outreach and lot traceability.</Feature>
+              <Feature icon="thermo" title="Temperature watch">Temperature devices, excursions and holds.</Feature>
+            </div>
+            <p className="muted note">Your organisation remains responsible for validating these controls for regulated use.</p>
           </section>
-        </div>
-        <p className="muted">Already have a workspace? Use <strong>Sign in</strong> at the top of the page.</p>
+        </section>
+
+        <section aria-labelledby="how" className="steps-section">
+          <h2 id="how">Up and running in three steps</h2>
+          <ol className="steps">
+            <li><strong>Start a workspace</strong><span>Choose a plan and name your business. Setup takes about a minute.</span></li>
+            <li><strong>Add products and locations</strong><span>Import products from a CSV file, or try sample data first.</span></li>
+            <li><strong>Receive your first delivery</strong><span>Scan it in, put it away and watch the ledger build up.</span></li>
+          </ol>
+          <p className="cta"><a className="button large" href="/signup">Start a workspace</a></p>
+        </section>
       </main>
+      <PublicFooter />
     </>
+  );
+}
+
+function Feature({ icon, title, children }: { icon: Parameters<typeof Icon>[0]["name"]; title: string; children: ReactNode }) {
+  return (
+    <div className="feature">
+      <Icon name={icon} />
+      <h4>{title}</h4>
+      <p>{children}</p>
+    </div>
   );
 }
 
@@ -115,13 +164,13 @@ function usePlans(): [PublicPlan[] | null, Failure | null, () => void] {
 function PlanCard({ plan, children }: { plan: PublicPlan; children?: ReactNode }) {
   const prices = plan.prices.filter((p) => p.displayApproved);
   return (
-    <div className="panel">
+    <div className="panel plan">
       <h3>{plan.name}</h3>
       {prices.length > 0
         ? <p>{prices.map((p) => <span key={p.id} className="badge">{money(p.amount)} per {p.interval.toLowerCase()}</span>)}</p>
         : <p className="muted">Pricing is not published yet.</p>}
       {plan.trialDays > 0 && <p>{plan.trialDays}-day trial for a new business; one trial per workspace.</p>}
-      <ul>{plan.features.map((f) => <li key={f}>{FEATURE_TEXT[f] ?? f}</li>)}</ul>
+      <ul className="ticks">{plan.features.map((f) => <li key={f}>{FEATURE_TEXT[f] ?? f}</li>)}</ul>
       <p className="muted">{Object.entries(plan.limits).map(([k, v]) => `${v.toLocaleString()} ${LIMIT_TEXT[k] ?? k}`).join(" · ")}</p>
       {children}
     </div>
@@ -134,8 +183,8 @@ export function PublicPlans() {
   return (
     <>
       <PublicHeader />
-      <main>
-        <section aria-labelledby="plans">
+      <main className="public">
+        <section aria-labelledby="plans" className="page-intro">
           <h1 id="plans">Plans</h1>
           <p>Billing is monthly or yearly. You confirm the recurring amount before any payment, and cancelling the subscription never deletes
             your workspace.</p>
@@ -145,6 +194,7 @@ export function PublicPlans() {
             : <div className="cards">{plans.map((p) => <PlanCard key={p.id} plan={p}><a className="button" href={`/signup?plan=${p.id}`}>Start with {p.name}</a></PlanCard>)}</div>}
         </section>
       </main>
+      <PublicFooter />
     </>
   );
 }
@@ -159,13 +209,14 @@ export function Signup() {
   return (
     <>
       <PublicHeader />
-      <main>
-        <section aria-labelledby="signup">
+      <main className="public">
+        <section aria-labelledby="signup" className="page-intro narrow">
           <h1 id="signup">Start a workspace</h1>
           {!session ? <SignedOut /> : job ? <Provisioning jobId={job} onRestart={() => { try { sessionStorage.removeItem(JOB_KEY); } catch { /* hint only */ } setJob(null); }} />
             : <SignupForm onAccepted={(a) => { try { sessionStorage.setItem(JOB_KEY, a.provisioningJobId); } catch { /* hint only */ } setJob(a.provisioningJobId); }} />}
         </section>
       </main>
+      <PublicFooter />
     </>
   );
 }
