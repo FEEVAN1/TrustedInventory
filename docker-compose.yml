@@ -2,8 +2,10 @@
 # Copy .env.example to .env and fill every value first. Everything here is synthetic and development-only:
 # the Keycloak realm, users and seed data must never be used for real operations (AGT-004).
 #
-# Tokens are issued for http://keycloak:8080 (KC_HOSTNAME) so the API inside the network and clients on the
-# host see the same issuer. A browser login on the host needs "127.0.0.1 keycloak" in the hosts file.
+# Tokens are issued for http://localhost:8080 (KC_HOSTNAME), the address browsers and scripts on the host use, so no
+# hosts-file entry is needed (DEC-105, replacing DEC-031). Inside the network the API reads discovery and signing keys
+# from http://keycloak:8080 (Auth__MetadataAddress; KC_HOSTNAME_BACKCHANNEL_DYNAMIC answers it with in-network
+# endpoints) and still requires the localhost issuer exactly.
 name: trustedinventory
 
 x-dotnet-build: &dotnet-build
@@ -61,7 +63,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set in .env}
-      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HEALTH_ENABLED: "true"
       # Substituted into the realm import; never stored in the repository.
       TI_DEV_USER_PASSWORD: ${TI_DEV_USER_PASSWORD:?set in .env}
@@ -107,7 +110,8 @@ services:
       # Development only (DEC-088): browser tests start real workspaces; production keeps the default of 3 per identity per day (ONB-007).
       Saas__Abuse__SignupsPerIdentityPerDay: "50"
       Support__Contact: ${TI_SUPPORT_CONTACT:-Not configured}
-      Auth__Authority: http://keycloak:8080/realms/trustedinventory
+      Auth__Authority: http://localhost:8080/realms/trustedinventory
+      Auth__MetadataAddress: http://keycloak:8080/realms/trustedinventory/.well-known/openid-configuration
       Auth__Audience: trustedinventory-api
       # Re-authentication ID tokens are addressed to the web client (DEC-009, DEC-086: found by the browser approval run).
       Auth__ReauthAudiences__0: trustedinventory-api

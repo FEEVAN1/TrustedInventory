@@ -28,6 +28,11 @@ public static class AuthenticationSetup
             .AddJwtBearer(o =>
             {
                 o.Authority = authority;
+                // Optional: where to read discovery and signing keys when the API reaches the provider by a different address
+                // than the issuer it names (the Compose network, DEC-105). The issuer check below is unchanged: tokens must
+                // still name Auth:Authority exactly.
+                if (config["Auth:MetadataAddress"] is { Length: > 0 } metadata)
+                    o.MetadataAddress = metadata;
                 o.Audience = audience;
                 o.MapInboundClaims = false;
                 o.RequireHttpsMetadata = config.GetValue("Auth:RequireHttpsMetadata", true);

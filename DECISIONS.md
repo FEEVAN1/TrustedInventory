@@ -320,7 +320,7 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   checkpoint retention store are **simulated** and labelled as such (AGT-004).
 - Checkpoints are HMAC-SHA256 signed with `Audit:CheckpointKey` / `Audit:CheckpointKeyId`; the worker
   refuses to start without them. Production uses an asymmetric key in the secret manager (D06).
-- Keycloak's hostname is fixed to `http://keycloak:8080` so host-obtained tokens and the API agree on the
+- *(Superseded by DEC-105: the issuer is now `http://localhost:8080` and no hosts entry is needed.)* Keycloak's hostname is fixed to `http://keycloak:8080` so host-obtained tokens and the API agree on the
   issuer; a browser login from the host needs `127.0.0.1 keycloak` in the hosts file. Synthetic users'
   password and TOTP seed come from `.env` (never committed). The PWA client allows direct grants for
   verification only, and that flow still requires password and OTP. MFA reaches the API as `amr=pwd,otp`
@@ -2102,3 +2102,17 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
 - **Controls kept:** the web page policy is unchanged (no external fonts or images; icons are inline SVG). Every text colour pair
   meets WCAG AA; axe reported no violation on the product page, plans and six signed-in screens at both widths, and focus outlines
   stay visible. The browser tests keep their names and roles: the one "Sign in" button, the level-1 heading, the "Medical goods" heading.
+
+## DEC-105 Development issuer on localhost; no hosts-file entry (M6, IAM-002, supersedes the hostname part of DEC-031)
+- **Status:** Adopted (owner request, 25 Nov 2026: sign-in failed on a machine without the `127.0.0.1 keycloak` hosts entry).
+- **What:** Keycloak issues tokens as `http://localhost:8080` (`KC_HOSTNAME`), the address browsers, scripts and browser tests on
+  the host already use. The API inside the Compose network cannot reach `localhost:8080`, so a new optional setting,
+  `Auth:MetadataAddress`, points it at `http://keycloak:8080/.../.well-known/openid-configuration` for discovery and signing keys;
+  `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` makes Keycloak answer those in-network requests with in-network key and token endpoints.
+- **Controls unchanged:** the API still requires the issuer to equal `Auth:Authority` exactly, and audience, lifetime, signature
+  and MFA checks are untouched; re-authentication reads the same options. A token naming the in-network address as issuer is refused
+  (`ConfigurationTests`). Production sets only `Auth:Authority` unless its network needs the same split.
+- **Changed:** `docker-compose.yml` (Keycloak hostname and backchannel, API authority and metadata address),
+  `appsettings.Development.json`, the web app's default authority (`web/src/auth.ts`), the web content security policy, and the
+  browser test configuration (no host-resolver rule). README no longer asks for a hosts entry. Recreating the Keycloak container
+  applies it; tokens issued before carry the old issuer and are refused, so sign in again.

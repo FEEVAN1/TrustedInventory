@@ -3,7 +3,7 @@
 
 export const config = {
   apiUrl: import.meta.env.VITE_API_URL ?? "http://localhost:8081",
-  authority: import.meta.env.VITE_OIDC_AUTHORITY ?? "http://keycloak:8080/realms/trustedinventory",
+  authority: import.meta.env.VITE_OIDC_AUTHORITY ?? "http://localhost:8080/realms/trustedinventory",
   clientId: import.meta.env.VITE_OIDC_CLIENT_ID ?? "trustedinventory-pwa",
 };
 

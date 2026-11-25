@@ -1,7 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
 // Browser evidence (AT-UI-01, DEC-082) against the Docker Compose development stack: web on 5173, API on 8081, Keycloak on 8080.
-// The browser resolves the compose host name "keycloak" to the local machine, as the README's hosts entry does (DEC-031).
 export default defineConfig({
   testDir: "./e2e",
   timeout: 300_000,
@@ -14,7 +13,6 @@ export default defineConfig({
     trace: "retain-on-failure",
     // A missing element fails within a minute instead of waiting for the whole test limit.
     actionTimeout: 60_000,
-    launchOptions: { args: ["--host-resolver-rules=MAP keycloak 127.0.0.1"] },
   },
   projects: [
     { name: "handheld", use: { viewport: { width: 390, height: 844 }, hasTouch: true } },
