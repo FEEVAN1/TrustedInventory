@@ -26,6 +26,7 @@ public enum ErrorCode
     BarcodeConflict,
     UnknownBarcode,
     MissingMedicalEvidence,
+    ReleaseIneligible,
     DuplicateSerial,
     ReturnExceedsShipped,
     RateLimited,
@@ -74,7 +75,7 @@ public class AppException(ErrorCode code, string detail, IReadOnlyList<FieldErro
         ErrorCode.VersionConflict => 412,
         ErrorCode.PreconditionRequired => 428,
         ErrorCode.ValidationFailed or ErrorCode.OverReceipt or ErrorCode.IncompatibleBin or ErrorCode.BarcodeConflict
-            or ErrorCode.UnknownBarcode or ErrorCode.MissingMedicalEvidence or ErrorCode.DuplicateSerial
+            or ErrorCode.UnknownBarcode or ErrorCode.MissingMedicalEvidence or ErrorCode.ReleaseIneligible or ErrorCode.DuplicateSerial
             or ErrorCode.ReturnExceedsShipped => 422,
         ErrorCode.RateLimited => 429,
         ErrorCode.ServiceUnavailable => 503,

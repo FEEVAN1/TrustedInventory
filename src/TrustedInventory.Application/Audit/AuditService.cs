@@ -108,7 +108,7 @@ public sealed class AuditService(
 
     /// <summary>
     /// Recomputes the chain over a range: contiguous sequences, previous-hash links and each event hash, then
-    /// compares the newest checkpoint in range. Checkpoint signatures are verified by the checkpoint job.
+    /// compares the newest checkpoint in range. The signed external checkpoints are verified by the worker (AuditCheckpointVerificationJob, DEC-093).
     /// </summary>
     public Task<AuditVerificationResult> VerifyAsync(AuditVerifyRequest request, CancellationToken ct)
     {

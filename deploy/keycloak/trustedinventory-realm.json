@@ -2,7 +2,26 @@
     "realm":  "trustedinventory",
     "enabled":  true,
     "sslRequired":  "external",
-    "registrationAllowed":  false,
+    "registrationAllowed":  true,
+    "verifyEmail":  true,
+    "loginWithEmailAllowed":  true,
+    "resetPasswordAllowed":  false,
+    "passwordPolicy":  "length(12) and notUsername and notEmail",
+    "smtpServer":  {
+                       "host":  "mailpit",
+                       "port":  "1025",
+                       "from":  "no-reply@trustedinventory.invalid",
+                       "fromDisplayName":  "TrustedInventory (development, simulated mail)",
+                       "auth":  "false",
+                       "ssl":  "false",
+                       "starttls":  "false"
+                   },
+    "requiredActions":  [
+                            { "alias": "CONFIGURE_TOTP", "name": "Configure OTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": true, "priority": 10 },
+                            { "alias": "VERIFY_EMAIL", "name": "Verify Email", "providerId": "VERIFY_EMAIL", "enabled": true, "defaultAction": false, "priority": 20 },
+                            { "alias": "UPDATE_PASSWORD", "name": "Update Password", "providerId": "UPDATE_PASSWORD", "enabled": true, "defaultAction": false, "priority": 30 },
+                            { "alias": "UPDATE_PROFILE", "name": "Update Profile", "providerId": "UPDATE_PROFILE", "enabled": true, "defaultAction": false, "priority": 40 }
+                        ],
     "bruteForceProtected":  true,
     "accessTokenLifespan":  300,
     "otpPolicyType":  "totp",
@@ -135,10 +154,12 @@
                         "directAccessGrantsEnabled":  true,
                         "serviceAccountsEnabled":  false,
                         "redirectUris":  [
-                                             "http://localhost:5173/*"
+                                             "http://localhost:5173/*",
+                                             "http://localhost:8081/swagger/oauth2-redirect.html"
                                          ],
                         "webOrigins":  [
-                                           "http://localhost:5173"
+                                           "http://localhost:5173",
+                                           "http://localhost:8081"
                                        ],
                         "attributes":  {
                                            "pkce.code.challenge.method":  "S256",
@@ -244,6 +265,28 @@
                       "firstName":  "Bob",
                       "lastName":  "Synthetic",
                       "email":  "bob@example.invalid",
+                      "credentials":  [
+                                          {
+                                              "type":  "password",
+                                              "value":  "${TI_DEV_USER_PASSWORD}",
+                                              "temporary":  false
+                                          },
+                                          {
+                                              "type":  "otp",
+                                              "userLabel":  "synthetic-dev",
+                                              "secretData":  "{\"value\":\"${TI_DEV_OTP_SECRET}\"}",
+                                              "credentialData":  "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+                                          }
+                                      ]
+                  },
+                  {
+                      "id":  "00000000-0000-4000-8000-000000000005",
+                      "username":  "billing-operator",
+                      "enabled":  true,
+                      "emailVerified":  true,
+                      "firstName":  "Billing",
+                      "lastName":  "Operator",
+                      "email":  "billing-operator@example.invalid",
                       "credentials":  [
                                           {
                                               "type":  "password",

@@ -26,7 +26,51 @@ public sealed class QuotaEnforcementTests(ApiFixture fx)
         ["createWarehouse"] = nameof(Warehouse_quota_blocks_only_new_warehouses_and_retiring_frees_a_slot),
         ["createProduct"] = nameof(Sku_quota_blocks_only_new_products_and_retiring_frees_a_slot),
         ["uploadAttachment"] = nameof(Attachment_bytes_are_counted_and_an_upload_over_the_limit_is_refused),
+        ["createDevice"] = nameof(Device_quota_blocks_only_new_devices_and_retiring_frees_a_slot),
+        ["createSampleData"] = nameof(Sample_data_over_the_plan_is_refused_whole_and_counts_nothing),
+        ["importProducts"] = nameof(An_import_over_the_sku_limit_is_refused_whole_and_one_within_it_succeeds),
     };
+
+    [Fact]
+    [Trait("Requirement", "ENT-003")]
+    [Trait("Requirement", "ONB-004")]
+    public async Task Sample_data_over_the_plan_is_refused_whole_and_counts_nothing()
+    {
+        // DEC-098: the set needs one warehouse and three SKUs; with one of each allowed it is refused, naming the SKU limit.
+        var tenant = await TenantProvisioning.ProvisionAsync(fx, "quota-sample");
+        await MoveToPlanAsync(tenant.TenantId, limitEach: 1);
+        var admin = fx.Client(tenant.Admin, tenant.TenantId);
+        var refused = await (await admin.PostJsonAsync("/api/v1/saas/sample-data", new { timeZone = "UTC" }))
+            .ExpectProblemAsync(HttpStatusCode.Conflict, "PLAN_LIMIT_REACHED");
+        Assert.Equal("active_skus", (string?)refused["quota"]!["quota"]);
+        Assert.Equal(0L, await UsedAsync(tenant.TenantId, "active_warehouses"));
+        Assert.Equal(0L, await UsedAsync(tenant.TenantId, "active_skus"));
+        await (await admin.GetAsync("/api/v1/saas/sample-data")).ExpectProblemAsync(HttpStatusCode.NotFound, "NOT_FOUND");
+    }
+
+    [Fact]
+    [Trait("Requirement", "ENT-003")]
+    [Trait("Requirement", "ONB-004")]
+    public async Task An_import_over_the_sku_limit_is_refused_whole_and_one_within_it_succeeds()
+    {
+        // DEC-099: the whole file is counted at once; three rows over a limit of two create nothing.
+        var tenant = await TenantProvisioning.ProvisionAsync(fx, "quota-import");
+        await MoveToPlanAsync(tenant.TenantId, limitEach: 2);
+        var admin = fx.Client(tenant.Admin, tenant.TenantId);
+        await (await admin.PostJsonAsync("/api/v1/units", new { code = "EA", name = "Each" })).ExpectAsync(HttpStatusCode.Created);
+        Task<HttpResponseMessage> Import(string csv)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/imports/products") { Content = System.Net.Http.Json.JsonContent.Create(new { csv }) };
+            request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            return admin.SendAsync(request);
+        }
+        var refused = await (await Import("sku,name,unit,tracking\nQ1,One,EA,Quantity\nQ2,Two,EA,Quantity\nQ3,Three,EA,Quantity\n"))
+            .ExpectProblemAsync(HttpStatusCode.Conflict, "PLAN_LIMIT_REACHED");
+        Assert.Equal("active_skus", (string?)refused["quota"]!["quota"]);
+        Assert.Equal(0L, await UsedAsync(tenant.TenantId, "active_skus"));
+        await (await Import("sku,name,unit,tracking\nQ1,One,EA,Quantity\nQ2,Two,EA,Quantity\n")).ExpectAsync(HttpStatusCode.Created);
+        Assert.Equal(2L, await UsedAsync(tenant.TenantId, "active_skus"));
+    }
 
     [Fact]
     [Trait("Requirement", "SAS-005")]
@@ -38,6 +82,28 @@ public sealed class QuotaEnforcementTests(ApiFixture fx)
             .Select(e => e.Metadata.GetMetadata<IEndpointNameMetadata>()!.EndpointName)
             .Order().ToList();
         Assert.Equal(Evidence.Keys.Order(), implemented);
+    }
+
+    [Fact]
+    [Trait("Requirement", "ENT-003")]
+    [Trait("Requirement", "ENT-004")]
+    public async Task Device_quota_blocks_only_new_devices_and_retiring_frees_a_slot()
+    {
+        var tenant = await TenantProvisioning.ProvisionAsync(fx, "quota-dev");
+        await MoveToPlanAsync(tenant.TenantId, limitEach: 1, features: ["core_inventory", "telemetry"]);
+        var admin = fx.Client(tenant.Admin, tenant.TenantId);
+        var warehouse = (string)(await (await admin.PostJsonAsync("/api/v1/warehouses", Warehouse("Q-DEV"))).ExpectAsync(HttpStatusCode.Created))["id"]!;
+        var zone = (string)(await (await admin.PostJsonAsync("/api/v1/zones", new { warehouseId = warehouse, code = "Z", name = "Zone" }))
+            .ExpectAsync(HttpStatusCode.Created))["id"]!;
+        var first = await (await admin.PostJsonAsync("/api/v1/devices", new { zoneId = zone, externalId = "D-1", name = "Logger 1" })).ExpectAsync(HttpStatusCode.Created);
+        var refused = await (await admin.PostJsonAsync("/api/v1/devices", new { zoneId = zone, externalId = "D-2", name = "Logger 2" }))
+            .ExpectProblemAsync(HttpStatusCode.Conflict, "PLAN_LIMIT_REACHED");
+        Assert.Equal("active_devices", (string?)refused["quota"]!["quota"]);
+        var retire = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/devices/{first["id"]}/retire");
+        retire.Headers.TryAddWithoutValidation("If-Match", $"\"{first["version"]}\"");
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendAsync(retire)).StatusCode);
+        await (await admin.PostJsonAsync("/api/v1/devices", new { zoneId = zone, externalId = "D-2", name = "Logger 2" })).ExpectAsync(HttpStatusCode.Created);
+        Assert.Equal(1L, await UsedAsync(tenant.TenantId, "active_devices"));
     }
 
     [Fact]
@@ -141,11 +207,11 @@ public sealed class QuotaEnforcementTests(ApiFixture fx)
     private static async Task<string> CreateProductAsync(HttpClient client, string unit, string sku) =>
         (string)(await (await client.PostJsonAsync("/api/v1/products", Product(unit, sku))).ExpectAsync(HttpStatusCode.Created))["id"]!;
 
-    private async Task MoveToPlanAsync(Guid tenantId, long limitEach)
+    private async Task MoveToPlanAsync(Guid tenantId, long limitEach, string[]? features = null)
     {
         await using var conn = new NpgsqlConnection(fx.SuperuserConnection);
         await conn.OpenAsync();
-        var plan = await SaasSeed.PlanAsync(conn, $"quota-{Guid.NewGuid():N}"[..20], ["core_inventory"], limitEach);
+        var plan = await SaasSeed.PlanAsync(conn, $"quota-{Guid.NewGuid():N}"[..20], features ?? ["core_inventory"], limitEach);
         await TenantProvisioning.ExecAsSuperuserAsync(fx, "UPDATE cp.subscription SET plan_version_id = @p WHERE tenant_id = @t",
             ("p", plan), ("t", tenantId));
         await TenantProvisioning.ExecAsSuperuserAsync(fx, """
@@ -156,5 +222,7 @@ public sealed class QuotaEnforcementTests(ApiFixture fx)
 
     private async Task<long> UsedAsync(Guid tenantId, string metric) =>
         (long)(await TenantProvisioning.ScalarAsSuperuserAsync(fx,
-            "SELECT used FROM ti.usage_counter WHERE tenant_id = @t AND metric = @m::ti.quota_key", ("t", tenantId), ("m", metric)))!;
+            // No counter row yet means nothing was ever counted (a refused reservation rolls back with its command).
+            "SELECT coalesce((SELECT used FROM ti.usage_counter WHERE tenant_id = @t AND metric = @m::ti.quota_key), 0)::bigint",
+            ("t", tenantId), ("m", metric)))!;
 }

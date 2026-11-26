@@ -37,7 +37,7 @@ public sealed class TenantAccessReader(AppDataSource dataSource) : ITenantAccess
         await using var cmd = new NpgsqlCommand("""
             SELECT tenant_id, lifecycle::text, security_suspended_at, subscription_state::text, trial_end, period_end,
                    grace_end, cancel_at_period_end, subscription_revision, entitlement_version, features, limits::text,
-                   entitlement_effective_to
+                   entitlement_effective_to, complimentary_until, complimentary_features, complimentary_limits::text
             FROM cp.tenant_access()
             """, conn, tx);
         await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -57,10 +57,13 @@ public sealed class TenantAccessReader(AppDataSource dataSource) : ITenantAccess
             r.IsDBNull(9) ? null : r.GetInt32(9),
             r.IsDBNull(10) ? new HashSet<string>() : new HashSet<string>(r.GetFieldValue<string[]>(10), StringComparer.Ordinal),
             r.IsDBNull(11) ? new Dictionary<QuotaKey, long>() : ParseLimits(r.GetString(11)),
-            r.IsDBNull(12) ? null : r.GetFieldValue<DateTimeOffset>(12));
+            r.IsDBNull(12) ? null : r.GetFieldValue<DateTimeOffset>(12),
+            r.IsDBNull(13) ? null : r.GetFieldValue<DateTimeOffset>(13),
+            r.IsDBNull(14) ? null : new HashSet<string>(r.GetFieldValue<string[]>(14), StringComparer.Ordinal),
+            r.IsDBNull(15) ? null : ParseLimits(r.GetString(15)));
     }
 
-    private static Dictionary<QuotaKey, long> ParseLimits(string json)
+    internal static Dictionary<QuotaKey, long> ParseLimits(string json)
     {
         var limits = new Dictionary<QuotaKey, long>();
         using var doc = JsonDocument.Parse(json);

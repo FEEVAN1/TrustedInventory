@@ -16,6 +16,13 @@ public static class CatalogEndpoints
         MapStorageProfiles(api.MapGroup("/storage-profiles"));
         MapProducts(api.MapGroup("/products"));
         MapPartners(api.MapGroup("/partners"));
+        // The optional import of the setup checklist (ONB-004, DEC-099).
+        var imports = api.MapGroup("/imports/products");
+        imports.MapGet("", (ProductImportService svc, [AsParameters] ListQuery q, CancellationToken ct) => svc.ListAsync(q.ToPage(), ct))
+            .WithName("listProductImports").RequirePermission(Permissions.CatalogRead);
+        imports.MapPost("", async (HttpContext http, ProductImportService svc, ProductImportRequest body, CancellationToken ct) =>
+                Conventions.Outcome(http, await svc.ImportAsync(Conventions.IdempotencyKey(http), body, ct)))
+            .WithName("importProducts").RequirePermission(Permissions.CatalogManage);
         return api;
     }
 

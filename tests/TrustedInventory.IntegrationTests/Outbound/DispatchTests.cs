@@ -19,6 +19,7 @@ public sealed class DispatchTests(ApiFixture fx)
 {
     [Fact]
     [Trait("Requirement", "AT-STK-03")]
+    [Trait("Requirement", "STATE-13")]
     [Trait("Requirement", "STK-002")]
     [Trait("Requirement", "OUT-005")]
     [Trait("Requirement", "STK-004")]
@@ -46,6 +47,12 @@ public sealed class DispatchTests(ApiFixture fx)
         Assert.Equal("Consumed", await ScalarAsync<string>(
             "SELECT state::text FROM ti.reservation r JOIN ti.outbound_order_line l ON l.id = r.order_line_id WHERE l.order_id = @o",
             ("o", Guid.Parse(order))));
+        // A consumed reservation is final, whatever path tries to revive it (STATE-13, DEC-102).
+        var revived = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => ExecAsync("""
+            UPDATE ti.reservation r SET state = 'Active', expires_at = now() + interval '1 hour'
+            FROM ti.outbound_order_line l WHERE l.id = r.order_line_id AND l.order_id = @o
+            """, ("o", Guid.Parse(order))));
+        Assert.Contains("cannot move from Consumed to Active", revived.MessageText, StringComparison.Ordinal);
         Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.stock_movement WHERE tenant_id = @t AND movement_type = 'Dispatch' AND reservation_id IS NOT NULL",
             w.Tenant));
         await ReconcileAsync();
@@ -143,7 +150,7 @@ public sealed class DispatchTests(ApiFixture fx)
 
         // Expired on its expiry day in the warehouse time zone: blocked too, still one open rework task.
         await ExecAsync("UPDATE ti.stock_bucket SET quality_status = 'Available' WHERE id = @b", ("b", Guid.Parse(staging)));
-        await ExecAsync("UPDATE ti.lot SET expiry_date = current_date WHERE tenant_id = @t AND lot_number = 'L-H'", ("t", w.Tenant));
+        await SetExpiryAsync(w.Tenant, "current_date");
         problem = await (await DispatchAsync(w, order, Guid.NewGuid(), [pick], "DSP-H1", await OrderVersionAsync(w, order)))
             .ExpectProblemAsync(HttpStatusCode.Conflict, "STOCK_BLOCKED");
         Assert.Contains("expired", (string?)problem["affectedPicks"]![0]!["cause"], StringComparison.Ordinal);
@@ -151,7 +158,7 @@ public sealed class DispatchTests(ApiFixture fx)
         Assert.Equal(1L, await CountAsync("SELECT count(*) FROM ti.warehouse_task WHERE tenant_id = @t AND type = 'Rework'", w.Tenant));
 
         // Once the block clears the dispatch goes through and completes the rework task.
-        await ExecAsync("UPDATE ti.lot SET expiry_date = current_date + 30 WHERE tenant_id = @t AND lot_number = 'L-H'", ("t", w.Tenant));
+        await SetExpiryAsync(w.Tenant, "current_date + 30");
         await (await DispatchAsync(w, order, Guid.NewGuid(), [pick], "DSP-H1", await OrderVersionAsync(w, order))).ExpectAsync(HttpStatusCode.OK);
         Assert.Equal("Completed", await ScalarAsync<string>("SELECT status::text FROM ti.warehouse_task WHERE id = @id", ("id", Guid.Parse(rework))));
 
@@ -373,6 +380,17 @@ public sealed class DispatchTests(ApiFixture fx)
     private async Task<long> CountAsync(string sql, Guid tenant) => await ScalarAsync<long>(sql, ("t", tenant));
 
     private Task<int> ExecAsync(string sql, params (string Name, object Value)[] args) => TenantProvisioning.ExecAsSuperuserAsync(fx, sql, args);
+
+    /// <summary>
+    /// Stands in for time passing to the expiry day. Since 0030 (DEC-090) the lot guard refuses any expiry change without an approved
+    /// correction, so this test-only arrangement switches triggers off for the one statement, as a database superuser, inside one transaction.
+    /// </summary>
+    private Task<int> SetExpiryAsync(Guid tenant, string expiry) => ExecAsync($"""
+        BEGIN;
+        SET LOCAL session_replication_role = replica;
+        UPDATE ti.lot SET expiry_date = {expiry} WHERE tenant_id = @t AND lot_number = 'L-H';
+        COMMIT;
+        """, ("t", tenant));
 
     private async Task<T> ScalarAsync<T>(string sql, params (string Name, object Value)[] args) =>
         (T)(await TenantProvisioning.ScalarAsSuperuserAsync(fx, sql, args))!;

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
@@ -194,6 +195,87 @@ public sealed class WorkerJobTests : IDisposable
         await job.RunOnceAsync(default);
         Assert.Equal(2L, await ScalarAsync<long>(
             "SELECT count(*) FROM ti.audit_checkpoint WHERE tenant_id = @t AND checkpoint_date >= @d", ("t", fx.Seed.A.TenantId), ("d", day)));
+    }
+
+    [Fact]
+    [Trait("Requirement", "AT-AUD-01")]
+    [Trait("Requirement", "AUD-003")]
+    public async Task A_checkpoint_of_an_empty_chain_verifies_against_the_genesis_hash_and_nothing_else()
+    {
+        // DEC-095: a tenant with no audit event yet is checkpointed at sequence 0 with the stream's genesis hash; there is no event 0.
+        var tenant = await Organization.TenantProvisioning.ProvisionAsync(fx, "ckpt-genesis");
+        Assert.Equal(0L, await ScalarAsync<long>("SELECT last_sequence FROM ti.audit_stream WHERE tenant_id = @t", ("t", tenant.TenantId)));
+        var store = new SimulatedFileRetentionStore(_retentionDir);
+        var signing = new CheckpointSigningOptions(CheckpointKey, "test-key");
+        var support = fx.Factory.Services.GetRequiredService<Application.Audit.IAuditSupport>();
+        var day = new DateOnly(2097, 5, 1);
+        _clock.SetUtcNow(new DateTimeOffset(day, new TimeOnly(12, 0), TimeSpan.Zero));
+        await new AuditCheckpointJob(_runner, store, signing, NullLogger<AuditCheckpointJob>.Instance).RunOnceAsync(default);
+        Assert.Equal(0L, await ScalarAsync<long>("SELECT sequence FROM ti.audit_checkpoint WHERE tenant_id = @t", ("t", tenant.TenantId)));
+        var verifier = new AuditCheckpointVerificationJob(_runner, store, signing, support, NullLogger<AuditCheckpointVerificationJob>.Instance);
+        Assert.Equal(0, await verifier.VerifyTenantAsync(tenant.TenantId, default));
+
+        // A validly signed sequence-0 checkpoint claiming any other hash is still a failure (the store is write-once, so it is a later day).
+        var next = day.AddDays(1);
+        var forged = System.Security.Cryptography.SHA256.HashData("forged genesis"u8);
+        await store.WriteCheckpointAsync(new Application.Jobs.AuditCheckpointRecord(tenant.TenantId, next, 0, Convert.ToHexStringLower(forged),
+            Convert.ToHexStringLower(AuditCheckpointSigner.Sign(CheckpointKey, tenant.TenantId, next, 0, forged)), "test-key"), default);
+        Assert.True(await verifier.VerifyTenantAsync(tenant.TenantId, default) >= 1);
+        var detail = await ScalarAsync<string>(
+            "SELECT details::text FROM ti.alert WHERE tenant_id = @t AND type = 'AuditChainFailure' AND status = 'Open'", ("t", tenant.TenantId));
+        Assert.Contains("EventHashMismatch", detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Requirement", "AT-AUD-01")]
+    [Trait("Requirement", "AUD-003")]
+    public async Task External_checkpoints_catch_a_rewritten_chain_with_a_matching_database_checkpoint_and_a_forged_signature()
+    {
+        // DEC-093: an attacker with database access rewrites the event at the checkpoint and the database's own checkpoint row to agree;
+        // only the signed copy in the separate retention store shows it. A forged external file is caught by its signature.
+        var tenant = await Organization.TenantProvisioning.SignUpAsync(fx, "ckpt-verify");
+        var store = new SimulatedFileRetentionStore(_retentionDir);
+        var signing = new CheckpointSigningOptions(CheckpointKey, "test-key");
+        var support = fx.Factory.Services.GetRequiredService<Application.Audit.IAuditSupport>();
+        _clock.SetUtcNow(new DateTimeOffset(2098, 3, 1, 12, 0, 0, TimeSpan.Zero));
+        await new AuditCheckpointJob(_runner, store, signing, NullLogger<AuditCheckpointJob>.Instance).RunOnceAsync(default);
+        var verifier = new AuditCheckpointVerificationJob(_runner, store, signing, support, NullLogger<AuditCheckpointVerificationJob>.Instance);
+        async Task<long> OpenAlerts() => await ScalarAsync<long>(
+            "SELECT count(*) FROM ti.alert WHERE tenant_id = @t AND type = 'AuditChainFailure' AND severity = 'High' AND status = 'Open'",
+            ("t", tenant.TenantId));
+
+        Assert.Equal(0, await verifier.VerifyTenantAsync(tenant.TenantId, default));
+        Assert.Equal(0L, await OpenAlerts());
+
+        var sequence = await ScalarAsync<long>("SELECT sequence FROM ti.audit_checkpoint WHERE tenant_id = @t", ("t", tenant.TenantId));
+        var forged = System.Security.Cryptography.SHA256.HashData("forged"u8);
+        foreach (var table in new[] { "audit_event", "audit_checkpoint" })
+        {
+            await ExecAsync($"ALTER TABLE ti.{table} DISABLE TRIGGER {table}_append_only");
+            try
+            {
+                await ExecAsync($"UPDATE ti.{table} SET event_hash = @h WHERE tenant_id = @t AND sequence = @s",
+                    ("h", forged), ("t", tenant.TenantId), ("s", sequence));
+            }
+            finally
+            {
+                await ExecAsync($"ALTER TABLE ti.{table} ENABLE TRIGGER {table}_append_only");
+            }
+        }
+        Assert.Equal(2, await verifier.VerifyTenantAsync(tenant.TenantId, default)); // EventHashMismatch and DatabaseCheckpointMismatch
+        Assert.Equal(1L, await OpenAlerts());
+        var detail = await ScalarAsync<string>(
+            "SELECT details::text FROM ti.alert WHERE tenant_id = @t AND type = 'AuditChainFailure' AND status = 'Open'", ("t", tenant.TenantId));
+        Assert.Contains("EventHashMismatch", detail, StringComparison.Ordinal);
+        Assert.Contains("DatabaseCheckpointMismatch", detail, StringComparison.Ordinal);
+
+        // A forged external file: valid shape, wrong signature, is a third problem; the one open alert stays open (deduplicated).
+        var file = Path.Combine(_retentionDir, tenant.TenantId.ToString(), "2098-03-01.json");
+        var text = await File.ReadAllTextAsync(file);
+        var signature = System.Text.Json.Nodes.JsonNode.Parse(text)!["SignatureHex"]!.GetValue<string>();
+        await File.WriteAllTextAsync(file, text.Replace(signature, new string('0', signature.Length), StringComparison.Ordinal));
+        Assert.Equal(3, await verifier.VerifyTenantAsync(tenant.TenantId, default));
+        Assert.Equal(1L, await OpenAlerts());
     }
 
     // The session type is internal to Infrastructure; its connection is read reflectively for this test only.

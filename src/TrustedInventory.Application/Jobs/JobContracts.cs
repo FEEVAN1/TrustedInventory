@@ -29,4 +29,7 @@ public sealed record AuditCheckpointRecord(
 public interface IRetentionStore
 {
     Task<string> WriteCheckpointAsync(AuditCheckpointRecord record, CancellationToken ct);
+
+    /// <summary>Every checkpoint kept for a tenant, read back for independent verification (AT-AUD-01, DEC-093).</summary>
+    Task<IReadOnlyList<AuditCheckpointRecord>> ReadCheckpointsAsync(Guid tenantId, CancellationToken ct);
 }

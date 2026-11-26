@@ -21,6 +21,8 @@ public static class ClusterBootstrap
             {
                 "0000_cluster" => "ti_owner",
                 "0001_control_plane" => "ti_control",
+                "0002_purge" => "ti_purger",
+                "0003_metrics" => "ti_metrics_reader",
                 _ => throw new InvalidOperationException($"Bootstrap script {script.Id} has no applied-marker role."),
             };
             await using var exists = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = @r)", conn);

@@ -14,18 +14,26 @@ using TrustedInventory.Infrastructure.Audit;
 namespace TrustedInventory.Infrastructure.Persistence;
 
 /// <summary>Connection pool for the runtime role ti_app (TEN-002). Never the migration or platform identity.</summary>
-public sealed class AppDataSource(NpgsqlDataSource source)
+public sealed class AppDataSource(NpgsqlDataSource source) : IAsyncDisposable, IDisposable
 {
     public NpgsqlDataSource Source { get; } = source;
+
+    public ValueTask DisposeAsync() => Source.DisposeAsync();
+
+    public void Dispose() => Source.Dispose();
 }
 
 /// <summary>
 /// Connection pool for ti_platform: tenant provisioning tables only, no stock privileges (TEN-004). Used for
 /// platform administration and by jobs to enumerate tenant ids before opening per-tenant ti_app transactions.
 /// </summary>
-public sealed class PlatformDataSource(NpgsqlDataSource source)
+public sealed class PlatformDataSource(NpgsqlDataSource source) : IAsyncDisposable, IDisposable
 {
     public NpgsqlDataSource Source { get; } = source;
+
+    public ValueTask DisposeAsync() => Source.DisposeAsync();
+
+    public void Dispose() => Source.Dispose();
 }
 
 /// <summary>
@@ -114,6 +122,7 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
             }
             catch (Exception ex) when (IsTransient(ex) && attempt <= MaxRetries)
             {
+                Application.Common.OperationsMetrics.TransactionRetried();
                 // STK-005: bounded retry with jitter on deadlock / serialization failure.
                 await Task.Delay(TimeSpan.FromMilliseconds(Random.Shared.Next(20, 60) * attempt), ct);
             }
@@ -186,6 +195,9 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
     /// <summary>Raised by trigger stock_movement_count_lock (migration 0016, DEC-059).</summary>
     private const string CountLockSqlState = "TI001";
 
+    /// <summary>Raised by trigger sample_stock_guard (migration 0032, DEC-098).</summary>
+    private const string SampleStockSqlState = "TI002";
+
     private static Exception? Translate(PostgresException pg) => pg.SqlState switch
     {
         PostgresErrorCodes.UniqueViolation when pg.ConstraintName == IdempotencyStore.UniqueConstraint => new IdempotencyRace(),
@@ -195,6 +207,7 @@ public sealed class TenantUnitOfWork(AppDataSource dataSource, ICallerAccessor c
         PostgresErrorCodes.ForeignKeyViolation => new AppException(ErrorCode.ValidationFailed, "A referenced record does not exist."),
         PostgresErrorCodes.CheckViolation => new AppException(ErrorCode.ValidationFailed, "A value is outside the allowed range."),
         PostgresErrorCodes.InsufficientPrivilege => AppException.Forbidden(),
+        SampleStockSqlState => AppException.InvalidState("Sample data never holds stock; use your own products and warehouses (ONB-004)."),
         CountLockSqlState => new AppException(ErrorCode.CountLocked, "A stock count has locked this bin; wait until the count is posted or cancelled (EXC-003)."),
         _ => null,
     };

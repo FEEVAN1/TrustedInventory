@@ -48,7 +48,7 @@ the highest; `restrictionReasons` lists all of them. Paying never clears a secur
 | `read` | Every operational read: catalog, locations, stock, documents, audit, verification |
 | `export` | Create and download exports, including the tenant archive (LFC-003) |
 | `routine-write` | Every create, update, retire or command not listed in another category, including receipts, putaway, allocation, picking, dispatch, transfers, counts, adjustments, release-to-available, and all master-data changes |
-| `safety` | Quality holds and damage/disposal dispositions, recall create/outreach/close, alert and excursion acknowledge/resolve without release, reservation deallocation, unpick, order cancellation (which only releases stock) |
+| `safety` | Quality holds and damage/disposal dispositions, recall create/outreach/close, reading recalls, alerts and lot traceability (DEC-097), alert and excursion acknowledge/resolve without release, reservation deallocation, unpick, order cancellation (which only releases stock) |
 | `team-admin` | Invite, accept invitation, create membership, grant role |
 | `protective-admin` | Deactivate membership, revoke role grant, revoke invitation (reducing access is always allowed) |
 | `billing` | Subscription and entitlement views, usage, checkout, plan change, invoices, billing portal |
@@ -108,9 +108,14 @@ is never reported as a stock shortage (section 29).
 | Telemetry evaluation, stale detection, excursion holds | ✓ | ✓ | ✓ | ✓ ⁵ | ✗ |
 | Reservation expiry (releases stock, never consumes it) | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Export generation (exports already requested; new requests follow the `export` row) | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Ledger reconciliation, audit verification and checkpoints | ✓ | ✓ | ✓ | ✓ | ✗ (deletion evidence only) |
+| Ledger reconciliation and audit verification | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Audit checkpoints (sign the chain head) | ✓ | ✓ | ✓ | ✓ | ✓ (retained chain only, as deletion evidence; DEC-072) |
 | Idempotency cleanup | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Billing reminders and reconciliation | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Approved deletion (control plane; owner request, platform approval, export window ended, no hold, no safety obligation) | ✗ | ✗ | ✗ | ✓ | ✗ |
+
+Approved deletion is a control-plane job, not a per-tenant worker row in `BackgroundWork`: it acts only on `Archived` or
+`DeletionPending` tenants, and `cp.purge_tenant()` checks the approval again in the database (DEC-072).
 
 ## Evidence
 

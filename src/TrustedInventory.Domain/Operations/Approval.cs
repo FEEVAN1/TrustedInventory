@@ -6,6 +6,7 @@ namespace TrustedInventory.Domain.Operations;
 public enum ApprovalSubjectType
 {
     Adjustment, CountVariance, QualityRelease, HoldRelease, ReturnRelease, RecallClosure, TransitDisposition, ExpiryCorrection, ExcursionDisposition,
+    QualityDisposition,
 }
 
 /// <summary>ti.approval_action: what the consuming command does.</summary>
@@ -53,15 +54,20 @@ public sealed class Approval : TenantEntity
     public string? ConsumedOperation { get; private set; }
     public string? InvalidatedReason { get; private set; }
 
+    /// <summary>The change the signer approves, as canonical JSON (DEC-090); only ExpiryCorrection carries one.</summary>
+    public string? Proposal { get; private set; }
+
     public static Approval Request(Guid tenantId, ApprovalSubjectType subjectType, Guid subjectId, int subjectVersion, byte[] digest,
-        ApprovalAction action, string reason, string requester, DateTimeOffset now)
+        ApprovalAction action, string reason, string requester, DateTimeOffset now, string? proposal = null)
     {
         if (digest.Length != 32)
             throw new DomainException("A content digest is a SHA-256 value.");
+        if ((subjectType == ApprovalSubjectType.ExpiryCorrection) != (proposal is not null))
+            throw new DomainException("An expiry correction names its proposed date, and only an expiry correction carries a proposal.");
         var approval = new Approval
         {
             SubjectType = subjectType, SubjectId = subjectId, SubjectVersion = subjectVersion, ContentDigest = digest, Action = action,
-            RequestReason = reason, RequesterSubject = requester, Status = ApprovalStatus.Pending,
+            RequestReason = reason, RequesterSubject = requester, Status = ApprovalStatus.Pending, Proposal = proposal,
         };
         approval.Stamp(tenantId, requester, now);
         return approval;

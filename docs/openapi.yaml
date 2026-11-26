@@ -1214,7 +1214,7 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
-      description: Medical products (handlingProfile Medical) additionally require the medical_storage feature; the service checks it because it depends on the body (DEC-038).
+      description: Medical products (handlingProfile Medical) additionally require the medical_storage feature; the service checks it because it depends on the body (DEC-038). They are lot-tracked, FEFO only and need an active storage profile, which carries the temperature limits and the excursion policy (CFG-002, DEC-100); a missing profile is 422 on storageProfileId, and updateProduct cannot clear it.
   /products/{id}:
     get:
       operationId: getProduct
@@ -1910,12 +1910,14 @@ paths:
         - name: lotNumber
           in: query
           required: false
+          description: Lots whose number starts with this text (case-sensitive, DEC-087).
           schema:
             type: string
             maxLength: 100
         - name: expiresBefore
           in: query
           required: false
+          description: Lots with an expiry date before this date; lots without expiry are excluded.
           schema:
             $ref: "#/components/schemas/Date"
       responses:
@@ -1981,7 +1983,7 @@ paths:
       tags:
         - Quality
       summary: Correct lot expiry (QA)
-      description: Requires a signed ExpiryCorrection approval and all stock of the lot held (section 07).
+      description: Requires a signed ExpiryCorrection approval of the lot at its current version whose proposal names this expiryDate, and all stock of the lot held (no Available stock, no reservation, nothing in transit) (section 07, DEC-090). Refused with 409 INVALID_STATE when stock is not held and 409 APPROVAL_STALE when the approval does not bind this lot, version or date.
       x-permission: quality.hold
       x-access: routine-write
       x-entitlement: core_inventory
@@ -2064,6 +2066,7 @@ paths:
         - name: serialNumber
           in: query
           required: false
+          description: Serials whose number starts with this text (case-sensitive, DEC-087).
           schema:
             type: string
             maxLength: 100
@@ -6098,8 +6101,7 @@ paths:
         - Recalls
       summary: List recalls
       x-permission: stock.read
-      x-access: read
-      x-entitlement: core_inventory
+      x-access: safety
       x-requirements:
         - EXC-006
       parameters:
@@ -6190,8 +6192,7 @@ paths:
         - Recalls
       summary: Get recall with impact
       x-permission: stock.read
-      x-access: read
-      x-entitlement: core_inventory
+      x-access: safety
       x-requirements:
         - EXC-006
       parameters:
@@ -6340,7 +6341,7 @@ paths:
       tags:
         - Quality
       summary: Release quarantined or held stock
-      description: Checks MED-001 eligibility for every bucket; a signer cannot override missing evidence. Recalled stock cannot be released.
+      description: Checks MED-001 eligibility (identifiers, expiry in the warehouse time zone, passed inspection, compatible storage, no open recall or excursion); a signer cannot override missing evidence. Recalled, Damaged and Available buckets cannot be released. Ineligible stock is 422 RELEASE_INELIGIBLE with each reason (DEC-075). Received stock still waiting in staging for its putaway is 409 INVALID_STATE; put it away first, then release it where it is stored (DEC-096).
       x-permission: quality.release
       x-access: routine-write
       x-entitlement: medical_storage
@@ -7331,8 +7332,7 @@ paths:
         - Alerts
       summary: List alerts
       x-permission: alerts.read
-      x-access: read
-      x-entitlement: core_inventory
+      x-access: safety
       x-requirements:
         - TEL-005
         - OPS-001
@@ -7385,8 +7385,7 @@ paths:
         - Alerts
       summary: Get alert
       x-permission: alerts.read
-      x-access: read
-      x-entitlement: core_inventory
+      x-access: safety
       x-requirements:
         - TEL-005
       parameters:
@@ -7479,8 +7478,7 @@ paths:
         - Traceability
       summary: Receipt-to-customer lineage for a lot
       x-permission: stock.read
-      x-access: read
-      x-entitlement: core_inventory
+      x-access: safety
       x-requirements:
         - EXC-006
         - TEL-004
@@ -8098,6 +8096,29 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /service-status:
+    get:
+      operationId: getServiceStatus
+      tags:
+        - Plans
+      summary: Service status and support contact
+      description: Public. Overall and per-component status and where to get support; nothing about any customer (SOP-006, DEC-074).
+      x-permission: none
+      x-access: none
+      x-requirements:
+        - SOP-006
+      security: []
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceStatus"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /saas/plans:
     get:
       operationId: listPlans
@@ -8203,7 +8224,7 @@ paths:
       tags:
         - Signup
       summary: Get the workspace setup checklist
-      description: Any active member may read setup progress once the workspace is Ready (ONB-004, DEC-046). Every item is computed from current records on each read; reading changes nothing and onboarding never creates stock. Sample data arrives in M2.
+      description: Any active member may read setup progress once the workspace is Ready (ONB-004, DEC-046). Every item is computed from current records on each read; reading changes nothing and onboarding never creates stock. Sample data is opt-in through createSampleData (DEC-098).
       x-permission: member
       x-access: read
       x-requirements:
@@ -8225,6 +8246,209 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /saas/sample-data:
+    get:
+      operationId: getSampleData
+      tags:
+        - Signup
+      summary: Get the workspace's sample data set
+      description: The latest sample set with its labelled records (ONB-004, DEC-098); 404 when the workspace never added one.
+      x-permission: catalog.read
+      x-access: read
+      x-entitlement: core_inventory
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SampleDataSet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: createSampleData
+      tags:
+        - Signup
+      summary: Add opt-in sample data
+      description: Adds one labelled sample set (ONB-004, DEC-098) of a warehouse with a zone, staging, storage and quarantine bins, a unit, three general products and a supplier and a customer, every code starting SAMPLE- and every name ending (sample). It counts against active_warehouses and active_skus like any record (PLAN_LIMIT_REACHED names the limit). Sample data is isolated from production quantities; a sample product or warehouse never holds stock (409 INVALID_STATE from any stock command), so onboarding never creates stock. One active set per workspace (409).
+      x-permission: tenant.config.manage
+      x-access: routine-write
+      x-entitlement: core_inventory
+      x-quota: active_warehouses
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSampleDataRequest"
+      responses:
+        "201":
+          description: Created.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SampleDataSet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /saas/sample-data/{id}/remove:
+    post:
+      operationId: removeSampleData
+      tags:
+        - Signup
+      summary: Remove the sample data
+      description: Retires every record of the active sample set and frees its quota (ONB-004, DEC-098). Retired records stay in history and in the audit trail; nothing is deleted.
+      x-permission: tenant.config.manage
+      x-access: routine-write
+      x-entitlement: core_inventory
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SampleDataSet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /imports/products:
+    get:
+      operationId: listProductImports
+      tags:
+        - Catalog
+      summary: List product imports
+      description: Completed product imports, newest first (ONB-004, DEC-099). The file itself is not kept; only its SHA-256 digest and row count.
+      x-permission: catalog.read
+      x-access: read
+      x-entitlement: core_inventory
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductImportPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: importProducts
+      tags:
+        - Catalog
+      summary: Import general products from CSV
+      description: The optional import of the setup checklist (ONB-004, DEC-099). The CSV has a header row with the columns sku, name, unit and tracking (Quantity, Lot, Serial or LotAndSerial) and optionally precision (0 to 6, default 0); unit is the code of an existing active unit. It imports general products only; medical products need a storage profile and are created one by one. All or nothing; every row is validated first and every problem is reported as rows[n].column (422 VALIDATION_FAILED), and nothing is created unless every row is valid. At most 1000 rows. Counts against active_skus (PLAN_LIMIT_REACHED). Never creates stock.
+      x-permission: catalog.manage
+      x-access: routine-write
+      x-entitlement: core_inventory
+      x-quota: active_skus
+      x-requirements:
+        - ONB-004
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductImportRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -8650,6 +8874,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DownloadLink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /saas/invoices/{id}/download:
+    get:
+      operationId: downloadInvoice
+      tags:
+        - Billing
+      summary: Download the invoice document through a short-lived link
+      description: A PDF rendered from the invoice snapshot, which never changes (BIL-001); an invoice from the billing simulator is marked SIMULATED (AGT-004). The token from getInvoiceDownloadLink is bound to the tenant, the caller, this invoice and an expiry at most 15 minutes ahead; an invalid, foreign or expired token returns 404 (TEN-005, DEC-092).
+      x-permission: billing.read
+      x-access: billing
+      x-requirements:
+        - BIL-006
+        - TEN-005
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 20
+            maxLength: 1024
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: The invoice as a PDF document.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                contentMediaType: application/pdf
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -9359,6 +9629,338 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/tenants/{id}/retention-hold:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: setTenantRetentionHold
+      tags:
+        - PlatformOperations
+      summary: Set or clear a retention or legal hold
+      description: Reasoned and audited in the tenant's chain with the instruction reference. A hold blocks deletion, never closure or export (LFC-004, DEC-070).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - LFC-004
+        - AT-LFC-01
+        - AUD-001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetentionHoldRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/tenants/{id}/closure/withdraw:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: withdrawTenantClosure
+      tags:
+        - PlatformOperations
+      summary: Withdraw an open closure
+      description: Sets the open closure record Withdrawn and the tenant back to Ready, with a reason, audited in the tenant's chain. The subscription stays cancelled at period end; the owner may resume it (docs/tenant-offboarding.md, DEC-070).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - LFC-002
+        - AUD-001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawClosureRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/tenants/{id}/deletion/approve:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: approveTenantDeletion
+      tags:
+        - PlatformOperations
+      summary: Approve an owner-requested deletion
+      description: Records the approval on the open closure (ExportWindow, owner asked for deletion, no retention hold; a hold is 409 RETENTION_BLOCKED). The deletion job runs only after the export window ends and rechecks safety obligations; cp.purge_tenant() checks the approval again in the database (LFC-004, DEC-072).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - LFC-004
+        - AT-LFC-01
+        - AUD-001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveDeletionRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/health:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: getPlatformHealth
+      tags:
+        - PlatformOperations
+      summary: Platform service signals
+      description: Aggregates only (counts, ages, latencies); no tenant name, data or stock (SOP-003, SOP-006, DEC-074).
+      x-permission: platform.health.read
+      x-access: platform
+      x-requirements:
+        - SOP-003
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformHealth"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/metrics:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: getPlatformMetrics
+      tags:
+        - PlatformOperations
+      summary: Operations metrics (Prometheus text)
+      description: Process counters (failed allocations, transaction retries, rate-limited requests) and aggregates across tenants (ledger mismatch alerts, outbox age and dead letters, stale devices, hold backlog, open excursions). Never a tenant id or name (NFR-MONITOR, DEC-079).
+      x-permission: platform.health.read
+      x-access: platform
+      x-requirements:
+        - NFR-MONITOR
+      responses:
+        "200":
+          description: Completed.
+          content:
+            text/plain:
+              schema:
+                type: string
+                maxLength: 100000
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/alerts:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: listPlatformAlerts
+      tags:
+        - PlatformOperations
+      summary: List platform alerts
+      description: Persisted alerts raised by the monitor (webhook backlog over five minutes, entitlement mismatch, provisioning failures, reconciliation backlog, unpaid invoices); closed automatically when the condition clears (SOP-003, DEC-074).
+      x-permission: platform.health.read
+      x-access: platform
+      x-requirements:
+        - SOP-003
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Sort"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PlatformAlertStatus"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAlertPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/alerts/{id}/acknowledge:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: acknowledgePlatformAlert
+      tags:
+        - PlatformOperations
+      summary: Acknowledge a platform alert
+      description: Records who acknowledged it, when and why; the alert closes itself when the condition clears (SOP-003).
+      x-permission: platform.tenants.manage
+      x-access: platform
+      x-requirements:
+        - SOP-003
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcknowledgeAlertRequest"
+      responses:
+        "200":
+          description: Completed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAlert"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /platform/v1/provisioning-jobs:
     servers:
       - url: /
@@ -9565,6 +10167,8 @@ paths:
         "201":
           description: Created.
           headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
             Location:
               $ref: "#/components/headers/Location"
           content:
@@ -9741,6 +10345,200 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/billing/complimentary-access:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    get:
+      operationId: listComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: List complimentary access grants
+      description: Newest first. Status is computed at the request time (Pending, Active, Expired, Revoked) (section 29, DEC-094).
+      x-permission: platform.tenants.manage|platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ComplimentaryAccessStatus"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccessPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: requestComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: Request complimentary access for a workspace
+      description: A platform billing operator asks for a published plan's features and limits for a workspace until an expiry at most 366 days ahead, with a reason. It has no effect until another platform operator approves it (section 29, DEC-094). One open (Pending or Active) grant per workspace; audited in the workspace's chain.
+      x-permission: platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+        - SOD-8
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateComplimentaryAccessRequest"
+      responses:
+        "201":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/billing/complimentary-access/{id}/approve:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: approveComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: Approve complimentary access (another operator)
+      description: Independent approval (section 29); the approver must be a different platform operator from the requester (409 APPROVAL_SELF). Only a pending grant whose expiry has not passed is approved; from then until expiry, revocation, a security suspension or closure, the workspace has the plan's features and limits and no billing restriction (DEC-094).
+      x-permission: platform.tenants.manage|platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+        - SOD-8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplimentaryDecisionRequest"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /platform/v1/billing/complimentary-access/{id}/revoke:
+    servers:
+      - url: /
+        description: Platform console routes are served at /platform/v1, outside /api/v1 (DEC-037).
+    post:
+      operationId: revokeComplimentaryAccess
+      tags:
+        - PlatformBilling
+      summary: Revoke complimentary access
+      description: Ends a pending or active grant at once, with a reason; billing restrictions apply again from the subscription (DEC-094).
+      x-permission: platform.tenants.manage|platform.billing.manage
+      x-access: platform
+      x-requirements:
+        - BIL-008
+        - SOD-8
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplimentaryDecisionRequest"
+      responses:
+        "200":
+          description: Completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplimentaryAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -10310,6 +11108,24 @@ components:
         - shortages
         - status
         - version
+    AcknowledgeAlertRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      required:
+        - note
+      additionalProperties: false
+    ApproveDeletionRequest:
+      type: object
+      properties:
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - reason
+      additionalProperties: false
     Approval:
       type: object
       description: Never contains credentials (section 08).
@@ -10393,6 +11209,11 @@ components:
             - string
             - "null"
           maxLength: 1000
+        proposal:
+          anyOf:
+            - $ref: "#/components/schemas/ApprovalProposal"
+            - type: "null"
+          description: What the requester proposes and the signer approves, bound to the approval (DEC-090). Present only for ExpiryCorrection.
       required:
         - id
         - version
@@ -10411,6 +11232,7 @@ components:
         - signedAt
         - expiresAt
         - consumedAt
+        - proposal
     ApprovalAction:
       type: string
       enum:
@@ -10419,6 +11241,15 @@ components:
         - Close
         - Correct
         - Dispose
+    ApprovalProposal:
+      type: object
+      description: The change a signer approves, stored with the approval and unchangeable after the request (IAM-003, DEC-090). Required for ExpiryCorrection and refused for every other subject type.
+      properties:
+        expiryDate:
+          $ref: "#/components/schemas/Date"
+      required:
+        - expiryDate
+      additionalProperties: false
     ApprovalPage:
       type: object
       properties:
@@ -10465,6 +11296,7 @@ components:
         - TransitDisposition
         - ExpiryCorrection
         - ExcursionDisposition
+        - QualityDisposition
     Attachment:
       type: object
       description: Downloadable only once scanStatus is Clean.
@@ -11041,6 +11873,10 @@ components:
           anyOf:
             - $ref: "#/components/schemas/Uuid"
             - type: "null"
+        outstandingInvoiceCount:
+          type: integer
+          minimum: 0
+          description: Unpaid invoices found at closure; they never block closure and stay payable (LFC-002).
         blockers:
           type: array
           items:
@@ -11053,6 +11889,7 @@ components:
         - requestedDeletion
         - exportWindowEndsAt
         - archiveExportId
+        - outstandingInvoiceCount
         - blockers
     ClosureRequest:
       type: object
@@ -11093,12 +11930,120 @@ components:
       description: Business code; unique within its parent.
     CompleteTaskRequest:
       type: object
-      description: Completes a Rework or Exception task after the required stock movements were posted. Putaway tasks complete through POST /putaway/confirm.
+      description: Completes a Rework or Exception task after the required stock movements were posted; refused with 409 INVALID_STATE while the task's product and lot still have stock in its source bin (DEC-085). Putaway tasks complete through POST /putaway/confirm.
       properties:
         resolution:
           $ref: "#/components/schemas/Reason"
       required:
         - resolution
+      additionalProperties: false
+    ComplimentaryAccess:
+      type: object
+      description: Free access to a plan for a workspace until an expiry, effective only once a second platform operator approves it (section 29, DEC-094).
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+        tenantId:
+          $ref: "#/components/schemas/Uuid"
+        tenantName:
+          type: string
+          maxLength: 200
+        planVersionId:
+          $ref: "#/components/schemas/Uuid"
+        planCode:
+          type: string
+          maxLength: 64
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+        reason:
+          $ref: "#/components/schemas/Reason"
+        status:
+          $ref: "#/components/schemas/ComplimentaryAccessStatus"
+        requestedBy:
+          type: string
+          maxLength: 255
+        requestedAt:
+          $ref: "#/components/schemas/Timestamp"
+        approvedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        approvedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        approvalReason:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        revokedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        revokedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        revokeReason:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+      required:
+        - id
+        - version
+        - tenantId
+        - tenantName
+        - planVersionId
+        - planCode
+        - expiresAt
+        - reason
+        - status
+        - requestedBy
+        - requestedAt
+        - approvedBy
+        - approvedAt
+        - approvalReason
+        - revokedBy
+        - revokedAt
+        - revokeReason
+    ComplimentaryAccessPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComplimentaryAccess"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
+    ComplimentaryAccessStatus:
+      type: string
+      enum:
+        - Pending
+        - Active
+        - Expired
+        - Revoked
+    ComplimentaryDecisionRequest:
+      type: object
+      properties:
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - reason
       additionalProperties: false
     Count:
       type: object
@@ -11304,6 +12249,8 @@ components:
           $ref: "#/components/schemas/ApprovalAction"
         reason:
           $ref: "#/components/schemas/Reason"
+        proposal:
+          $ref: "#/components/schemas/ApprovalProposal"
       required:
         - subjectType
         - subjectId
@@ -11355,6 +12302,23 @@ components:
         - settings
         - reason
       additionalProperties: false
+    CreateComplimentaryAccessRequest:
+      type: object
+      properties:
+        tenantId:
+          $ref: "#/components/schemas/Uuid"
+        planVersionId:
+          $ref: "#/components/schemas/Uuid"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - tenantId
+        - planVersionId
+        - expiresAt
+        - reason
+      additionalProperties: false
     CreateCountRequest:
       type: object
       properties:
@@ -11372,6 +12336,7 @@ components:
       required:
         - warehouseId
         - binIds
+        - reason
       additionalProperties: false
     CreateDeviceRequest:
       type: object
@@ -12054,6 +13019,145 @@ components:
         - status
         - required
       additionalProperties: false
+    ProductImportRequest:
+      type: object
+      properties:
+        csv:
+          type: string
+          minLength: 1
+          maxLength: 1000000
+          description: The CSV text (UTF-8), header row first.
+      required:
+        - csv
+      additionalProperties: false
+    ProductImport:
+      type: object
+      description: A completed product import (ONB-004, DEC-099).
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        rowCount:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1000
+        digest:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: SHA-256 of the CSV as received, hex.
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        createdBy:
+          type: string
+          maxLength: 255
+      required:
+        - id
+        - rowCount
+        - digest
+        - createdAt
+        - createdBy
+      additionalProperties: false
+    ProductImportPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductImport"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
+    SampleDataSet:
+      type: object
+      description: An opt-in sample set (ONB-004, DEC-098). Its records are ordinary records labelled SAMPLE- and (sample) that never hold stock.
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+        status:
+          $ref: "#/components/schemas/SampleDataStatus"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        createdBy:
+          type: string
+          maxLength: 255
+        removedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        removedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/SampleDataItem"
+      required:
+        - id
+        - version
+        - status
+        - createdAt
+        - createdBy
+        - removedAt
+        - removedBy
+        - items
+      additionalProperties: false
+    SampleDataItem:
+      type: object
+      properties:
+        objectType:
+          $ref: "#/components/schemas/SampleDataObjectType"
+        objectId:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 200
+      required:
+        - objectType
+        - objectId
+        - code
+        - name
+      additionalProperties: false
+    SampleDataObjectType:
+      type: string
+      enum:
+        - Warehouse
+        - Zone
+        - Bin
+        - Unit
+        - Product
+        - Partner
+    SampleDataStatus:
+      type: string
+      enum:
+        - Active
+        - Removed
+    CreateSampleDataRequest:
+      type: object
+      properties:
+        timeZone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: IANA time zone of the sample warehouse.
+      required:
+        - timeZone
+      additionalProperties: false
     SetupChecklist:
       type: object
       description: Computed setup progress (ONB-004). Limits and usage are in Entitlements.
@@ -12151,6 +13255,7 @@ components:
         - BARCODE_CONFLICT
         - UNKNOWN_BARCODE
         - MISSING_MEDICAL_EVIDENCE
+        - RELEASE_INELIGIBLE
         - DUPLICATE_SERIAL
         - RETURN_EXCEEDS_SHIPPED
         - RATE_LIMITED
@@ -12512,7 +13617,7 @@ components:
           description: Required for Release.
         approvalId:
           $ref: "#/components/schemas/Uuid"
-          description: Required when releasing medical goods.
+          description: Required when releasing medical goods - a signed ReturnRelease approval of this return at its current version; the caller also needs quality.release and the stock must pass the quality release checks (DEC-091).
         reason:
           $ref: "#/components/schemas/Reason"
       required:
@@ -13526,6 +14631,12 @@ components:
           anyOf:
             - $ref: "#/components/schemas/Timestamp"
             - type: "null"
+        revision:
+          type: integer
+          format: int32
+          minimum: 1
+          readOnly: true
+          description: Draft concurrency token, also returned as the ETag; If-Match on adding prices and publishing (DEC-062).
         prices:
           type: array
           items:
@@ -13541,6 +14652,7 @@ components:
         - trialDays
         - publishedAt
         - prices
+        - revision
     PlanVersionPage:
       type: object
       properties:
@@ -13565,6 +14677,180 @@ components:
         - Published
         - Retired
       description: Published versions are immutable once referenced (ENT-001).
+    PlatformHealth:
+      type: object
+      description: Platform service signals; aggregates only (SOP-003).
+      properties:
+        measuredAt:
+          $ref: "#/components/schemas/Timestamp"
+        signupsLast24h:
+          type: integer
+          minimum: 0
+          description: Provisioning jobs started in the last 24 hours.
+        signupsReadyLast24h:
+          type: integer
+          minimum: 0
+          description: Of those, Ready.
+        signupsFailedLast24h:
+          type: integer
+          minimum: 0
+          description: Of those, Failed.
+        provisioningP50Seconds:
+          type:
+            - number
+            - "null"
+          description: Median signup-to-Ready latency, last 24 hours.
+        provisioningP95Seconds:
+          type:
+            - number
+            - "null"
+          description: 95th percentile signup-to-Ready latency.
+        trialsEndingWithin3Days:
+          type: integer
+          minimum: 0
+          description: Trials ending in the next three days.
+        trialsEndedRestricted:
+          type: integer
+          minimum: 0
+          description: Ready workspaces whose trial ended without payment.
+        webhookBacklog:
+          type: integer
+          minimum: 0
+          description: Inbox events not yet applied.
+        oldestWebhookAgeSeconds:
+          type:
+            - number
+            - "null"
+          description: Age of the oldest unapplied inbox event.
+        entitlementMismatchTasks:
+          type: integer
+          minimum: 0
+          description: Open entitlement mismatch tasks.
+        openReconciliationTasks:
+          type: integer
+          minimum: 0
+          description: Open billing reconciliation tasks.
+        staleReconciliationTasks:
+          type: integer
+          minimum: 0
+          description: Tasks open for more than a day.
+        unpaidInvoices:
+          type: integer
+          minimum: 0
+          description: Open invoices.
+        seatCounterDivergences:
+          type: integer
+          minimum: 0
+          description: Workspaces whose seat counter differs from active memberships (quota reconciliation).
+        openAlerts:
+          type: integer
+          minimum: 0
+          description: Alerts not closed.
+      required:
+        - measuredAt
+        - signupsLast24h
+        - signupsReadyLast24h
+        - signupsFailedLast24h
+        - provisioningP50Seconds
+        - provisioningP95Seconds
+        - trialsEndingWithin3Days
+        - trialsEndedRestricted
+        - webhookBacklog
+        - oldestWebhookAgeSeconds
+        - entitlementMismatchTasks
+        - openReconciliationTasks
+        - staleReconciliationTasks
+        - unpaidInvoices
+        - seatCounterDivergences
+        - openAlerts
+      additionalProperties: false
+    PlatformAlert:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        kind:
+          type: string
+          enum:
+            - WebhookBacklog
+            - EntitlementMismatch
+            - ProvisioningFailures
+            - ReconciliationBacklog
+            - UnpaidInvoices
+        severity:
+          type: string
+          enum:
+            - Warning
+            - Critical
+        status:
+          $ref: "#/components/schemas/PlatformAlertStatus"
+        detail:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Counts and ages only.
+        openedAt:
+          $ref: "#/components/schemas/Timestamp"
+        lastSeenAt:
+          $ref: "#/components/schemas/Timestamp"
+        acknowledgedBy:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+        acknowledgedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        acknowledgement:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        closedAt:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        version:
+          type: integer
+          minimum: 1
+      required:
+        - id
+        - kind
+        - severity
+        - status
+        - detail
+        - openedAt
+        - lastSeenAt
+        - acknowledgedBy
+        - acknowledgedAt
+        - acknowledgement
+        - closedAt
+        - version
+      additionalProperties: false
+    PlatformAlertPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAlert"
+        nextCursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+          description: Opaque; null on the last page.
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
+    PlatformAlertStatus:
+      type: string
+      enum:
+        - Open
+        - Acknowledged
+        - Closed
     PlatformTenant:
       type: object
       description: "Platform operations view: lifecycle, plan and provisioning metadata. No stock (section 29)."
@@ -13763,6 +15049,28 @@ components:
           items:
             $ref: "#/components/schemas/Blocker"
           description: Present with DOWNGRADE_BLOCKED or RETENTION_BLOCKED.
+        ineligibility:
+          type: array
+          description: Present with RELEASE_INELIGIBLE; every failed MED-001 check (DEC-075).
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+                enum:
+                  - NotReleasable
+                  - MissingIdentifiers
+                  - Expired
+                  - InspectionNotPassed
+                  - StorageIncompatible
+                  - Recalled
+                  - OpenExcursion
+              detail:
+                type: string
+                maxLength: 500
+            required:
+              - code
+              - detail
       required:
         - type
         - title
@@ -14287,19 +15595,14 @@ components:
       additionalProperties: false
     QualityReleaseRequest:
       type: object
-      description: Quarantine->Available (QualityRelease approval) or Hold->Available (HoldRelease approval). Locks and checks all buckets (MED-001).
+      description: Quarantine->Available (QualityRelease approval) or Hold->Available (HoldRelease approval) of one bucket; the approval binds that bucket's version and content (MED-001, DEC-075).
       properties:
-        bucketIds:
-          type: array
-          items:
-            $ref: "#/components/schemas/Uuid"
-          uniqueItems: true
-          minItems: 1
-          maxItems: 500
+        bucketId:
+          $ref: "#/components/schemas/Uuid"
         approvalId:
           $ref: "#/components/schemas/Uuid"
       required:
-        - bucketIds
+        - bucketId
         - approvalId
       additionalProperties: false
     QualityStatus:
@@ -15243,6 +16546,9 @@ components:
           $ref: "#/components/schemas/Uuid"
         warehouseId:
           $ref: "#/components/schemas/Uuid"
+        productId:
+          $ref: "#/components/schemas/Uuid"
+          description: The returned product; releasing a medical product needs a signed ReturnRelease approval (DEC-091).
         quantity:
           $ref: "#/components/schemas/PositiveQuantity"
         quarantineBinId:
@@ -15283,6 +16589,7 @@ components:
         - bucketId
         - disposition
         - inspectedQuantity
+        - productId
     ReturnDisposition:
       type: string
       enum:
@@ -15453,6 +16760,26 @@ components:
         - reason
         - at
         - by
+    RetentionHoldRequest:
+      type: object
+      properties:
+        hold:
+          type: boolean
+          description: true sets the hold, false clears it.
+        reason:
+          $ref: "#/components/schemas/Reason"
+        reference:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+          description: Instruction reference (legal hold notice, retention policy clause); required when setting a hold.
+      required:
+        - hold
+        - reason
+        - reference
+      additionalProperties: false
     SecuritySuspensionRequest:
       type: object
       properties:
@@ -15460,6 +16787,56 @@ components:
           $ref: "#/components/schemas/Reason"
       required:
         - reason
+      additionalProperties: false
+    ServiceStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - Operational
+            - Degraded
+            - Unavailable
+        checkedAt:
+          $ref: "#/components/schemas/Timestamp"
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                maxLength: 50
+              status:
+                type: string
+                enum:
+                  - Operational
+                  - Degraded
+                  - Unavailable
+            required:
+              - name
+              - status
+            additionalProperties: false
+        support:
+          type: object
+          properties:
+            contact:
+              type: string
+              maxLength: 255
+            statusPageUrl:
+              type:
+                - string
+                - "null"
+              maxLength: 2000
+          required:
+            - contact
+            - statusPageUrl
+          additionalProperties: false
+      required:
+        - status
+        - checkedAt
+        - components
+        - support
       additionalProperties: false
     Serial:
       type: object
@@ -16112,6 +17489,11 @@ components:
           $ref: "#/components/schemas/QuotaLimits"
         usage:
           $ref: "#/components/schemas/QuotaUsage"
+        complimentaryUntil:
+          anyOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+          description: Set while an approved complimentary grant is in force; its plan's features and limits apply and no billing restriction does (DEC-094).
       required:
         - id
         - version
@@ -16134,6 +17516,7 @@ components:
         - restrictionReasons
         - limits
         - usage
+        - complimentaryUntil
     SubscriptionChange:
       type: object
       properties:
@@ -17441,6 +18824,14 @@ components:
         - Quarantined
         - Failed
       description: "Quarantined: references an unknown billing account (AT-BIL-02)."
+    WithdrawClosureRequest:
+      type: object
+      properties:
+        reason:
+          $ref: "#/components/schemas/Reason"
+      required:
+        - reason
+      additionalProperties: false
     Zone:
       type: object
       description: "Operating range null = uncontrolled ambient. Compatibility rule: DEC-012."

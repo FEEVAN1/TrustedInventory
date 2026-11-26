@@ -14,8 +14,27 @@ putaway (M2); and outbound orders, FEFO/FIFO/LIFO allocation into reservations, 
 unpick, dispatch with in-transaction rechecks and rework tasks, and the reservation-expiry worker (M3); and
 independent approvals with re-authentication, adjustments, bin and warehouse transfers, blind counts with bin
 locks, customer returns, evidence attachments and signed asynchronous exports (M4) are implemented. Object
-storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrive with M5.
-**No billing yet**: checkout, the provider simulator and webhooks arrive in S2. Passing builds and tests are not evidence that product requirements are met; see
+storage and malware scanning are labelled simulators. Recall, excursion and telemetry holds arrived with M5.
+**M5 (medical) code complete; gate not yet assessed** (DEC-075 to DEC-078): QA quality hold, release and disposition with MED-001 eligibility checks, recalls that block stock at once and close only with QA approval, telemetry devices with rotating credentials, excursions with automatic holds, stale-telemetry blocking, late-reading shipment flags, tenant alerts, and lot traceability. Devices are simulated (D07); medical policies (D04) need QA validation.
+**M6 (release readiness) in progress** (DEC-079 to DEC-101): structured JSON logs and Prometheus metrics, a backup restore drill
+with deletion replay, ledger reconciliation and audit verification, an opt-in section 18 benchmark, and the web app for
+receive-to-dispatch, the QA inbox and alerts, plus the rest of the screen inventory: catalog, locations, transfers, counts,
+adjustments, returns, tasks, recalls, traceability, temperature devices, team, settings, audit, exports, billing and the workspace
+checklist, ownership transfer and closure (DEC-085). Its browser tests pass at handheld and desktop widths against the Compose
+stack: AT-UI-01 receive-to-dispatch with a lost-answer retry, AT-UI-02 every screen, AT-UI-03 automated WCAG A and AA rule checks
+(axe-core), AT-UI-04 an adjustment approved by a second person after re-authentication, AT-UI-05 team, settings and device
+administration (DEC-086), AT-UI-06 transfers and blind counts, AT-UI-07 returns, tasks and bin moves, AT-UI-08 lot putaway, recalls
+and traceability, and AT-UI-09 billing and ownership (DEC-087), AT-UI-10 public pages and signup (DEC-088), AT-UI-11 platform
+operations and billing consoles (DEC-089), AT-UI-12 lot expiry correction (DEC-090) and AT-UI-13 complimentary access (DEC-094).
+Carry-overs closed in M6: medical return release through the return workflow (DEC-091), invoice PDF documents (DEC-092), audit
+reordering and external checkpoint verification (AT-AUD-01, DEC-093). The deployment checklist and release evidence pack are in `docs/deployment-checklist.md` and `docs/release-evidence.md`.
+Staging and production evidence and the owner's approval of production policies are still needed.
+**S3 (lifecycle and service) code complete; its gate waits for the owner to approve the commercial defaults** (DEC-069 to
+DEC-074): workspace closure with re-authentication and safety blockers, retention holds and withdrawal, the owner-only tenant
+archive export, approved deletion through a database-checked purge role with retained audit evidence, the deletion register and
+its replay after a backup restore, tenant-aware rate limits, export concurrency and fair export scheduling, persisted platform
+alerts and health signals, the public service status, and per-recipient billing notices.
+**S2 (commercial control) stays open:** complete on the labelled simulator, and the Paystack adapter (owner decision D09: Paystack, NGN, prices set in the platform catalog) works in test mode against a labelled Paystack API simulator. The owner's Paystack test-mode run (`docs/paystack-sandbox.md`) is set aside for now (DEC-069). Against the labelled provider simulator: the platform plan catalog; subscription and invoice reads; consented hosted checkout and the billing portal; signed webhooks into an encrypted inbox and the worker that applies them (activation, renewal, past-due grace, disputes and refunds, with security suspension and deletion taking precedence); plan changes at the next billing cycle with downgrade blockers for usage and medical stock; cancellation at period end and resume; daily reconciliation, retained access during a provider outage, payment reminders and the platform billing consoles. Nothing can charge: startup refuses live Paystack keys and live checkout. Passing builds and tests are not evidence that product requirements are met; see
 `docs/requirement-test-matrix.csv`.
 
 ## Layout
@@ -27,11 +46,11 @@ storage and malware scanning are labelled simulators. Recall, excursion and tele
 | `src/TrustedInventory.Infrastructure` | EF Core mapping, tenant unit of work (RLS context), audit chain, idempotency, jobs |
 | `src/TrustedInventory.Api` | HTTP API (`/api/v1`), authentication, tenant context, health checks |
 | `src/TrustedInventory.Worker` | Outbox delivery, idempotency cleanup, daily audit checkpoints |
-| `src/TrustedInventory.Migrator` | Applies `db/migrations` (`migrate`), dev cluster setup (`bootstrap`), synthetic seed (`seed`) |
+| `src/TrustedInventory.Migrator` | Applies `db/migrations` (`migrate`), dev cluster setup (`bootstrap`), synthetic seed (`seed`), deletion register export and replay after a restore (`export-deletion-register`, `replay-deletions`) |
 | `db/bootstrap`, `db/migrations` | Cluster bootstrap (superuser, once) and versioned SQL migrations (DEC-025) |
 | `db/design/` | M0 draft schema and RLS smoke test (design artefacts, superseded by migrations) |
 | `deploy/` | Dockerfiles, Keycloak development realm, stack verification script |
-| `web/` | React + TypeScript PWA (Vite); placeholder page until UI milestones |
+| `web/` | React + TypeScript web app (Vite): the section 17 screen inventory and section 29 tenant surfaces; Playwright tests in `web/e2e` |
 | `tests/` | Unit tests and integration tests on real PostgreSQL 16 (Testcontainers) |
 | `docs/openapi.yaml` | API contract (OpenAPI 3.1, contract-first) |
 | `docs/` | Data dictionary, ER model, migration design, enums, permissions, test matrix, operations |
@@ -77,19 +96,30 @@ docker compose up -d --build
 # 3. Verify: Keycloak login with password + TOTP, token claims, /me, tenant isolation
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy/verify-stack.ps1 -EnvFile .env -User alice
 
-# 4. Stop and remove data
+# 4. Browser tests (AT-UI-01 to AT-UI-09) at handheld and desktop widths, about forty minutes. On a machine short of memory run
+#    one file at a time: npx playwright test e2e/<file>.spec.ts --project=desktop
+#    Confirm first with `docker compose ps` that api and worker are running.
+cd web; npx playwright install chromium; npm run test:e2e; cd ..
+
+# A development volume created before DEC-086 is owned by root and refuses uploads and exports; remove it once with step 5.
+
+# 5. Stop and remove data
 docker compose down -v
 ```
+
+Building the images is memory-heavy. If Docker stops the build for low memory, close other programs and run it again.
 
 | Service | URL |
 |---------|-----|
 | API | http://localhost:8081 (`/health/ready`, `/api/v1/...`) |
-| Keycloak | http://localhost:8080 (realm `trustedinventory`) |
-| Web | http://localhost:5173 |
+| API contract (Swagger UI, Development only, DEC-103) | http://localhost:8081/swagger (Authorize signs in with a development user) |
+| Keycloak | http://localhost:8080 (realm `trustedinventory`; **Create account** on the web app registers a new user, DEC-106) |
+| Mail simulator (Mailpit, development only) | http://localhost:8025 (email verification links for new accounts; nothing is sent out) |
+| Web | http://localhost:5173 (light-blue theme, DEC-104) |
 | PostgreSQL | localhost:55432 |
 
-Synthetic users: `platform-admin`, `alice`, `quinn`, `bob`, sharing the password and TOTP seed from `.env`.
-For a browser login from the host, map `127.0.0.1 keycloak` in the hosts file (DEC-031). All data is
+Synthetic users: `platform-admin` (platform operations), `billing-operator` (platform billing), `alice`, `quinn`, `bob`, sharing the password and TOTP seed from `.env`.
+No hosts-file entry is needed: tokens name `http://localhost:8080` as issuer (DEC-105). All data is
 synthetic; the outbox sink and checkpoint retention store are simulations.
 
 ## Database checks

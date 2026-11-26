@@ -18,8 +18,17 @@ public sealed record TenantAccessState(
     int? EntitlementVersion,
     IReadOnlySet<string> Features,
     IReadOnlyDictionary<QuotaKey, long> Limits,
-    DateTimeOffset? EntitlementEffectiveTo)
+    DateTimeOffset? EntitlementEffectiveTo,
+    DateTimeOffset? ComplimentaryUntil = null,
+    IReadOnlySet<string>? ComplimentaryFeatures = null,
+    IReadOnlyDictionary<QuotaKey, long>? ComplimentaryLimits = null)
 {
+    /// <summary>
+    /// An approved, unrevoked complimentary grant whose expiry has not passed (DEC-094). It replaces the billing restriction and the
+    /// plan entitlements; it never lifts closure, a security suspension or provisioning, which are decided before billing.
+    /// </summary>
+    public bool ComplimentaryInForce(DateTimeOffset now) => ComplimentaryUntil is { } until && now < until;
+
     /// <summary>Every active reason, highest precedence first (LFC-001).</summary>
     public IReadOnlyList<RestrictionReason> Reasons(DateTimeOffset now)
     {
@@ -66,6 +75,8 @@ public sealed record TenantAccessState(
     {
         if (Lifecycle == TenantLifecycle.Provisioning)
             return null; // the trial starts at Ready (ONB-003)
+        if (ComplimentaryInForce(now))
+            return null;
         return Subscription switch
         {
             null => RestrictionReason.SubscriptionEnded,
@@ -79,9 +90,11 @@ public sealed record TenantAccessState(
 
     /// <summary>An expired entitlement snapshot grants nothing (fail closed); safety never consults this.</summary>
     public bool HasFeature(string feature, DateTimeOffset now) =>
+        ComplimentaryInForce(now) ? ComplimentaryFeatures?.Contains(feature) == true :
         EntitlementVersion is not null && (EntitlementEffectiveTo is null || now < EntitlementEffectiveTo) && Features.Contains(feature);
 
     public long? Limit(QuotaKey quota, DateTimeOffset now) =>
+        ComplimentaryInForce(now) ? (ComplimentaryLimits?.TryGetValue(quota, out var granted) == true ? granted : 0) :
         EntitlementVersion is not null && (EntitlementEffectiveTo is null || now < EntitlementEffectiveTo)
             ? (Limits.TryGetValue(quota, out var limit) ? limit : 0)
             : 0;

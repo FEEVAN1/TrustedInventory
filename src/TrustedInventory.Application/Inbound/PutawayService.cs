@@ -173,16 +173,7 @@ public sealed class PutawayService(
 
         // 5. The receipt closes when every task of its lines is complete (DEC-005).
         await s.Db.SaveChangesAsync(ct);
-        var receipt = await s.Db.Set<Receipt>().SingleAsync(r => r.Id == line.ReceiptId, ct);
-        var receiptLineIds = s.Db.Set<ReceiptLine>().Where(l => l.ReceiptId == receipt.Id).Select(l => l.Id);
-        var open = await s.Db.Set<WarehouseTask>().AnyAsync(t => t.ReceiptLineId != null && receiptLineIds.Contains(t.ReceiptLineId.Value)
-            && (t.Status == TaskStatus.Open || t.Status == TaskStatus.InProgress), ct);
-        if (!open && receipt.Status == ReceiptStatus.Posted)
-        {
-            DomainGuard.Run(() => receipt.Close(s.Now));
-            s.Audit(new AuditEntry("ReceiptClosed", "Receipt", receipt.Id, receipt.Version, null, new { Status = ReceiptStatus.Posted },
-                new { receipt.Status, receipt.ClosedAt }));
-        }
+        await CloseReceiptIfDoneAsync(s, line.ReceiptId, ct);
 
         var result = new PutawayConfirmResult(movement.Id, task.Id, Quantity.From(task.RemainingQty ?? 0), task.Status);
         await s.Db.Database.ExecuteSqlAsync($"""
@@ -196,8 +187,38 @@ public sealed class PutawayService(
         return result;
     }
 
-    private static async Task<WarehouseTaskDto> DtoAsync(ITenantSession s, WarehouseTask t, CancellationToken ct, bool withRecommendations = true)
+    /// <summary>Closes a posted receipt once no task of its lines is open (DEC-005). Call after saving the task change.</summary>
+    internal static async Task CloseReceiptIfDoneAsync(ITenantSession s, Guid receiptId, CancellationToken ct)
     {
+        var receipt = await s.Db.Set<Receipt>().SingleAsync(r => r.Id == receiptId, ct);
+        var receiptLineIds = s.Db.Set<ReceiptLine>().Where(l => l.ReceiptId == receipt.Id).Select(l => l.Id);
+        var open = await s.Db.Set<WarehouseTask>().AnyAsync(t => t.ReceiptLineId != null && receiptLineIds.Contains(t.ReceiptLineId.Value)
+            && (t.Status == TaskStatus.Open || t.Status == TaskStatus.InProgress), ct);
+        if (!open && receipt.Status == ReceiptStatus.Posted)
+        {
+            DomainGuard.Run(() => receipt.Close(s.Now));
+            s.Audit(new AuditEntry("ReceiptClosed", "Receipt", receipt.Id, receipt.Version, null, new { Status = ReceiptStatus.Posted },
+                new { receipt.Status, receipt.ClosedAt }));
+        }
+    }
+
+    /// <summary>
+    /// The task as the contract shows it. Receipt-line tasks point at their receipt; rework tasks point at the outbound order and
+    /// order line of their pick.
+    /// </summary>
+    internal static async Task<WarehouseTaskDto> DtoAsync(ITenantSession s, WarehouseTask t, CancellationToken ct, bool withRecommendations = true)
+    {
+        if (t.Type == TaskType.Rework && t.RelatedType == "Pick" && t.RelatedId is { } pickId)
+        {
+            var source = await (from p in s.Db.Set<Domain.Outbound.Pick>().AsNoTracking()
+                                join r in s.Db.Set<Domain.Outbound.Reservation>().AsNoTracking() on p.ReservationId equals r.Id
+                                join ol in s.Db.Set<Domain.Outbound.OutboundOrderLine>().AsNoTracking() on r.OrderLineId equals ol.Id
+                                where p.Id == pickId
+                                select new { ol.OrderId, LineId = ol.Id }).SingleOrDefaultAsync(ct);
+            return new WarehouseTaskDto(t.Id, t.Version, t.CreatedAt, t.CreatedBy, t.UpdatedAt, t.Type, t.Status, t.WarehouseId, DocumentType.OutboundOrder,
+                source?.OrderId ?? Guid.Empty, source?.LineId, t.ProductId ?? Guid.Empty, t.LotId, t.SourceBinId, Quantity.From(t.TaskQty ?? 0),
+                Quantity.From(t.RemainingQty ?? 0), [], t.Reason, t.Resolution, t.CompletedAt, t.CompletedBy);
+        }
         var line = t.ReceiptLineId is { } lid ? await s.Db.Set<ReceiptLine>().AsNoTracking().SingleAsync(l => l.Id == lid, ct) : null;
         IReadOnlyList<BinRecommendationDto> recommendations = [];
         if (withRecommendations && t.Type == TaskType.Putaway && t.IsOpen && line is not null)

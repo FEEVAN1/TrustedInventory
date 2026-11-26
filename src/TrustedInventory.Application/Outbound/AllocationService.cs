@@ -131,6 +131,8 @@ public sealed class AllocationService(
 
             // 4. All-or-nothing (default): any shortage rolls every line back (AT-OUT-01).
             if (shortages.Count > 0 && !allowPartial)
+            {
+                OperationsMetrics.AllocationFailed();
                 throw new AppException(ErrorCode.InsufficientStock, "Not enough eligible stock for every line; nothing was reserved.")
                 {
                     Extensions = new JsonObject
@@ -142,6 +144,7 @@ public sealed class AllocationService(
                         }).ToArray()),
                     },
                 };
+            }
 
             DomainGuard.Run(() => order.Recalculate(lines.Select(l => l.Progress).ToList(), s.Now));
             var result = new AllocationResult(order.Id, allocations, shortages, order.Status, order.Version);
@@ -239,6 +242,9 @@ public sealed class AllocationService(
                   AND (l.expiry_date IS NULL OR (l.expiry_date > {effective} AND l.expiry_date - {effective} >= {minShelfLifeDays}))
                   AND NOT EXISTS (SELECT 1 FROM ti.stock_bucket_block k JOIN ti.alert a ON a.tenant_id = k.tenant_id AND a.id = k.alert_id
                                   WHERE k.bucket_id = b.id AND a.status <> 'Closed')
+                  AND NOT ti.recall_covers(b.product_id, b.lot_id, b.serial_id)
+                  AND NOT EXISTS (SELECT 1 FROM ti.product tp JOIN ti.storage_profile sp ON sp.tenant_id = tp.tenant_id AND sp.id = tp.storage_profile_id
+                                  WHERE tp.id = b.product_id AND sp.monitoring_required AND ti.zone_telemetry_stale(bn.zone_id, {s.Now}, 300))
                 ORDER BY l.expiry_date ASC NULLS LAST, b.received_at ASC, b.lot_id ASC, b.id ASC
                 FOR UPDATE OF b
                 """,
@@ -252,6 +258,9 @@ public sealed class AllocationService(
                   AND (l.expiry_date IS NULL OR (l.expiry_date > {effective} AND l.expiry_date - {effective} >= {minShelfLifeDays}))
                   AND NOT EXISTS (SELECT 1 FROM ti.stock_bucket_block k JOIN ti.alert a ON a.tenant_id = k.tenant_id AND a.id = k.alert_id
                                   WHERE k.bucket_id = b.id AND a.status <> 'Closed')
+                  AND NOT ti.recall_covers(b.product_id, b.lot_id, b.serial_id)
+                  AND NOT EXISTS (SELECT 1 FROM ti.product tp JOIN ti.storage_profile sp ON sp.tenant_id = tp.tenant_id AND sp.id = tp.storage_profile_id
+                                  WHERE tp.id = b.product_id AND sp.monitoring_required AND ti.zone_telemetry_stale(bn.zone_id, {s.Now}, 300))
                 ORDER BY b.received_at DESC, b.id ASC
                 FOR UPDATE OF b
                 """,
@@ -265,6 +274,9 @@ public sealed class AllocationService(
                   AND (l.expiry_date IS NULL OR (l.expiry_date > {effective} AND l.expiry_date - {effective} >= {minShelfLifeDays}))
                   AND NOT EXISTS (SELECT 1 FROM ti.stock_bucket_block k JOIN ti.alert a ON a.tenant_id = k.tenant_id AND a.id = k.alert_id
                                   WHERE k.bucket_id = b.id AND a.status <> 'Closed')
+                  AND NOT ti.recall_covers(b.product_id, b.lot_id, b.serial_id)
+                  AND NOT EXISTS (SELECT 1 FROM ti.product tp JOIN ti.storage_profile sp ON sp.tenant_id = tp.tenant_id AND sp.id = tp.storage_profile_id
+                                  WHERE tp.id = b.product_id AND sp.monitoring_required AND ti.zone_telemetry_stale(bn.zone_id, {s.Now}, 300))
                 ORDER BY b.received_at ASC, b.id ASC
                 FOR UPDATE OF b
                 """,

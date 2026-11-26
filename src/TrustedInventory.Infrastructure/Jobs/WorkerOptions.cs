@@ -22,6 +22,18 @@ public sealed record WorkerOptions
     public TimeSpan ReservationExpiryInterval { get; init; } = TimeSpan.FromMinutes(1);
     /// <summary>Export generation (AUD-004, DEC-061).</summary>
     public TimeSpan ExportInterval { get; init; } = TimeSpan.FromSeconds(15);
+    /// <summary>Billing event processing (BIL-005, DEC-064); webhook age alerts at five minutes (SOP-003).</summary>
+    public TimeSpan BillingEventInterval { get; init; } = TimeSpan.FromSeconds(5);
+    /// <summary>Billing notice relay to tenant outboxes (DEC-064).</summary>
+    public TimeSpan BillingNoticeInterval { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Scheduled plan changes (ENT-006, DEC-065).</summary>
+    public TimeSpan PlanChangeInterval { get; init; } = TimeSpan.FromMinutes(1);
+    /// <summary>Provider reconciliation (BIL-006, DEC-066): daily; run sooner after an outage by restarting or lowering it.</summary>
+    public TimeSpan BillingReconciliationInterval { get; init; } = TimeSpan.FromHours(24);
+    /// <summary>Payment reminders on days 3 and 6 (BIL-007, DEC-066).</summary>
+    public TimeSpan BillingReminderInterval { get; init; } = TimeSpan.FromHours(1);
+    /// <summary>Records the end of cancelled subscriptions after their paid period (DEC-068); access never waits for it.</summary>
+    public TimeSpan SubscriptionPeriodEndInterval { get; init; } = TimeSpan.FromMinutes(10);
 
     public static WorkerOptions From(IConfiguration config)
     {
@@ -40,6 +52,12 @@ public sealed record WorkerOptions
             ReconciliationInterval = Seconds(config, "Worker:ReconciliationIntervalSeconds", d.ReconciliationInterval),
             ReservationExpiryInterval = Seconds(config, "Worker:ReservationExpiryIntervalSeconds", d.ReservationExpiryInterval),
             ExportInterval = Seconds(config, "Worker:ExportIntervalSeconds", d.ExportInterval),
+            BillingEventInterval = Seconds(config, "Worker:BillingEventIntervalSeconds", d.BillingEventInterval),
+            BillingNoticeInterval = Seconds(config, "Worker:BillingNoticeIntervalSeconds", d.BillingNoticeInterval),
+            PlanChangeInterval = Seconds(config, "Worker:PlanChangeIntervalSeconds", d.PlanChangeInterval),
+            BillingReconciliationInterval = Seconds(config, "Worker:BillingReconciliationIntervalSeconds", d.BillingReconciliationInterval),
+            BillingReminderInterval = Seconds(config, "Worker:BillingReminderIntervalSeconds", d.BillingReminderInterval),
+            SubscriptionPeriodEndInterval = Seconds(config, "Worker:SubscriptionPeriodEndIntervalSeconds", d.SubscriptionPeriodEndInterval),
         };
     }
 

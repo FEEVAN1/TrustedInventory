@@ -278,6 +278,11 @@ invoice, payment, entitlement snapshot, checkout, change, billing account withou
 | `0014_adjustment_modifier` | `adjustment.last_modified_by` (NOT NULL, backfilled from `created_by`) | The signer must differ from the last modifier (SOD-1, DEC-057) |
 | `0015_transfer_modifier` | `transfer.last_modified_by` (NOT NULL, backfilled from `created_by`) | Transit disposition signers differ from the last modifier (SOD-1, DEC-058) |
 | `0016_count_lock` | `stock_count.last_modified_by`; trigger `stock_movement_count_lock` refuses movements into or out of a bin with an active count lock (SQLSTATE `TI001`, except quality changes to Hold or Recalled) | EXC-003, DEC-008, DEC-059 |
+| `0017_commercial_control` | `cp.billing_task`, `cp.billing_sync_state`, append-only `cp.catalog_event`; `webhook_inbox.failure_code`, `invoice.issued_at`, `plan_version.trial_days` and `revision`, `price_version.display_approved`; the price guard allows a referenced price to be linked to the provider once; `ti_app` reads the plan and prices its own subscription names (`subscribed_read`) | S2 catalog and billing tasks (DEC-062) |
+| `0018_billing_events` | `cp.billing_notice` (enum `cp.billing_notice_kind`): notices raised by verified billing events; `ti_control` inserts, `ti_app` reads its own tenant's rows and sets `relayed_at` once (guard trigger) | S2 webhook processing and notices (DEC-064) |
+| `0019_plan_changes` | `subscription_change.idempotency_key` (unique per tenant) and `provider_change_ref`; notice kinds `PlanChangeBlocked`, `PlanChangeApplied` | S2 plan changes (DEC-065) |
+| `0020_billing_reconciliation` | `webhook_inbox.received_via` (Webhook or Reconciliation); notice kind `PaymentReminder` | S2 reconciliation and reminders (DEC-066) |
+| `0021_paystack` | `subscription_change.provider_new_subscription_ref` (unique): the replacement subscription for providers that cannot reprice one | S2 Paystack adapter (DEC-068) |
 
 ### 11.3 Tenant expand/contract without breaking M1
 

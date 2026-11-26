@@ -81,6 +81,35 @@ public static class InboundEndpoints
         putaway.MapPost("/confirm", async (HttpContext http, PutawayService svc, ConfirmPutaway body, CancellationToken ct) =>
                 Conventions.Outcome(http, await svc.ConfirmAsync(Conventions.IdempotencyKey(http), body, ct)))
             .WithName("confirmPutaway").RequirePermission(Permissions.PutawayConfirm);
+
+        // Warehouse tasks of every type; rework and exception tasks complete by hand (DEC-016, DEC-085).
+        var tasks = tenant.MapGroup("/tasks");
+        tasks.MapGet("", (TaskService svc, [AsParameters] ListQuery q, [FromQuery] Guid? warehouseId, [FromQuery] TaskType? type,
+                [FromQuery] Domain.Inbound.TaskStatus? status, CancellationToken ct) =>
+                svc.ListAsync(new WorkTaskFilter(warehouseId, type, status), q.ToPage(), ct))
+            .WithName("listTasks").RequirePermission(Permissions.StockRead);
+        tasks.MapGet("/{id:guid}", async (HttpContext http, TaskService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetAsync(id, ct)))
+            .WithName("getTask").RequirePermission(Permissions.StockRead);
+        tasks.MapPost("/{id:guid}/complete", async (HttpContext http, TaskService svc, Guid id, CompleteTask body, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.CompleteAsync(id, Conventions.IfMatch(http), body, ct)))
+            .WithName("completeTask").RequirePermission(Permissions.TasksManage);
+
+        // Lots and serials, read only (section 07, DEC-087); both are created by receipt posting.
+        tenant.MapGet("/lots", (LotService svc, [AsParameters] ListQuery q, [FromQuery] Guid? productId, [FromQuery] string? lotNumber,
+                [FromQuery] DateOnly? expiresBefore, CancellationToken ct) =>
+                svc.ListLotsAsync(new LotFilter(productId, lotNumber, expiresBefore), q.ToPage(), ct))
+            .WithName("listLots").RequirePermission(Permissions.StockRead);
+        tenant.MapGet("/lots/{id:guid}", async (HttpContext http, LotService svc, Guid id, CancellationToken ct) =>
+                Conventions.Ok(http, await svc.GetLotAsync(id, ct)))
+            .WithName("getLot").RequirePermission(Permissions.StockRead);
+        tenant.MapPost("/lots/{id:guid}/expiry-correction", async (HttpContext http, LotService svc, Guid id, ExpiryCorrectionRequest body,
+                CancellationToken ct) => Conventions.Outcome(http, await svc.CorrectExpiryAsync(Conventions.IdempotencyKey(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("correctLotExpiry").RequirePermission(Permissions.QualityHold);
+        tenant.MapGet("/serials", (LotService svc, [AsParameters] ListQuery q, [FromQuery] Guid? productId, [FromQuery] Guid? lotId,
+                [FromQuery] string? serialNumber, CancellationToken ct) =>
+                svc.ListSerialsAsync(new SerialFilter(productId, lotId, serialNumber), q.ToPage(), ct))
+            .WithName("listSerials").RequirePermission(Permissions.StockRead);
         return tenant;
     }
 }

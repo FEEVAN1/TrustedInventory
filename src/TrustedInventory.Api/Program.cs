@@ -14,6 +14,15 @@ using TrustedInventory.Infrastructure.Organization;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
+// Structured JSON logs with scopes (traceId, route, tenantId); never headers, bodies, query strings or tokens (NFR-MONITOR, DEC-079).
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(o =>
+{
+    o.IncludeScopes = true;
+    o.UseUtcTimestamp = true;
+    o.TimestampFormat = "O";
+});
+
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 1024 * 1024); // section 06 request size
 builder.Services.Configure<JsonOptions>(o => JsonDefaults.Configure(o.SerializerOptions));
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true);
@@ -30,16 +39,11 @@ builder.Services.AddSingleton<TrustedInventory.Application.Administration.IReaut
 // Rate limit per authenticated principal, else per client address (section 06).
 builder.Services.AddRateLimiter(o =>
 {
-    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            http.User.FindFirst("sub")?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = config.GetValue("RateLimit:PermitsPerMinute", 600),
-                Window = TimeSpan.FromMinutes(1),
-            }));
+    // Tenant-aware budgets (SOP-001, DEC-073).
+    o.GlobalLimiter = TenantRateLimits.Create(config);
     o.OnRejected = (ctx, _) =>
     {
+        OperationsMetrics.RateLimited();
         ctx.HttpContext.Response.Headers.RetryAfter = "60";
         return new ValueTask(Problems.WriteAsync(ctx.HttpContext, 429, ErrorCode.RateLimited, "Too many requests. Retry later."));
     };
@@ -48,11 +52,13 @@ builder.Services.AddRateLimiter(o =>
 var allowedOrigins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins)
     .WithHeaders("Authorization", "Content-Type", "If-Match", "Idempotency-Key", TenantContextMiddleware.TenantHeader, "X-Correlation-Id")
-    .WithExposedHeaders("ETag", "Location", "Retry-After")
+    .WithExposedHeaders("ETag", "Location", "Retry-After", "Content-Disposition")
     .WithMethods("GET", "POST", "PATCH")));
 
 var app = builder.Build();
 
+// The request log wraps the exception handler, so a refusal thrown as an exception is logged with the status the caller received (DEC-085).
+app.UseMiddleware<RequestLogScope>();
 app.UseExceptionHandler(e => e.Run(Problems.HandleAsync));
 if (!app.Environment.IsDevelopment())
 {
@@ -69,6 +75,7 @@ app.Use(async (http, next) =>
     h.CacheControl = "no-store";
     await next();
 });
+app.UseContractDocs(); // Development only: Swagger UI over docs/openapi.yaml (DEC-103)
 app.UseCors();
 app.UseAuthentication();
 app.UseRateLimiter();
@@ -85,7 +92,11 @@ var api = app.MapGroup("/api/v1").RequireAuthorization();
 api.MapIdentityEndpoints();   // GET /me: authenticated, no tenant context
 api.MapSaasSignupEndpoints(); // signup, provisioning status, public plans: before any tenant exists
 api.MapInvitationAcceptance(); // POST /invitations/accept: authenticated, not yet a member
+api.MapBillingWebhookEndpoints(); // POST /webhooks/billing/{provider}: signature-authenticated, no token or tenant (DEC-064)
+api.MapServiceStatusEndpoints(); // GET /service-status: public status and support contact (SOP-006)
+api.MapTelemetryIngestion(); // POST /telemetry/readings: device credential only (TEL-001, DEC-077)
 app.MapPlatformEndpoints();   // /platform/v1/*: platform operations console, no tenant context (DEC-037)
+app.MapPlatformBillingEndpoints(); // /platform/v1/plan-versions: plan catalog for platform billing (DEC-062)
 
 var tenant = api.MapGroup("").WithMetadata(TenantScopedMetadata.Instance);
 tenant.MapLocationEndpoints();
@@ -97,6 +108,8 @@ tenant.MapInboundEndpoints();
 tenant.MapOutboundEndpoints();
 tenant.MapOperationsEndpoints();
 tenant.MapFileEndpoints();
+tenant.MapBillingEndpoints();
+tenant.MapTelemetryEndpoints();
 
 app.Run();
 

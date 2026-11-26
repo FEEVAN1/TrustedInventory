@@ -2,8 +2,10 @@
 # Copy .env.example to .env and fill every value first. Everything here is synthetic and development-only:
 # the Keycloak realm, users and seed data must never be used for real operations (AGT-004).
 #
-# Tokens are issued for http://keycloak:8080 (KC_HOSTNAME) so the API inside the network and clients on the
-# host see the same issuer. A browser login on the host needs "127.0.0.1 keycloak" in the hosts file.
+# Tokens are issued for http://localhost:8080 (KC_HOSTNAME), the address browsers and scripts on the host use, so no
+# hosts-file entry is needed (DEC-105, replacing DEC-031). Inside the network the API reads discovery and signing keys
+# from http://keycloak:8080 (Auth__MetadataAddress; KC_HOSTNAME_BACKCHANNEL_DYNAMIC answers it with in-network
+# endpoints) and still requires the localhost issuer exactly.
 name: trustedinventory
 
 x-dotnet-build: &dotnet-build
@@ -61,7 +63,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set in .env}
-      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HEALTH_ENABLED: "true"
       # Substituted into the realm import; never stored in the repository.
       TI_DEV_USER_PASSWORD: ${TI_DEV_USER_PASSWORD:?set in .env}
@@ -73,6 +76,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 60
+    depends_on: [mailpit]
+
+  # SIMULATED MAIL (AGT-004, DEC-106): catches Keycloak's verification emails; nothing leaves this machine. Inbox: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    ports: ["8025:8025"]
 
   api:
     build: { <<: *dotnet-build, target: api }
@@ -86,11 +95,37 @@ services:
       # SIMULATED object store shared by API and worker (DEC-061; production storage is D06).
       Storage__Directory: /data/objects-simulated
       Storage__LinkKey: ${TI_LINK_KEY:?set in .env}
-      Auth__Authority: http://keycloak:8080/realms/trustedinventory
+      # Billing provider (DEC-068): the labelled simulator by default; "paystack" only with a Paystack TEST key for the owner's
+      # test-mode run (docs/paystack-sandbox.md). Startup refuses live keys and live checkout.
+      Billing__Provider: ${TI_BILLING_PROVIDER:-simulator}
+      Billing__Paystack__SecretKey: ${TI_PAYSTACK_SECRET_KEY:-}
+      Billing__ReturnUrl: http://localhost:5173/billing/return
+      # Simulator webhook signing secret and inbox payload key (DEC-064); both API and worker need them.
+      Billing__Simulator__SigningSecret: ${TI_BILLING_SIM_SECRET:?set in .env}
+      Billing__InboxKey: ${TI_INBOX_KEY:?set in .env}
+      # Invitation token key (IAM-002); the API and the worker both register the team services.
+      Invitations__TokenKey: ${TI_INVITATION_KEY:?set in .env}
+      # S3 lifecycle and service (DEC-070, DEC-072, DEC-073, DEC-074): proposed defaults until the owner approves them.
+      Lifecycle__ExportWindowDays: "90"
+      Lifecycle__BackupRetentionDays: "35"
+      # Development only (DEC-092): screens resolve row names one request each, so fast browser runs exceed 120 a minute; the
+      # production budget is an open owner decision (DEC-073) and should weigh that fan-out.
+      RateLimit__HumanPerMinute: "600"
+      RateLimit__ServicePerMinute: "600"
+      RateLimit__PerIdentityPerMinute: "1200"
+      # Development only (DEC-088): browser tests start real workspaces; production keeps the default of 3 per identity per day (ONB-007).
+      Saas__Abuse__SignupsPerIdentityPerDay: "50"
+      Support__Contact: ${TI_SUPPORT_CONTACT:-Not configured}
+      Auth__Authority: http://localhost:8080/realms/trustedinventory
+      Auth__MetadataAddress: http://keycloak:8080/realms/trustedinventory/.well-known/openid-configuration
       Auth__Audience: trustedinventory-api
+      # Re-authentication ID tokens are addressed to the web client (DEC-009, DEC-086: found by the browser approval run).
+      Auth__ReauthAudiences__0: trustedinventory-api
+      Auth__ReauthAudiences__1: trustedinventory-pwa
       Auth__RequireHttpsMetadata: "false"
       Platform__AdministratorSubjects__0: 00000000-0000-4000-8000-000000000001
-      # No synthetic platform-billing user exists yet (S2); the list is empty in development.
+      # Synthetic platform billing operator (DEC-089): a separate person from the operations administrator.
+      Platform__BillingSubjects__0: 00000000-0000-4000-8000-000000000005
       Cors__AllowedOrigins__0: http://localhost:5173
     volumes: [objects:/data/objects-simulated]
     ports: ["8081:8080"]
@@ -106,9 +141,10 @@ services:
       DOTNET_ENVIRONMENT: Development
       Audit__CheckpointKey: ${TI_CHECKPOINT_KEY:?set in .env}
       Audit__CheckpointKeyId: dev-checkpoint-key
-      # SIMULATED retention store (AUD-003 production storage is D06).
-      Audit__RetentionDirectory: /tmp/ti-retention-simulated
-    volumes: [objects:/data/objects-simulated]
+      # SIMULATED retention store (AUD-003 production storage is D06). It is a separate named volume so the external checkpoint
+      # copies survive container rebuilds; under /tmp they were lost on every recreate and the verification job blocked stock (DEC-095).
+      Audit__RetentionDirectory: /data/retention-simulated
+    volumes: [objects:/data/objects-simulated, retention:/data/retention-simulated]
     depends_on:
       migrator: { condition: service_completed_successfully }
 
@@ -120,3 +156,4 @@ services:
 volumes:
   db-data:
   objects:
+  retention:

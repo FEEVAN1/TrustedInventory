@@ -104,6 +104,26 @@ public sealed class WarehouseTask : TenantEntity
             Status = TaskStatus.InProgress;
         Touch(now);
     }
+
+    /// <summary>
+    /// Closes a rework or exception task by hand after its stock was moved another way (DEC-085). Putaway tasks close only
+    /// through putaway confirmation. The caller checks that nothing of the task is left in its source bin.
+    /// </summary>
+    public void Complete(string resolution, string actor, DateTimeOffset now)
+    {
+        if (Type == TaskType.Putaway)
+            throw new DomainException("A putaway task completes through putaway confirmation.");
+        if (!IsOpen)
+            throw new DomainException("The task is not open.");
+        if (string.IsNullOrWhiteSpace(resolution))
+            throw new DomainException("A resolution is required.");
+        RemainingQty = 0;
+        Status = TaskStatus.Completed;
+        CompletedAt = now;
+        CompletedBy = actor;
+        Resolution = resolution;
+        Touch(now);
+    }
 }
 
 /// <summary>Everything the planner needs about one bin of the warehouse.</summary>

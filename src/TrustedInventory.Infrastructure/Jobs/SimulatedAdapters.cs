@@ -47,4 +47,16 @@ public sealed class SimulatedFileRetentionStore(string directory) : IRetentionSt
         }
         return $"simulated-file://{record.TenantId}/{date}.json";
     }
+
+    public async Task<IReadOnlyList<AuditCheckpointRecord>> ReadCheckpointsAsync(Guid tenantId, CancellationToken ct)
+    {
+        var folder = Path.Combine(directory, tenantId.ToString());
+        if (!Directory.Exists(folder))
+            return [];
+        var records = new List<AuditCheckpointRecord>();
+        foreach (var file in Directory.EnumerateFiles(folder, "*.json").Order(StringComparer.Ordinal))
+            records.Add(JsonSerializer.Deserialize<AuditCheckpointRecord>(await File.ReadAllTextAsync(file, ct))
+                ?? throw new InvalidOperationException($"Unreadable checkpoint {file}."));
+        return records;
+    }
 }

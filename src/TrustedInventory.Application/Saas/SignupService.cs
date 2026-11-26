@@ -97,10 +97,10 @@ public sealed record MoneyDto(string Currency, long MinorUnits, int Exponent);
 
 public sealed record PlanDto(
     Guid Id, string PlanCode, int Version, string Name, string Status, IReadOnlyList<string> Features,
-    IReadOnlyDictionary<string, long?> Limits, int TrialDays, DateTimeOffset? PublishedAt, IReadOnlyList<PriceDto> Prices);
+    IReadOnlyDictionary<string, long?> Limits, int TrialDays, DateTimeOffset? PublishedAt, IReadOnlyList<PriceDto> Prices, int Revision);
 
 /// <summary>Public plan catalog (ENT-001, section 28): published, public versions with current prices only.</summary>
-public sealed class PlanCatalogService(IPlanCatalog catalog, ICursorCodec cursors, TimeProvider clock, SaasOptions options)
+public sealed class PlanCatalogService(IPlanCatalog catalog, ICursorCodec cursors, TimeProvider clock)
 {
     public async Task<Page<PlanDto>> ListAsync(PageRequest page, CancellationToken ct)
     {
@@ -118,10 +118,10 @@ public sealed class PlanCatalogService(IPlanCatalog catalog, ICursorCodec cursor
         var items = plans.Take(limit).ToList();
         var next = plans.Count > limit ? cursors.Encode(new CursorPosition(items[^1].PublishedAt, items[^1].Id), "plans") : null;
         return new Page<PlanDto>(items.Select(p => new PlanDto(p.Id, p.PlanCode, p.Version, p.Name, "Published", p.Features,
-            p.Limits, options.TrialDays, p.PublishedAt,
-            // No display price is approved yet (D09, DEC-040): fixtures are listed but flagged as not for display.
+            p.Limits, p.TrialDays, p.PublishedAt,
+            // No route approves a display price yet (D09, DEC-040): fixtures are listed but flagged as not for display.
             p.Prices.Select(x => new PriceDto(x.Id, x.PlanVersionId, new MoneyDto(x.Currency, x.MinorUnits, x.Exponent),
-                x.Interval, x.ActiveFrom, x.ActiveTo, DisplayApproved: false)).ToList())).ToList(), next);
+                x.Interval, x.ActiveFrom, x.ActiveTo, x.DisplayApproved)).ToList(), p.Revision)).ToList(), next);
     }
 }
 

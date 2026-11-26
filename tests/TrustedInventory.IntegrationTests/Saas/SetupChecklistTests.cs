@@ -7,7 +7,7 @@ namespace TrustedInventory.IntegrationTests.Saas;
 
 /// <summary>
 /// ONB-004 setup checklist (DEC-046): computed from records on every read, visible to any member once Ready, and
-/// side-effect free. Sample data is deferred to M2.
+/// side-effect free. Sample data (DEC-098) never completes a step; the optional import is Done after a product import (DEC-099).
 /// </summary>
 [Collection(ApiTestGroup.Name)]
 public sealed class SetupChecklistTests(ApiFixture fx)
@@ -24,7 +24,7 @@ public sealed class SetupChecklistTests(ApiFixture fx)
         var start = await ChecklistAsync(admin);
         Assert.Equal(["business-profile", "warehouse-timezone", "zones-bins", "products-units", "team-invitations", "import"],
             start["items"]!.AsArray().Select(i => (string)i!["key"]!));
-        AssertStatuses(start, "Done", "Pending", "Pending", "Pending", "Pending", "Unavailable");
+        AssertStatuses(start, "Done", "Pending", "Pending", "Pending", "Pending", "Pending");
         Assert.False((bool)Item(start, "import")["required"]!);
         Assert.Equal(1, (int)start["requiredCompleted"]!);
         Assert.Equal(5, (int)start["requiredTotal"]!);
@@ -33,26 +33,26 @@ public sealed class SetupChecklistTests(ApiFixture fx)
         // A warehouse brings its system zone and Transit bin; neither counts as setting up zones and bins.
         var warehouse = (string)(await (await admin.PostJsonAsync("/api/v1/warehouses", new { code = "SET-1", name = "Main", timeZone = "Africa/Lagos" }))
             .ExpectAsync(HttpStatusCode.Created))["id"]!;
-        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Pending", "Pending", "Pending", "Unavailable");
+        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Pending", "Pending", "Pending", "Pending");
 
         var zone = (string)(await (await admin.PostJsonAsync("/api/v1/zones", new { warehouseId = warehouse, code = "Z1", name = "Ambient" }))
             .ExpectAsync(HttpStatusCode.Created))["id"]!;
-        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Pending", "Pending", "Pending", "Unavailable"); // zone without a bin
+        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Pending", "Pending", "Pending", "Pending"); // zone without a bin
         await (await admin.PostJsonAsync("/api/v1/bins", new { zoneId = zone, code = "B1", kind = "Storage" })).ExpectAsync(HttpStatusCode.Created);
-        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Done", "Pending", "Pending", "Unavailable");
+        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Done", "Pending", "Pending", "Pending");
 
         var unit = (string)(await (await admin.PostJsonAsync("/api/v1/units", new { code = "EA", name = "Each" })).ExpectAsync(HttpStatusCode.Created))["id"]!;
-        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Done", "Pending", "Pending", "Unavailable"); // a unit alone is not a catalog
+        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Done", "Pending", "Pending", "Pending"); // a unit alone is not a catalog
         await (await admin.PostJsonAsync("/api/v1/products", new
         {
             sku = "SET-SKU", name = "Widget", handlingProfile = "General", trackingMode = "Quantity", baseUomId = unit, basePrecision = 0,
         })).ExpectAsync(HttpStatusCode.Created);
-        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Done", "Done", "Pending", "Unavailable");
+        AssertStatuses(await ChecklistAsync(admin), "Done", "Done", "Done", "Done", "Pending", "Pending");
 
         await (await admin.PostJsonAsync("/api/v1/invitations",
             new { email = $"setup-{Guid.NewGuid():N}@example.invalid", roles = new[] { new { role = "Picker" } } })).ExpectAsync(HttpStatusCode.Created);
         var done = await ChecklistAsync(admin);
-        AssertStatuses(done, "Done", "Done", "Done", "Done", "Done", "Unavailable");
+        AssertStatuses(done, "Done", "Done", "Done", "Done", "Done", "Pending");
         Assert.Equal(5, (int)done["requiredCompleted"]!);
     }
 
@@ -109,7 +109,7 @@ public sealed class SetupChecklistTests(ApiFixture fx)
             "SELECT trial_end FROM cp.subscription WHERE tenant_id = @t", ("t", tenant.TenantId)))!;
         Assert.Equal(new DateTimeOffset(stored, TimeSpan.Zero), DateTimeOffset.Parse((string)checklist["trialEnd"]!, System.Globalization.CultureInfo.InvariantCulture));
         // Signup recorded the business profile; the owner is the only member and nothing else is set up yet.
-        AssertStatuses(checklist, "Done", "Pending", "Pending", "Pending", "Pending", "Unavailable");
+        AssertStatuses(checklist, "Done", "Pending", "Pending", "Pending", "Pending", "Pending");
     }
 
     private static async Task<JsonObject> ChecklistAsync(HttpClient client) =>

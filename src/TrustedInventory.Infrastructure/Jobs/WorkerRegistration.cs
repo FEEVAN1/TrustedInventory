@@ -22,9 +22,15 @@ public static class WorkerRegistration
         services.AddSingleton<OutboxDispatcher>();
         services.AddSingleton<IdempotencyCleanupJob>();
         services.AddSingleton<AuditCheckpointJob>();
+        services.AddSingleton<AuditCheckpointVerificationJob>();
         services.AddSingleton<LedgerReconciliationJob>();
         services.AddSingleton<ReservationExpiryJob>();
         services.AddSingleton<ExportGenerationJob>();
+        services.AddSingleton<BillingNoticeRelayJob>();
+        services.AddSingleton<Billing.PlanChangeJob>();
+        services.AddSingleton<Saas.TenantDeletionJob>();
+        services.AddSingleton<Organization.PlatformMonitorJob>();
+        services.AddSingleton<StaleDeviceJob>();
         return services;
     }
 }

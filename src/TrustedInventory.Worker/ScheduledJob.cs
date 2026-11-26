@@ -17,6 +17,7 @@ public sealed partial class ScheduledJob<TJob>(IServiceProvider services, TimeSp
         using var timer = new PeriodicTimer(interval);
         do
         {
+            using var scope = _log.BeginScope(new Dictionary<string, object?> { ["job"] = typeof(TJob).Name });
             try
             {
                 await job.RunOnceAsync(stoppingToken);

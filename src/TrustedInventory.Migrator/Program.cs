@@ -5,6 +5,8 @@ using TrustedInventory.Migrator;
 //   bootstrap   development/test cluster setup needs TI_SUPERUSER_CONNECTION, TI_MIGRATOR_PASSWORD,
 //                                                    TI_APP_PASSWORD, TI_PLATFORM_PASSWORD, TI_CONTROL_PASSWORD
 //   seed        SYNTHETIC development data        needs TI_CONTROL_CONNECTION (never production)
+//   export-deletion-register [file]   writes the deletion register    needs TI_CONTROL_CONNECTION
+//   replay-deletions [file]           replays it after a restore      needs TI_CONTROL_CONNECTION (restored environment)
 var command = args.FirstOrDefault();
 try
 {
@@ -31,8 +33,16 @@ try
             await CatalogSeed.ApplyAsync(Required("TI_CONTROL_CONNECTION"),
                 args.ElementAtOrDefault(1) ?? Path.Combine("docs", "entitlement-catalog.json"), Console.Out);
             return 0;
+        case "export-deletion-register":
+            // The live control plane's completed deletions, kept with the backups (LFC-004, docs/tenant-offboarding.md).
+            await DeletionRegister.ExportAsync(Required("TI_CONTROL_CONNECTION"), args.ElementAtOrDefault(1) ?? "deletion-register.json", Console.Out);
+            return 0;
+        case "replay-deletions":
+            // Run against a RESTORED environment with API and workers stopped, before any tenant access is opened.
+            return await DeletionRegister.ReplayAsync(Required("TI_CONTROL_CONNECTION"),
+                DeletionRegister.Load(args.ElementAtOrDefault(1) ?? "deletion-register.json"), Console.Out) ? 0 : 1;
         default:
-            await Console.Error.WriteLineAsync("usage: TrustedInventory.Migrator migrate|bootstrap|seed|seed-catalog [catalog.json]");
+            await Console.Error.WriteLineAsync("usage: TrustedInventory.Migrator migrate|bootstrap|seed|seed-catalog [catalog.json]|export-deletion-register [file]|replay-deletions [file]");
             return 2;
     }
 }

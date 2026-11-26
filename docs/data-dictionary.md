@@ -173,7 +173,35 @@ Supplier or customer, code unique per tenant. No payment or patient data.
 | supplier_ref | text ≤ 200 | Y | |
 | Std | | | |
 
-Expiry is immutable after receipt except through an audited QA correction (`ExpiryCorrection` approval) while stock is held. The application enforces this; see the invariants section.
+Expiry is immutable after receipt except through an audited QA correction (`ExpiryCorrection` approval) while stock is held. Since migration 0030 the database enforces it too: trigger `lot_guard` refuses any change of product, number or handling profile, and any change of `expiry_date` without a matching `lot_expiry_correction` row written in the same transaction (DEC-090).
+
+### lot_expiry_correction (append-only)
+| Column | Type | Null | Constraint |
+|--------|------|------|------------|
+| lot_id | uuid | N | FK `(tenant_id, lot_id) → lot` |
+| previous_expiry, new_expiry | date | Y, N | Must differ |
+| approval_id | uuid | N | FK `→ approval`; unique, so one correction per approval |
+| reason | reason_text | N | |
+| transaction_id | xid8 | N | Defaults to the writing transaction; `lot_guard` matches it |
+| created_at, created_by | | N | Who applied the correction and when |
+
+Row-level security by tenant; included in the tenant archive and the approved purge.
+
+### sample_data_set, sample_data_item (0032, DEC-098)
+Opt-in sample data (ONB-004). `sample_data_set`: `status` Active or Removed (removed_at and removed_by exactly when Removed), `version`
+(ETag), at most one Active set per tenant (partial unique index). `sample_data_item`: one row per sample record (`object_type` Warehouse,
+Zone, Bin, Unit, Product or Partner; `object_id`), primary key `(tenant_id, object_id)`, append-only. Trigger `sample_stock_guard` on
+`stock_bucket` refuses any bucket for a sample product or in a sample warehouse (SQLSTATE `TI002`, mapped to 409 INVALID_STATE), so sample
+records never hold stock. Row-level security by tenant; included in the tenant archive and the approved purge.
+
+### product_import (0033, DEC-099, append-only)
+| Column | Type | Null | Constraint |
+|--------|------|------|------------|
+| row_count | integer | N | 1 to 1000 |
+| digest | bytea | N | SHA-256 of the CSV as received (32 bytes); the file is not stored |
+| created_at, created_by | | N | Who imported and when |
+
+Row-level security by tenant; included in the tenant archive and the approved purge.
 
 ### serial
 `serial_number` is an `identifier_text`. Unique `(tenant_id, product_id, serial_number)`. The optional `lot_id` is checked by FK `(tenant_id, product_id, lot_id) → lot`.
@@ -293,6 +321,7 @@ Created by 0013 (DEC-056): a line names a product and optional lot; dispatch cho
 References the shipment line, with an FK that includes product. `returned_qty > 0`. The return lands in a Quarantine bucket (EXC-005). `disposition` is NULL while the status is `Received`. Recorded through the API (DEC-060): the shipment line is locked and `shipment_line.returned_qty` grows with each return, the goods enter a Quarantine bucket with a `ReturnReceipt` movement, and each inspection (Release as Available to a storage bin, Damaged, SupplierReturn, Disposal) appends a `customer_return_inspection` row with its movement. Medical releases wait for QA release (M5).
 
 ### recall / recall_item / recall_outreach
+Created by migration 0026 (DEC-076). `all_lots` covers every lot and serial of the product; `closure_reason`, `closed_by` and `last_modified_by` added; items and outreach are append-only; `ti.recall_covers(product, lot, serial)` answers coverage for allocation, release and closure.
 A recall has a product, reason and `effective_at`. Closing it requires `closure_approval_id` and `closed_at` (EXC-007). Each item is a lot or a serial of that product. Outreach status (`recall_outreach_status`) is recorded manually (EXC-006).
 
 ## 7. Approvals
@@ -311,9 +340,12 @@ Created by migration 0013 (DEC-056), with `reauth_verified_at` and `invalidated_
 | meaning, sign_reason, reauth_reference, signed_at | | Y | All required once signed. `reauth_reference` is a digest only, never a credential (DEC-009). |
 | expires_at | timestamptz | Y | Equals `signed_at + 30 min` when Approved or Consumed |
 | consumed_at, consumed_operation | | Y | Set exactly when Consumed. `consumed_operation` is unique, so one approval allows one posting. |
+| proposal | jsonb | Y | What the signer approves; present exactly for `ExpiryCorrection` (`{"expiryDate": …}`); part of the binding `approval_guard` keeps unchangeable (DEC-090) |
 | Std | | | |
 
 ## 8. Telemetry and excursions
+
+Created by migration 0027 (DEC-077): `device` (external id, name, active, `last_reading_at`, `last_observed_at`), `device_credential` (SHA-256 of the secret only, `expires_at`, `first_used_at`; looked up before tenant context only through `ti.device_for_credential`), `device_zone_assignment` (effective-dated, non-overlapping), `telemetry_reading` (append-only, unique per device and event id, 60 s skew CHECK), `excursion` (one unresolved per zone and profile; profile limits copied; historical flag), `excursion_bucket` and `excursion_shipment_flag` (append-only). `ti.zone_telemetry_stale(zone, now, seconds)` decides stale zones.
 
 ### device
 `external_id` unique per tenant. `integration_subject` is the only service principal allowed to post for the device (TEL-001). `credentials_reference` names a secret-manager entry, never the secret. `interval_seconds` defaults to 60.
@@ -394,7 +426,8 @@ PostgreSQL 16). Real migrations arrive in S1/S2 (DEC-032). Decisions: DEC-033 to
 | slug | text | no (after 0005) | Lowercase DNS-label style, globally unique (`lower(slug)` index); navigation only (SAS-003) |
 | home_region | text | no (after 0005) | Explicit at provisioning (SAS-002) |
 | ready_at, archived_at, deletion_requested_at, deleted_at | timestamptz | yes | Ready requires ready_at |
-| retention_hold | boolean | no | Blocks deletion (LFC-004) |
+| retention_hold | boolean | no | Blocks deletion approval and deletion (LFC-004); never closure or export |
+| retention_hold_reason, retention_hold_reference | text | yes | Reason and instruction reference of the hold (0022, DEC-070); reason required while held |
 | security_suspended_at, security_suspension_reason, security_suspended_by | | yes | All or none; set by platform operations |
 | provisioning_job_id | uuid | yes | FK `cp.provisioning_job` |
 
@@ -418,19 +451,25 @@ acceptance happens before the invitee is a member, so `ti_control` reads (not cr
 
 | Table | Purpose | Key constraints | `ti_app` access |
 |-------|---------|-----------------|-----------------|
-| plan_version | Plan code + version, features, quota map | `(plan_code, version)` unique; immutable once published | SELECT published public rows |
-| price_version | Amount per plan version, currency, interval | Minor units ≥ 0; exponent 0–4; ISO currency; immutable once referenced (trigger) | SELECT prices of published plans |
+| plan_version | Plan code + version, features, quota map, `trial_days` (default 14), draft `revision` (ETag) | `(plan_code, version)` unique; immutable once published | SELECT published public rows, plus the plan its own subscription or scheduled change names (`subscribed_read`, 0017) |
+| price_version | Amount per plan version, currency, interval, `display_approved` (false; no route sets it, D09) | Minor units ≥ 0; exponent 0–4; ISO currency; immutable once referenced (trigger), except a one-time provider link (0017); added to drafts only (DEC-062) | SELECT prices of published plans, plus those its own subscription, change or checkout names |
 | billing_account | One per tenant | `tenant_id` unique; `(provider, provider_customer_id)` unique | SELECT own row **without** `tax_reference` |
 | subscription | One per tenant | `tenant_id` unique; state-dependent CHECKs (Trialing needs trial dates, Active needs price and period, PastDue needs grace_end); `revision` bumps on every change | SELECT own |
 | checkout_session | Hosted checkout attempts | One open per tenant; `(tenant_id, idempotency_key)` unique; HTTPS URL only; Completed ⇔ completed_at | SELECT own |
-| subscription_change | Scheduled upgrade/downgrade | One Pending/Scheduled per subscription; Blocked needs blockers | SELECT own |
+| subscription_change | Scheduled upgrade/downgrade at the current period end; `idempotency_key` and `provider_change_ref` (0019, DEC-065); `provider_new_subscription_ref` for providers that replace the subscription (0021, DEC-068) | One Pending/Scheduled per subscription; Blocked needs blockers; key unique per tenant | SELECT own |
 | entitlement_snapshot | Features + limits in force | Exactly one `is_current` per tenant; `(tenant_id, entitlement_version)` unique | SELECT own |
-| invoice | Provider invoice snapshot | `(provider, provider_invoice_ref)` unique; `total = subtotal − discount + tax`; Paid ⇔ paid_at | SELECT own |
+| invoice | Provider invoice snapshot; `lines` hold `{description, quantity, unitAmount, discount, tax, subtotal, total}` in minor units; `issued_at` (0017) | `(provider, provider_invoice_ref)` unique; `total = subtotal − discount + tax`; Paid ⇔ paid_at | SELECT own |
 | payment | Payment and refund records | `(provider, provider_payment_ref)` unique; refunds reference the original | SELECT own |
-| webhook_inbox | Verified provider events | `(provider, event_id)` unique; encrypted payload, redacted summary | none |
+| webhook_inbox | Verified provider events, from webhooks or the reconciliation catch-up (`received_via`, 0020) | `(provider, event_id)` unique; encrypted payload, redacted summary; `failure_code` (0017) | none |
+| billing_task | Operator tasks: reconciliation differences, unknown references, disputes, refunds, chargebacks (0017) | `dedupe_key` unique (one task per cause); Resolved needs resolved_at, resolved_by and resolution | none |
+| billing_sync_state | Reconciliation cursor per provider (0017) | provider is the key | none |
+| catalog_event | Who created, priced or published a plan version and why (0017) | Append-only (trigger); a price event names its price | none |
+| billing_notice | Notices from verified billing events (SubscriptionActivated, PaymentFailed, PaymentRecovered; PlanChangeBlocked and PlanChangeApplied from 0019; PaymentReminder from 0020), relayed to the tenant outbox by the worker (0018, DEC-064) | `dedupe_key` unique; immutable except `relayed_at`, set once | SELECT own; UPDATE `relayed_at` only |
 | provisioning_job | Resumable signup provisioning | `signup_key` unique; tenant id allocated up front; Ready ⇔ ready_at | none |
 | terms_acceptance | Terms/privacy/subscription-terms evidence | Append-only | none |
-| deletion_record | Closure, deletion register | One open per tenant; Deleted needs approval and backup expiry | none |
+| deletion_record | Closure, deletion register; `idempotency_key`, `outstanding_invoice_count`, `archive_export_id`, `version` (0022); `scope` records rows and objects removed and what was retained (DEC-072) | One open per tenant; key unique per tenant; Deleted needs approval, completed_at and backup expiry; Blocked needs hold_results | SELECT own (`tenant_read`, 0022) |
+| complimentary_access | Free access to a published plan for one workspace until an expiry (0031, DEC-094): plan features and quotas copied at the request, reason, requester, approver and approval reason, revoker and revoke reason, `version` (ETag) | Expiry after the request and at most 366 days ahead; approver differs from requester (CHECK); request fields never change, approval and revocation are written once (trigger); no delete; status (Pending, Active, Expired, Revoked) is computed at read time | none (read through `cp.tenant_access()`) |
+| platform_alert | Persisted platform alerts (0024, DEC-074): kind, severity, status, counts-only detail, opened/last seen, acknowledgement | One non-closed alert per `dedupe_key`; Closed ⇔ closed_at; acknowledgement needs who and when | none |
 
 Money columns everywhere: `bigint` minor units + `char(3)` currency + `smallint` exponent (BIL-001).
 
@@ -438,7 +477,8 @@ Money columns everywhere: `bigint` minor units + `char(3)` currency + `smallint`
 
 `cp.tenant_access()` (SECURITY DEFINER, owner `cp_access_reader`, EXECUTE for `ti_app` only) returns the
 current tenant's lifecycle, security suspension, subscription state and clocks, and current entitlement
-version, features and limits. It takes no tenant argument and reads `app.tenant_id`, so a request can only
+version, features and limits, and (0031) the expiry, features and limits of the latest approved, unrevoked complimentary grant;
+C# applies the grant only while its expiry is in the future (DEC-094). It takes no tenant argument and reads `app.tenant_id`, so a request can only
 ask about its own tenant and gets nothing without context. Access mode is computed in C# from this row.
 `ti.user_memberships_v2(subject)` replaces `ti.user_memberships` and adds slug, lifecycle and a suspension
 flag for the tenant selector.
@@ -450,3 +490,4 @@ flag for the tenant selector.
 | `ti_control` | yes | All `cp` tables (no DELETE; no UPDATE on terms_acceptance); `ti.tenant`, `membership`, `role_grant`, `audit_stream`, `usage_counter` (S/I/U); `audit_event` (S/I); `invitation` (S/U). **No** catalog, location or stock privileges. |
 | `cp_access_reader` | no | Owns `cp.tenant_access()`; SELECT on tenant, subscription, entitlement_snapshot |
 | `ti_platform` | yes | Unchanged; no USAGE on schema `cp` |
+| `ti_purger` | no | Owns `cp.purge_tenant(tenant)` and `cp.replay_deletion(...)` only (bootstrap 0002, migration 0023, DEC-072). SELECT and DELETE on every tenant table except `audit_event`, `audit_checkpoint`, `audit_stream`; SELECT/UPDATE on `ti.tenant`; SELECT/INSERT/UPDATE on `cp.deletion_record`. The functions check the approved `DeletionPending` state in the database; append-only triggers allow DELETE only for this role with the purge marker of the row's tenant. `ti_control` has EXECUTE on both functions and nothing else new. |

@@ -75,6 +75,45 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
   (owner decision D05). Download links expire after 15 minutes and work only for the user who requested them.
 - Attachments are scanned by a **simulator** at upload; only `Clean` files can be downloaded (DEC-061).
 
+### Billing webhooks (draft, S2; simulator only)
+- Configuration: `Billing:Simulator:SigningSecret` (at least 32 characters; optional `Billing:Simulator:PreviousSigningSecret`
+  during rotation) and `Billing:InboxKey` (base64, 32 bytes). `TI_BILLING_SIM_SECRET` and `TI_INBOX_KEY` in development; both
+  the API and the worker refuse to start without them (DEC-064).
+- `POST /api/v1/webhooks/billing/simulator` stores the verified event and answers 200; the worker's `BillingEventJob`
+  (every `Worker:BillingEventIntervalSeconds`, default 5) applies it. Billing notices reach tenant outboxes through
+  `BillingNoticeRelayJob` (`Worker:BillingNoticeIntervalSeconds`, default 30).
+- `Quarantined` events name a reference we do not hold or mix two tenants' references; each opens a
+  `cp.billing_task`. Nothing is applied: resolve the task, never edit the payload.
+- `Failed` events retry with backoff up to 10 attempts; `last_error` holds the exception type only. A row at 10 attempts
+  needs an operator (console and `WebhookBacklog` alert arrive with S2 slice 5).
+
+### Plan changes and cancellation (draft, S2; simulator only)
+- A change is effective at the current period end. `PlanChangeJob` (`Worker:PlanChangeIntervalSeconds`, default 60) applies
+  it, blocks it (usage or medical stock rose: the owner gets a `PlanChangeBlocked` notice) or, for an upgrade, waits for the
+  paid invoice of the new period (DEC-065). A blocked change is never forced: the tenant reduces usage and requests it again.
+- A change left `Pending` (provider unreachable when it was requested) completes when the same request is retried.
+- Cancellation keeps all data. Access becomes billing-restricted at period end by computation; the provider's end event
+  later sets the subscription `Cancelled`.
+
+### Paystack test mode (draft, S2)
+- Only with a `sk_test_` key (`TI_BILLING_PROVIDER=paystack`, `TI_PAYSTACK_SECRET_KEY`); startup refuses live keys and live checkout.
+  Steps and evidence: `docs/paystack-sandbox.md`. Logs are tagged `[PAYSTACK TEST MODE]` with method, path and status only.
+- Paystack has no event list: a webhook that Paystack gave up on is caught by the reconciliation comparison as an operator task.
+- `SubscriptionPeriodEndJob` (`Worker:SubscriptionPeriodEndIntervalSeconds`, default 600) records `Cancelled` after the paid
+  period of a cancelled subscription; access is already restricted at `period_end` without it.
+
+### Billing provider outage and reconciliation (draft, S2; simulator only)
+- **During an outage** tenants keep their last verified access: nothing reads the provider to decide access. Webhooks are still
+  stored. Checkout, portal, plan changes and cancellation answer 503; the same request (same Idempotency-Key) completes later.
+- A reconciliation run that cannot reach the provider records `last_error = PROVIDER_UNAVAILABLE` in `cp.billing_sync_state`
+  and logs `[BILLING ALERT] BillingReconciliation`. After recovery, run reconciliation (or wait for the daily run): it catches
+  up from its cursor and the processor applies the missed events.
+- `[BILLING ALERT] WebhookBacklog`: an event older than five minutes is unapplied, or one used all 10 attempts. Check
+  `listWebhookEvents?state=Failed`; fix the cause; an exhausted event is replayed only by an audited operator procedure.
+- Reconciliation tasks (`SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`, plus quarantine, dispute, refund and
+  chargeback tasks) are resolved in `resolveReconciliationTask` with a resolution; resolving never changes stock or access.
+- The platform monitor (worker, every minute) raises the same conditions as persisted alerts; see Platform alerts below.
+
 ### Stuck outbox (draft)
 - **Symptoms:** rising outbox age, or `OutboxDeadLetter` alerts.
 - Leases expire on their own: a crashed worker's batch is picked up by another after `lease_expires_at`.
@@ -83,20 +122,75 @@ alert is raised; blocking stock mutations arrives with the ledger in M2.
   `next_attempt_at` through an audited operator procedure. Consumers deduplicate on `event_id`, so a
   replay is safe.
 
-### Tenant suspension (draft; replaced by the v3.0 lifecycle matrix)
-- A platform administrator suspends or reactivates a tenant through `/platform/tenants/{id}/suspend` and
-  `/reactivate`. Both are audited in the tenant's own chain.
-- While suspended, tenant users can read but every mutation returns 403.
-- Spec v3.0 section 26 replaces this with reason-specific restrictions (billing versus security). This
-  runbook is rewritten in S3.
+### Security suspension (draft, v3.0)
+- Platform operations suspend or lift a suspension through `POST /platform/v1/tenants/{id}/security-suspension` and `/lift`
+  (reason, If-Match), audited in the tenant chain. People see only their restriction; device ingestion and safety workers
+  continue. Payment never lifts it (BIL-007). Export during a suspension needs a security review.
+
+### Platform alerts and signals (draft, S3, SOP-003)
+- `GET /platform/v1/health`: signups, provisioning latency, trials ending, webhook backlog, reconciliation tasks, unpaid invoices,
+  seat-counter divergence, open alerts. Aggregates only.
+- `GET /platform/v1/alerts?status=Open`: `WebhookBacklog` and `EntitlementMismatch` are Critical (page the on-call operator);
+  `ProvisioningFailures`, `ReconciliationBacklog` and `UnpaidInvoices` are Warning (next business day).
+- Acknowledge with `POST /platform/v1/alerts/{id}/acknowledge` (note, If-Match). Do not close alerts by hand: the monitor closes
+  an alert when its condition clears. A provider outage raises `WebhookBacklog`; tenants keep access (DEC-066).
+- Seat-counter divergence (in `ReconciliationBacklog`): compare `ti.usage_counter` with active memberships for the tenant and
+  correct the counter through an audited operator procedure; quotas are enforced against the counter.
+
+### Rate limits and noisy tenants (draft, S3, SOP-001)
+- 429 `RATE_LIMITED` with Retry-After: per person per tenant (`RateLimit:HumanPerMinute`, 120), per service identity per tenant
+  (`RateLimit:ServicePerMinute`, 600), per identity overall (`RateLimit:PerIdentityPerMinute`, 1200), per address for anonymous
+  calls (`RateLimit:PermitsPerMinute`, 600). Proposed values; owner approval pending.
+- Exports: two unfinished per tenant; the worker serves tenants in turn. A tenant at its limit is not a platform incident.
+
+### Workspace closure and deletion (draft, S3, LFC-002 to LFC-004)
+- Follow `docs/tenant-offboarding.md` ("As built"). Closure is the owner's action; platform operations only set or clear
+  retention holds, withdraw a closure on the owner's documented request, and approve an owner-requested deletion.
+- Before approving: confirm the owner's request through the support channel, check the closure record has no blockers and that
+  no hold or legal instruction applies. Approval never shortens the export window.
+- A deletion that stops (`Blocked`) needs the customer's QA to resolve the stock; nothing is overridden. A record left
+  `DeletionPending` by a crash resumes on the next run.
+- Never run deletion against production from development or tests (section 30).
+
+### Backup restore and the deletion register (draft, S3; drilled in M6, DEC-080)
+1. Export the register from the live control plane: `TrustedInventory.Migrator export-deletion-register register.json`.
+2. Restore into an isolated environment with API and workers stopped.
+3. Run `TrustedInventory.Migrator replay-deletions register.json` against the restored database (`TI_CONTROL_CONNECTION`). It
+   must exit 0.
+4. Run the ledger reconciliation job on the restored data; expect no new ReconciliationMismatch alert.
+5. For each tenant, run `POST /audit/verify` and compare the result with its latest external checkpoint.
+6. Only then start workers and the API. Record the run (register size, verification lines, timings) in the recovery log.
+7. RPO: with dump-only backups everything after the dump is lost; production uses point-in-time recovery to meet 15 minutes (D06).
+
+### Orphaned objects (S3)
+- Deleting a tenant removes its whole storage prefix (`IObjectStore.DeleteTenantAsync`), including objects whose rows were never
+  written. A sweep of live tenants' prefixes is left to M6 with the production object store.
+
+### Recall initiation (draft, M5, DEC-076)
+- QA opens the recall (`POST /recalls`) naming the product and lots or serials (none: every lot). Covered stock that can still move
+  becomes Recalled at once with its reservations; dispatch of picked recalled stock refuses and opens rework tasks.
+- Work the impact list: deallocate or unpick reservations, receive or account for transit, record customer outreach by hand.
+- Disposition recalled stock through `POST /quality/disposition` (QA approval required), then request a RecallClosure approval
+  from an independent QA officer and close. The recall and its history stay; an open recall blocks workspace closure.
+
+### Telemetry outage and stale devices (draft, M5, DEC-077)
+- A StaleDevice alert means a placed device has not reported for 300 s. Monitored stock in its zone is not allocated, picked or
+  dispatched until a device reports again; nothing is released or held by the outage itself.
+- Check the gateway and its credential; if a device is replaced, register the new one in the same zone and retire the old one.
+- Readings delivered late are stored as late; an abnormal late reading opens a historical excursion, holds current stock and flags
+  shipments since it was observed for QA review. Never tell customers goods were blocked unless they were.
+
+### Excursions (draft, M5, DEC-077)
+- An abnormal reading holds Available and Quarantine stock of products on the breached profile in that zone, once, and raises one
+  alert. Acknowledge it; QA decides Release (only if MED-001 passes otherwise), KeepOnHold or Damaged with a signed approval.
+- A return to normal temperature records the end of the excursion but releases nothing.
+
+### Compromised device credential (draft, M5)
+- Rotate the credential (`POST /devices/{id}/rotate-credential`); the old one ends at the first use of the new one or after 24 hours.
+  If the device itself is untrusted, retire it: every credential ends at once and the quota slot is freed.
+- Review readings received since the suspected compromise; a forged reading cannot release stock, only hold it.
 
 ### Not yet written
 | Runbook | Milestone |
 |---------|-----------|
-| Backup restore | M6 |
-| Compromised integration credential | M5 |
-| Telemetry outage | M5 |
-| Recall initiation | M5 |
 | Ledger reconciliation failure | M2 |
-| Controlled export retention and orphan-object cleanup | S3 |
-| Billing provider outage, webhook backlog, tenant closure and deletion | S2 / S3 |

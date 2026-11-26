@@ -155,6 +155,10 @@ public sealed class DispatchService(
         var blocked = await StockBlocks.BlockedBucketsAsync(s, bucketIds, ct);
         var timeZone = await s.Db.Set<Warehouse>().AsNoTracking().Where(w => w.Id == order.WarehouseId).Select(w => w.TimeZone).SingleAsync(ct);
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(s.Now, TimeZoneInfo.FindSystemTimeZoneById(timeZone)).DateTime);
+        var stale = new HashSet<Guid>();
+        foreach (var id in bucketIds)
+            if (await Inbound.TelemetryChecks.StaleAsync(s, id, ct))
+                stale.Add(id);
         var affected = new JsonArray();
         foreach (var (pick, segment) in staged)
         {
@@ -162,6 +166,7 @@ public sealed class DispatchService(
             var cause = bucket.Quality != nameof(QualityStatus.Available) ? $"The staged stock is on {bucket.Quality}."
                 : !ReceivingRules.IsShippable(bucket.Expiry, today) ? $"The lot expired on {bucket.Expiry:yyyy-MM-dd}."
                 : blocked.Contains(bucket.Id) ? "The staged stock is blocked by an open reconciliation alert (OPS-001)."
+                : stale.Contains(bucket.Id) ? "Temperature monitoring for the staging zone is stale (TEL-003)."
                 : null;
             if (cause is not null)
                 affected.Add(new JsonObject

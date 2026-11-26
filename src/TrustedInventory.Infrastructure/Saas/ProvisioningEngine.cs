@@ -498,21 +498,21 @@ public sealed class PlanCatalog(AppDataSource app) : IPlanCatalog
     public async Task<IReadOnlyList<PlanView>> ListPublishedAsync(DateTimeOffset now, CancellationToken ct)
     {
         await using var conn = await app.Source.OpenConnectionAsync(ct);
-        var plans = new Dictionary<Guid, (Guid Id, string Code, int Version, string Name, string[] Features, string Quotas, DateTimeOffset Published)>();
+        var plans = new Dictionary<Guid, (Guid Id, string Code, int Version, string Name, string[] Features, string Quotas, DateTimeOffset Published, int TrialDays, int Revision)>();
         await using (var cmd = new NpgsqlCommand("""
-            SELECT id, plan_code, version, display_name, features, quotas::text, published_at
+            SELECT id, plan_code, version, display_name, features, quotas::text, published_at, trial_days, revision
             FROM cp.plan_version WHERE published_at IS NOT NULL AND is_public
             """, conn))
         await using (var r = await cmd.ExecuteReaderAsync(ct))
         {
             while (await r.ReadAsync(ct))
                 plans[r.GetGuid(0)] = (r.GetGuid(0), r.GetString(1), r.GetInt32(2), r.GetString(3), r.GetFieldValue<string[]>(4),
-                    r.GetString(5), r.GetFieldValue<DateTimeOffset>(6));
+                    r.GetString(5), r.GetFieldValue<DateTimeOffset>(6), r.GetInt32(7), r.GetInt32(8));
         }
 
         var prices = new List<PriceView>();
         await using (var cmd = new NpgsqlCommand("""
-            SELECT id, plan_version_id, currency, minor_unit_amount, exponent, billing_interval::text, active_from, active_to
+            SELECT id, plan_version_id, currency, minor_unit_amount, exponent, billing_interval::text, active_from, active_to, display_approved
             FROM cp.price_version WHERE active_from <= @now AND (active_to IS NULL OR active_to > @now)
             ORDER BY billing_interval, minor_unit_amount
             """, conn))
@@ -521,7 +521,7 @@ public sealed class PlanCatalog(AppDataSource app) : IPlanCatalog
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 prices.Add(new PriceView(r.GetGuid(0), r.GetGuid(1), r.GetString(2).Trim(), r.GetInt64(3), r.GetInt16(4), r.GetString(5),
-                    r.GetFieldValue<DateTimeOffset>(6), r.IsDBNull(7) ? null : r.GetFieldValue<DateTimeOffset>(7)));
+                    r.GetFieldValue<DateTimeOffset>(6), r.IsDBNull(7) ? null : r.GetFieldValue<DateTimeOffset>(7), r.GetBoolean(8)));
         }
 
         return plans.Values.Select(p =>
@@ -529,8 +529,8 @@ public sealed class PlanCatalog(AppDataSource app) : IPlanCatalog
             using var doc = JsonDocument.Parse(p.Quotas);
             var limits = doc.RootElement.EnumerateObject()
                 .ToDictionary(e => e.Name, e => e.Value.ValueKind == JsonValueKind.Number ? e.Value.GetInt64() : (long?)null, StringComparer.Ordinal);
-            return new PlanView(p.Id, p.Code, p.Version, p.Name, p.Features, limits, p.Published,
-                prices.Where(x => x.PlanVersionId == p.Id).ToList());
+            return new PlanView(p.Id, p.Code, p.Version, p.Name, p.Features, limits, p.TrialDays, p.Published,
+                prices.Where(x => x.PlanVersionId == p.Id).ToList(), p.Revision);
         }).ToList();
     }
 }

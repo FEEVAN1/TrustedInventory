@@ -24,6 +24,16 @@ internal static class StockLocations
         return bin;
     }
 
+    /// <summary>Whether the bin's zone still suits the product (DEC-012), without throwing: release eligibility reports it (MED-001).</summary>
+    public static async Task<bool> IsCompatibleAsync(ITenantSession s, Guid binId, Product product, CancellationToken ct)
+    {
+        var bin = await s.Db.Set<Bin>().AsNoTracking().SingleAsync(b => b.Id == binId, ct);
+        var zone = await s.Db.Set<Zone>().AsNoTracking().SingleAsync(z => z.Id == bin.ZoneId, ct);
+        var profile = product.StorageProfileId is { } pid ? await s.Db.Set<StorageProfile>().AsNoTracking().SingleAsync(p => p.Id == pid, ct) : null;
+        var hazards = await s.Db.Set<ZoneAllowedHazardClass>().AsNoTracking().Where(h => h.ZoneId == zone.Id).Select(h => h.HazardClass).ToListAsync(ct);
+        return zone.Active && StorageCompatibility.IsCompatible(zone.TempMinC, zone.TempMaxC, profile?.MinC, profile?.MaxC, product.HazardClass, hazards);
+    }
+
     /// <summary>The bucket with the same product, lot, serial and quality in another bin, created empty when missing.</summary>
     public static async Task<Guid> MatchingBucketAsync(ITenantSession s, Guid tenantId, string actor, Guid warehouseId, Guid binId, Guid productId,
         Guid? lotId, Guid? serialId, string quality, DateTimeOffset receivedAt, CancellationToken ct)

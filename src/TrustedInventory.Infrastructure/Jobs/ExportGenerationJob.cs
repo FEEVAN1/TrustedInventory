@@ -17,32 +17,40 @@ namespace TrustedInventory.Infrastructure.Jobs;
 /// Export generation (AUD-004, NFR-EXPORTS, DEC-061): claims queued exports one at a time (SKIP LOCKED), writes the JSON
 /// Lines file to the object store, and completes the job with an integrity manifest signed with the audit checkpoint
 /// key. A failure marks the job Failed in its own transaction.
+/// Fair scheduling (SOP-001, DEC-073): each pass takes at most one export per tenant, round-robin, so a tenant with a long queue
+/// waits its turn instead of holding the worker; a run stops after <paramref name="maxPerRun"/> exports.
 /// </summary>
-public sealed partial class ExportGenerationJob(TenantJobRunner runner, IObjectStore store, CheckpointSigningOptions signing, ILogger<ExportGenerationJob> log)
-    : IJob
+public sealed partial class ExportGenerationJob(TenantJobRunner runner, IObjectStore store, CheckpointSigningOptions signing, ILogger<ExportGenerationJob> log,
+    int maxPerRun = 50) : IJob
 {
     public async Task RunOnceAsync(CancellationToken ct)
     {
-        foreach (var (tenantId, status) in await runner.TenantsAsync(BackgroundJob.ExportGeneration, ct))
+        var pending = (await runner.TenantsAsync(BackgroundJob.ExportGeneration, ct)).ToList();
+        var done = 0;
+        while (pending.Count > 0 && done < maxPerRun && !ct.IsCancellationRequested)
         {
-            var uow = runner.UnitOfWorkFor(tenantId, status);
-            while (!ct.IsCancellationRequested)
+            var next = new List<(Guid, Domain.Organization.TenantStatus)>();
+            foreach (var (tenantId, status) in pending)
             {
-                Guid? claimed = null;
+                if (done >= maxPerRun || ct.IsCancellationRequested)
+                    break;
+                var uow = runner.UnitOfWorkFor(tenantId, status);
+                Guid? handled;
                 try
                 {
-                    claimed = await uow.WriteAsync((s, c) => GenerateNextAsync(s, c), ct);
-                    if (claimed is null)
-                        break;
+                    handled = await uow.WriteAsync((s, c) => GenerateNextAsync(s, c), ct);
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {
-                    var failed = await uow.WriteAsync((s, c) => FailNextAsync(s, e.Message, c), ct);
-                    LogFailed(log, e, failed, tenantId);
-                    if (failed is null)
-                        break;
+                    handled = await uow.WriteAsync((s, c) => FailNextAsync(s, e.Message, c), ct);
+                    LogFailed(log, e, handled, tenantId);
                 }
+                if (handled is null)
+                    continue; // nothing queued for this tenant: it leaves the rotation
+                done++;
+                next.Add((tenantId, status));
             }
+            pending = next;
         }
     }
 
@@ -52,11 +60,22 @@ public sealed partial class ExportGenerationJob(TenantJobRunner runner, IObjectS
         if (job is null)
             return null;
         job.Start(s.Now);
-        var result = await ExportContent.BuildAsync(s, job, ct);
+        ExportContent.Result result;
+        var fileCount = 1;
+        if (job.Type == ExportType.TenantArchive)
+        {
+            var archive = await TenantArchive.BuildAsync(s, job, store, ct);
+            result = new ExportContent.Result(archive.Content, 0, archive.ToSequence, archive.Rows);
+            fileCount = archive.FileCount;
+        }
+        else
+        {
+            result = await ExportContent.BuildAsync(s, job, ct);
+        }
         var digest = Convert.ToHexStringLower(SHA256.HashData(result.Content));
         var signed = $"{digest}|{Convert.ToHexStringLower(job.FilterDigest)}|{result.FromSequence}|{result.ToSequence}";
         var signature = Convert.ToHexStringLower(HMACSHA256.HashData(signing.Key, Encoding.UTF8.GetBytes(signed)));
-        var manifest = new ExportManifest(digest, 1, $"hmac-sha256:{signing.KeyId}:{signature}");
+        var manifest = new ExportManifest(digest, fileCount, $"hmac-sha256:{signing.KeyId}:{signature}");
         job.Complete(result.FromSequence, result.ToSequence, JsonSerializer.Serialize(manifest, JsonDefaults.Options), s.Now);
         await store.PutAsync(job.ObjectKey!, result.Content, ct);
         s.Audit(new AuditEntry("ExportCompleted", "ExportJob", job.Id, job.Version, null, null,

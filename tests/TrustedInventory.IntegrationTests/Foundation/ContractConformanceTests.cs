@@ -49,6 +49,28 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
         Assert.Empty(mismatches);
     }
 
+    /// <summary>
+    /// The reverse direction (DEC-087): every contract operation is mapped, so a screen built on the contract never meets a 404. Browser
+    /// runs found <c>listTasks</c> (DEC-085) and <c>listLots</c> (DEC-087) in the contract but not mapped. Exceptions are listed with
+    /// their reason; adding one needs a decision.
+    /// </summary>
+    [Fact]
+    [Trait("Requirement", "API-16")]
+    [Trait("Requirement", "AGT-002")]
+    public void Every_contract_operation_is_implemented()
+    {
+        Dictionary<string, string> notMapped = new()
+        {
+            ["getLiveness"] = "mapped with MapHealthChecks (/health/live), which carries no endpoint name",
+            ["getReadiness"] = "mapped with MapHealthChecks (/health/ready), which carries no endpoint name",
+        };
+        var implemented = ImplementedEndpoints().Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
+        var missing = LoadContract().Select(o => o.Id).Where(id => !implemented.Contains(id) && !notMapped.ContainsKey(id)).ToList();
+        Assert.Empty(missing);
+        // An exception that has since been implemented must leave the list.
+        Assert.DoesNotContain(notMapped.Keys, implemented.Contains);
+    }
+
     [Fact]
     [Trait("Requirement", "IAM-001")]
     public async Task Every_tenant_endpoint_denies_a_member_without_the_permission()
@@ -65,7 +87,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
             if (response.StatusCode != HttpStatusCode.Forbidden)
                 failures.Add($"{e.Name}: {(int)response.StatusCode}");
         }
-        Assert.Empty(failures);
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
     }
 
     [Fact]
@@ -85,7 +107,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
             if (missing.StatusCode != HttpStatusCode.BadRequest)
                 failures.Add($"{e.Name} no header: {(int)missing.StatusCode}");
         }
-        Assert.Empty(failures);
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
     }
 
     [Fact]
@@ -104,7 +126,7 @@ public sealed partial class ContractConformanceTests(ApiFixture fx)
             if (response.StatusCode != HttpStatusCode.Unauthorized)
                 failures.Add($"{e.Name}: {(int)response.StatusCode}");
         }
-        Assert.Empty(failures);
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
     }
 
     private static HttpRequestMessage Request(Implemented e)

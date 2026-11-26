@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TrustedInventory.Api.Http;
 using TrustedInventory.Api.Security;
+using TrustedInventory.Application.Common;
 using TrustedInventory.Application.Errors;
 using TrustedInventory.Application.Organization;
+using TrustedInventory.Application.Saas;
 using TrustedInventory.Domain.Saas;
 using TrustedInventory.Domain.Security;
 
@@ -40,6 +42,28 @@ public static class PlatformEndpoints
                 SecuritySuspensionRequest body, CancellationToken ct) =>
                 Conventions.Ok(http, await svc.LiftAsync(Caller(http), id, Conventions.IfMatch(http), body, ct)))
             .WithName("liftTenantSecuritySuspension").RequirePermission(Permissions.PlatformTenantsManage);
+        // Lifecycle controls (DEC-070): retention hold and closure withdrawal, audited in the tenant chain.
+        tenants.MapPost("/{id:guid}/retention-hold", async (HttpContext http, ClosureService closure, PlatformTenantService svc, Guid id,
+                RetentionHoldRequest body, CancellationToken ct) =>
+            {
+                await closure.SetRetentionHoldAsync(Caller(http), id, Conventions.IfMatch(http), body, ct);
+                return Conventions.Ok(http, await svc.GetAsync(Caller(http), id, ct));
+            })
+            .WithName("setTenantRetentionHold").RequirePermission(Permissions.PlatformTenantsManage);
+        tenants.MapPost("/{id:guid}/closure/withdraw", async (HttpContext http, ClosureService closure, PlatformTenantService svc, Guid id,
+                WithdrawClosureRequest body, CancellationToken ct) =>
+            {
+                await closure.WithdrawAsync(Caller(http), id, Conventions.IfMatch(http), body, ct);
+                return Conventions.Ok(http, await svc.GetAsync(Caller(http), id, ct));
+            })
+            .WithName("withdrawTenantClosure").RequirePermission(Permissions.PlatformTenantsManage);
+        tenants.MapPost("/{id:guid}/deletion/approve", async (HttpContext http, ClosureService closure, PlatformTenantService svc, Guid id,
+                ApproveDeletionRequest body, CancellationToken ct) =>
+            {
+                await closure.ApproveDeletionAsync(Caller(http), id, Conventions.IfMatch(http), body, ct);
+                return Conventions.Ok(http, await svc.GetAsync(Caller(http), id, ct));
+            })
+            .WithName("approveTenantDeletion").RequirePermission(Permissions.PlatformTenantsManage);
 
         var jobs = platform.MapGroup("/provisioning-jobs");
         jobs.MapGet("", (HttpContext http, PlatformTenantService svc, [AsParameters] ListQuery q, [FromQuery] ProvisioningStatusFilter? status,
@@ -54,16 +78,35 @@ public static class PlatformEndpoints
             })
             .WithName("retryProvisioningJob").RequirePermission(Permissions.PlatformTenantsManage);
 
+        // Service signals and persisted alerts (SOP-003, DEC-074): counts, ages and latencies only.
+        // Health and alert reads admit platform operations and platform billing (platform.health.read, docs/permissions.md).
+        var health = app.MapGroup("/platform/v1").RequireAuthorization(p => PlatformPolicy(p, AdministratorsKey, BillingKey));
+        health.MapGet("/health", (HttpContext http, PlatformMonitorService svc, CancellationToken ct) => svc.GetHealthAsync(Caller(http), ct))
+            .WithName("getPlatformHealth").RequirePermission(Permissions.PlatformHealthRead);
+        // Operations metrics in Prometheus text format (NFR-MONITOR, DEC-079): counters and cross-tenant aggregates only.
+        health.MapGet("/metrics", async (HttpContext http, IOperationsGaugeReader gauges, TimeProvider clock, CancellationToken ct) =>
+            {
+                PlatformMonitorService.RequireHealthReader(Caller(http));
+                return Results.Text(OperationsMetrics.Render(await gauges.ReadAsync(clock.GetUtcNow(), ct)), "text/plain; version=0.0.4");
+            })
+            .WithName("getPlatformMetrics").RequirePermission(Permissions.PlatformHealthRead);
+        health.MapGet("/alerts", (HttpContext http, PlatformMonitorService svc, [AsParameters] ListQuery q, [FromQuery] PlatformAlertStatus? status,
+                CancellationToken ct) => svc.ListAsync(Caller(http), status, q.ToPage(), ct))
+            .WithName("listPlatformAlerts").RequirePermission(Permissions.PlatformHealthRead);
+        platform.MapPost("/alerts/{id:guid}/acknowledge", async (HttpContext http, PlatformMonitorService svc, Guid id, AcknowledgeAlertRequest body,
+                CancellationToken ct) => Conventions.Ok(http, await svc.AcknowledgeAsync(Caller(http), id, Conventions.IfMatch(http), body, ct)))
+            .WithName("acknowledgePlatformAlert").RequirePermission(Permissions.PlatformTenantsManage);
+
         return app;
     }
 
     /// <summary>MFA plus membership of the configured subject list (DEC-026); PlatformBilling routes use <see cref="BillingKey"/>.</summary>
-    public static AuthorizationPolicyBuilder PlatformPolicy(AuthorizationPolicyBuilder p, string subjectsKey) =>
+    public static AuthorizationPolicyBuilder PlatformPolicy(AuthorizationPolicyBuilder p, params string[] subjectsKeys) =>
         p.RequireAuthenticatedUser().RequireClaim("sub").AddRequirements(new MfaRequirement())
-            .RequireAssertion(ctx => ctx.Resource is HttpContext http && IsListed(http, subjectsKey));
+            .RequireAssertion(ctx => ctx.Resource is HttpContext http && subjectsKeys.Any(k => IsListed(http, k)));
 
-    private static PlatformCaller Caller(HttpContext http) =>
-        new(http.User.FindFirst("sub")!.Value, IsListed(http, AdministratorsKey), Problems.TraceId(http));
+    public static PlatformCaller Caller(HttpContext http) =>
+        new(http.User.FindFirst("sub")!.Value, IsListed(http, AdministratorsKey), Problems.TraceId(http), IsListed(http, BillingKey));
 
     private static bool IsListed(HttpContext http, string key)
     {

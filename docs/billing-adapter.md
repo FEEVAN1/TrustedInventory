@@ -1,8 +1,9 @@
 # Billing adapter
 
 How TrustedInventory talks to a subscription payment provider (spec v3.0 section 25, DEC-039). The
-provider is an **owner decision (D09)**; until it is made, the only implementation is the **simulator**
-described below, and live checkout is disabled by configuration. Schema: `db/design/saas-schema-draft.sql`
+provider is **Paystack** (owner decision D09, DEC-067), currency NGN in kobo, prices set by platform billing operators in
+the plan catalog. Until the Paystack adapter (S2 slice 7) and an approved live configuration exist, the only implementation is
+the **simulator** described below, and live checkout is disabled by configuration. Schema: `db/design/saas-schema-draft.sql`
 (schema `cp`); flows: `docs/migration-design.md` §10.
 
 ## Principles
@@ -30,10 +31,11 @@ derived from our own record id, so a retried call never creates a second provide
 | `CreateCheckoutSession` | customer, provider price ref, accepted preview digest, success/cancel URLs from the redirect allowlist | `providerSessionRef`, `hostedUrl`, `expiresAt` | `checkout:{checkoutSessionId}` |
 | `CreatePortalSession` | customer, return URL from the allowlist | short-lived `url` | `portal:{billingAccountId}:{minute}` |
 | `ScheduleChange` | provider subscription ref, target price ref, effective date | provider change ref | `change:{subscriptionChangeId}` |
-| `CancelAtPeriodEnd` / `Resume` | provider subscription ref | provider state | `cancel:{subscriptionId}:{revision}` |
+| `CancelScheduledChange` | provider subscription ref | — | `change-cancel:{subscriptionChangeId}` |
+| `CancelAtPeriodEnd` / `Resume` | provider subscription ref | provider state | `cancel:{subscriptionId}:{revision}` / `resume:{subscriptionId}:{revision}` |
 | `VerifyWebhook` | raw body bytes, headers | verified event envelope or rejection | — |
-| `FetchSubscription` / `FetchInvoice` | provider ref | authoritative current resource incl. provider revision | — |
-| `ListChangedSince` | cursor | page of subscriptions and invoices (reconciliation) | — |
+| `FetchSubscription` | provider subscription ref | current state, period end, pending cancellation (comparison) | — |
+| `ListEventsSince` | cursor | page of provider events, oldest first (reconciliation catch-up) | — |
 
 `VerifyWebhook` rules (BIL-004):
 - Verify the provider signature over the **raw request body** exactly as received, before any parsing.
@@ -59,9 +61,11 @@ derived from our own record id, so a retried call never creates a second provide
      only if it is newer than what we hold (`provider_revision` / provider timestamps). An old
      `invoice.payment_failed` arriving after `invoice.paid` cannot regress a paid period (BIL-005).
    - Commit subscription state, the new entitlement snapshot (if plan or period changed), invoice/payment
-     rows, audit events and outbox notices together (section 27 consistency rules).
-   - Mark `Processed` (or `Ignored` for event types we do not use). Failures retry with backoff up to 10
-     attempts, then `Failed` and a `WebhookBacklog` alert.
+     rows, audit events and billing notices together (section 27 consistency rules). Notices go to `cp.billing_notice`
+     and a tenant-context worker job relays them to the outbox, because `ti_control` has no outbox privilege (DEC-064).
+   - Mark `Processed` (or `Ignored` for event types we do not use). Failures retry with backoff
+     (`min(30 s × 2^attempts, 1 h)`) up to 10 attempts, then stay `Failed`; the `WebhookBacklog` alert arrives with slice 5.
+   - Payload at rest: AES-256-GCM with `Billing:InboxKey`, bound to provider and event id (DEC-064).
 5. Lifecycle precedence still applies: a payment can settle dues but never clears a security suspension,
    and no event recreates or reactivates a `Deleted` tenant (LFC-001, AT-BIL-04).
 
@@ -74,28 +78,70 @@ Never log full payloads; logs carry the event id, type, tenant id (once resolved
 | Initial invoice paid for a checkout | Subscription `Trialing → Active`, period set, new entitlement snapshot; checkout `Completed` |
 | Renewal invoice paid | Period advanced; `PastDue → Active`; grace cleared |
 | Renewal payment failed | `Active → PastDue` once; `grace_end = due date + 7 days` (D10). Repeated failures do not extend grace (BIL-007) |
-| Subscription cancelled by provider at period end | `Cancelled` after `period_end` (access becomes restricted by computation, not by job) |
 | Dispute, chargeback, refund | Payment/refund rows and an **operator review task**; no automatic restriction or deletion (BIL-008) |
-| Scheduled change applied | Re-check target limits; apply or mark the change `Blocked` with blockers (ENT-006) |
+| Subscription deleted by the provider (after a cancellation) | `Cancelled`; any open change cancelled (DEC-065); access was already restricted from `period_end` by computation, not by this event |
+
+## Plan changes (DEC-065)
+
+A change takes effect at the current `period_end`. It is not a webhook effect: the worker's `PlanChangeJob` (every
+`Worker:PlanChangeIntervalSeconds`, default 60) rechecks each due change: stock blockers in the tenant's transaction, then the
+quota blockers again under the tenant's usage counter locks. A blocked change is cancelled at the provider, marked `Blocked`
+with its blockers and the owner is notified; an upgrade waits for the paid invoice of its first period; otherwise the
+subscription moves to the target plan and price with a new entitlement snapshot.
 
 ## Reconciliation
 
-A daily job (and one after any provider outage) lists provider subscriptions and invoices changed since
-its last cursor and compares them with `cp.subscription`, `cp.invoice` and current entitlement snapshots.
-Differences are corrected through the same apply path as webhooks and recorded as audit events; anything
-it cannot resolve becomes a `BillingReconciliation` alert. During a provider outage the last verified
+`BillingReconciliationJob` (daily, `Worker:BillingReconciliationIntervalSeconds`; DEC-066) first lists the provider's events
+after its cursor (`ListEventsSince`) and stores each in the inbox (`received_via = Reconciliation`, same dedupe), so missed
+webhooks are applied by the same processor with the same rules. It then fetches each linked subscription
+(`FetchSubscription`) and compares state, period end and pending cancellation, and scans for unpaid past-due invoices and
+entitlement snapshots that are missing, expired or for another plan. Each difference opens one operator task
+(`SubscriptionMismatch`, `UnpaidInvoice`, `EntitlementMismatch`); nothing is corrected silently. Operators work the tasks in
+`listReconciliationTasks` / `resolveReconciliationTask` and review quarantined events in `listWebhookEvents`. During a provider outage the last verified
 entitlement stays in force; tenants are **not** restricted because the provider is unreachable (BIL-005,
 SOP-003, AT-SOP-01). Alert when the oldest unprocessed inbox row is older than five minutes.
+
+## Paystack (owner decision D09; test mode only, DEC-068)
+
+`PaystackBillingProvider` implements the same contract against the Paystack API (`Billing:Provider = paystack`,
+`Billing:Paystack:SecretKey` = a `sk_test_` key from the vault or environment). Startup refuses `sk_live_` keys and live checkout.
+
+| Contract | Paystack |
+|----------|----------|
+| `Supports` | NGN only (kobo); XTS prices are never offered |
+| `EnsureCustomer` | `POST /customer` (Paystack keys customers by email) |
+| `EnsurePrice` | an existing plan named `TI {priceVersionId}`, else `POST /plan` (monthly or annually) |
+| `CreateCheckoutSession` | `POST /transaction/initialize` with the plan and reference `ti-cs-{checkoutId}`; a reused reference is refused by Paystack, so a lost first response means a new checkout |
+| `CreatePortalSession` | `GET /subscription/{code}/manage/link` |
+| `ScheduleChange` | creates the target plan's subscription with `start_date` = period end, then disables the current one; the new code is stored on the change and becomes the subscription when the change applies |
+| `CancelScheduledChange` | disables the new subscription and re-enables the old one |
+| `CancelAtPeriodEnd` / `Resume` | `/subscription/disable` / `/subscription/enable` (with the email token) |
+| `FetchSubscription` | `GET /subscription/{code}`: active → Active, attention → PastDue, non-renewing → Active with pending cancellation, otherwise Cancelled |
+| `ListEventsSince` | nothing: Paystack has no event list, so missed webhooks rely on Paystack's retries and the comparison tasks |
+| Webhooks | `x-paystack-signature` = HMAC-SHA512 of the raw body with the secret key; no timestamp, so replay control is the event-id dedupe (`{event}:{data.id}`) and the optional `Billing:Paystack:WebhookSourceIps` allowlist |
+| Events | initial `charge.success` (our reference; the subscription is fetched to learn its code and next payment date), paid `invoice.update`, `invoice.payment_failed`, `subscription.disable`, `charge.dispute.create`, `refund.processed`; others Ignored |
+
+A `subscription.disable` that arrives while a cancelled subscription's paid period still runs, or for a subscription being
+replaced by a scheduled change, does not end service; `SubscriptionPeriodEndJob` records `Cancelled` after `period_end`.
+The owner's test-mode run is described in `docs/paystack-sandbox.md`. Automated tests use a labelled Paystack API simulator in
+the test project.
 
 ## Simulator (development and tests only)
 
 Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` in logs and UI.
 
-- Signs webhooks with HMAC-SHA256 using `Billing:Simulator:SigningSecret` (required; startup fails without
-  it) and a timestamp header, so the real verification path is exercised.
-- Hosted checkout and portal are simple pages served by the simulator with buttons for each outcome.
+- Signs webhooks with HMAC-SHA256 using `Billing:Simulator:SigningSecret` (required, at least 32 characters; startup fails
+  without it) in the header `Simulator-Signature: t=<unix seconds>,v1=<hex>` over `"{t}.{raw body}"`, so the real
+  verification path is exercised. `Billing:Simulator:PreviousSigningSecret` is accepted during rotation.
+- Its state lives in memory in the process that hosts it (DEC-063). Hosted checkout and portal links are
+  `https://billing-simulator.invalid/...` URLs that cannot be opened; outcomes are driven through the test console
+  (a browsable console is UI-milestone work). The `Outage` switch and the payment actions below are available now (DEC-064); events are
+  delivered by posting the signed `SimEvent` to the webhook route.
+- Catalog prices without a provider reference are registered on first checkout as `sim_price_{priceVersionId}`.
 - Test console actions (also callable from integration tests):
-  - **Pay** the open invoice; **fail** a payment; **dispute**; **refund**.
+  - `PayCheckout`, `FailCheckout`, `PayRenewal`, `FailRenewal`, `Dispute` (or chargeback), `Refund`; `Resend` repeats an
+    event under a new id; `EndSubscription` ends a cancelled subscription. Every event is kept in the simulator's event log,
+    delivered or not, which is what reconciliation reads. Each returns a signed `SimEvent` (exact bytes and signature header).
   - **Deliver events out of order**, **duplicate** an event, **forge** a signature, send an **unknown
     reference**.
   - **Outage**: make every adapter call fail until cleared, to test retained access and reconciliation.
@@ -103,7 +149,9 @@ Implementation name: `SimulatedBillingProvider`, labelled `[SIMULATED BILLING]` 
 - Prices come from `docs/entitlement-catalog.json` (currency XTS, fixtures).
 
 Configuration: `Billing:Provider` = `simulator` in development and tests. Any other value requires an
-owner-approved provider configuration, and `Billing:LiveCheckoutEnabled` stays `false` until then.
+owner-approved provider configuration, and `Billing:LiveCheckoutEnabled` stays `false` until then. Startup
+refuses any other provider and live checkout switched on. `Billing:ReturnUrl` (absolute http(s), default
+`http://localhost:5173/billing/return`) is where hosted pages send the browser back: navigation only.
 
 ## Must never happen
 
@@ -117,11 +165,11 @@ owner-approved provider configuration, and `Billing:LiveCheckoutEnabled` stays `
 
 | Evidence | Test |
 |----------|------|
-| Billing sandbox run (simulator now; real provider sandbox once chosen) | S2 suite |
-| Signed-webhook replay, duplicate and forgery | AT-BIL-01, AT-BIL-02 |
+| Billing sandbox run (simulator now; real provider sandbox once chosen, D09) | S2 suite; `CommercialFlowTests` end-to-end lifecycle; startup refuses live providers and live checkout |
+| Signed-webhook replay, duplicate and forgery | AT-BIL-01, AT-BIL-02 (`WebhookTests`, passing on the simulator) |
 | Out-of-order events cannot regress a paid period | AT-BIL-02 |
-| Provider outage keeps last verified access; reconciliation converges | AT-SOP-01 |
+| Provider outage keeps last verified access; reconciliation converges | AT-SOP-01 (`ReconciliationTests`, passing on the simulator) |
 | Trial and grace boundaries restrict without workers; safety still works | AT-BIL-03 |
 | Payment during security suspension, payment after deletion | AT-BIL-04 |
-| Concurrent quota reservations | AT-ENT-01, AT-ENT-03 |
-| Invoice reconciliation | S2 reconciliation tests |
+| Concurrent quota reservations | AT-ENT-01, AT-ENT-03 (`QuotaRaceTests`, `PlanChangeTests`) |
+| Invoice reconciliation | `ReconciliationTests` |
