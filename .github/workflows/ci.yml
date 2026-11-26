@@ -1,0 +1,92 @@
+# Continuous integration (DEC-107): the commands in README "Build and test" on every push and pull request.
+# Unit and integration tests run on real PostgreSQL 16 (Testcontainers starts it on the runner's Docker); in-memory providers are
+# not evidence (section 19). The Playwright browser tests (AT-UI-*) and the opt-in section 18 benchmark are not run here: they need
+# the Compose stack with Keycloak and a .env of synthetic secrets. No secrets are used by this workflow.
+name: ci
+
+on:
+  push:
+    branches: [main, "m*-*", "s*-*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: .NET build, unit and integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+      # CI=true (set by GitHub) turns on RestoreLockedMode: restore fails if a packages.lock.json drifts.
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-dotnet@v4.3.1
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Restore (locked)
+        run: dotnet restore TrustedInventory.slnx
+
+      - name: Build (warnings are errors)
+        id: build
+        run: dotnet build TrustedInventory.slnx --no-restore
+
+      - name: Unit tests
+        run: >
+          dotnet test tests/TrustedInventory.UnitTests --no-build
+          --logger "trx;LogFileName=unit.trx" --results-directory test-results
+
+      - name: Integration tests (PostgreSQL 16 via Testcontainers)
+        # Runs even when unit tests fail, so one run reports every failure.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >
+          dotnet test tests/TrustedInventory.IntegrationTests --no-build
+          --logger "trx;LogFileName=integration.trx" --results-directory test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: dotnet-test-results
+          path: test-results
+          retention-days: 14
+
+  contract:
+    name: OpenAPI contract lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 24.11.0
+      - run: npx --yes @redocly/cli@2.0.8 lint docs/openapi.yaml
+
+  web:
+    name: Web type check and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 24.11.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build

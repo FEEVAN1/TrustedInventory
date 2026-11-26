@@ -22,7 +22,8 @@ public class ArchitectureTests
         var path = Path.Combine(RepositoryRoot(), "src", project, project + ".csproj");
         return XDocument.Load(path)
             .Descendants("ProjectReference")
-            .Select(e => Path.GetFileNameWithoutExtension(e.Attribute("Include")!.Value))
+            // Project files use Windows separators; Linux does not split on '\', so normalise before taking the name.
+            .Select(e => Path.GetFileNameWithoutExtension(e.Attribute("Include")!.Value.Replace('\\', '/')))
             .Order(StringComparer.Ordinal)
             .ToArray();
     }
