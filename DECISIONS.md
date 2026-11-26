@@ -2137,3 +2137,15 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   widths (26 Nov 2026). AT-UI-10, AT-UI-03 (desktop) and AT-UI-01 (desktop) still pass.
 - **Applying it:** the realm is imported only when the Keycloak container is created, so run `docker compose up -d --force-recreate keycloak`.
   Accounts created this way live only in that container and disappear when it is recreated.
+
+## DEC-107 Continuous integration on GitHub Actions (M6, section 19, AGT-004, DEC-003)
+- **Status:** Adopted (owner request, 26 Nov 2026, after the repository moved to GitHub).
+- **What:** `.github/workflows/ci.yml` runs on pushes to `main` and the milestone branches, on pull requests into `main` and by
+  hand. Three jobs: .NET (locked restore, which `CI=true` enforces through `RestoreLockedMode`; build with warnings as errors; unit
+  tests; integration tests on real PostgreSQL 16 started by Testcontainers on the runner's Docker), the OpenAPI lint
+  (`@redocly/cli@2.0.8`), and the web type check and build on Node 24.11.0 (the web image's version). Test result files are uploaded
+  for 14 days.
+- **Not covered:** the Playwright browser tests (AT-UI-*) and the opt-in section 18 benchmark. They need the Compose stack, Keycloak
+  and a `.env` of synthetic secrets, and stay manual evidence. The workflow uses no secrets and has read-only repository access.
+- **Pinning:** actions use exact version tags; packages stay locked by `packages.lock.json` and `package-lock.json`. A passing run
+  is build evidence, not proof that requirements are met (AGENTS.md, Progress reports).

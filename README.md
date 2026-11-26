@@ -80,6 +80,11 @@ Build into the repository's own `bin`/`obj` folders. On this machine, `--artifac
 user profile fails (the profile path contains non-breaking spaces and becomes too long), and tests that
 locate the repository root fail when built outside it.
 
+**Continuous integration** (`.github/workflows/ci.yml`, DEC-107) runs the same commands on GitHub for pushes to `main` and the
+milestone branches and for pull requests into `main`: locked restore, build with warnings as errors, unit tests, integration tests
+on PostgreSQL 16 (Testcontainers), the contract lint and the web build. Test results are kept as a run artifact for 14 days. The
+browser tests and the opt-in benchmark are not run there; they need the Compose stack and a `.env`.
+
 ## Development stack (Docker Compose)
 
 Starts PostgreSQL 16, cluster bootstrap, migrator, a synthetic seed, Keycloak (realm with OTP-required
