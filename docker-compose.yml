@@ -76,6 +76,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 60
+    depends_on: [mailpit]
+
+  # SIMULATED MAIL (AGT-004, DEC-106): catches Keycloak's verification emails; nothing leaves this machine. Inbox: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    ports: ["8025:8025"]
 
   api:
     build: { <<: *dotnet-build, target: api }

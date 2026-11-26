@@ -118,6 +118,7 @@ tbody tr:hover td { background: #f7fbff; }
   main { padding: 1rem 0.85rem 2rem; }
   header { gap: 0.5rem; padding: 0.5rem 0.75rem; }
   header > button { padding: 0 0.7rem; font-size: 0.92rem; }
+  .header-actions button { padding: 0 0.7rem; font-size: 0.92rem; }
   .panel { padding: 0.95rem; }
 }
 
@@ -191,6 +192,8 @@ div.cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, m
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .public-header { padding: 0.6rem max(1rem, calc((100% - 1200px) / 2 + 1rem)); }
+.header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.panel .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0 0.25rem; }
 .eyebrow { margin: 0 0 0.5rem; color: var(--accent); font-weight: 700; font-size: 0.85rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .lead { font-size: 1.15rem; color: #29445e; max-width: 38rem; }
 .cta { display: flex; flex-wrap: wrap; margin: 1.25rem 0 0.5rem; }

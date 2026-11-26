@@ -11,6 +11,7 @@ const TOKEN = "ti.token";
 const VERIFIER = "ti.pkce";
 const STATE = "ti.state";
 const RETURN = "ti.return";
+const MFA_STEP = "ti.mfa-step";
 
 export interface Session {
   accessToken: string;
@@ -78,8 +79,20 @@ export function currentSession(): Session | null {
  * path and hash. Only paths starting with a single "/" are kept, so the return can never leave this site.
  */
 export async function signIn(returnTo?: string): Promise<void> {
+  await startAuthorization({}, returnTo);
+}
+
+/**
+ * Opens the identity provider's registration page (OIDC `prompt=create`, DEC-106). The provider verifies the email address and
+ * enrols a one-time-code authenticator before it signs the new account in, so the token carries the MFA the API requires (ONB-001).
+ */
+export async function createAccount(returnTo?: string): Promise<void> {
+  await startAuthorization({ prompt: "create" }, returnTo);
+}
+
+async function startAuthorization(extra: Record<string, string>, returnTo?: string): Promise<void> {
   const redirect = `${location.origin}/callback`;
-  const { url, verifier, state } = await authorizeUrl({}, redirect);
+  const { url, verifier, state } = await authorizeUrl(extra, redirect);
   sessionStorage.setItem(VERIFIER, verifier);
   sessionStorage.setItem(STATE, state);
   const back = returnTo ?? `${location.pathname}${location.search}${location.hash || "#/"}`;
@@ -93,13 +106,38 @@ export async function completeSignIn(): Promise<string> {
   const code = params.get("code");
   if (!code || params.get("state") !== sessionStorage.getItem(STATE)) throw new Error("The sign-in response did not match this browser tab.");
   const tokens = await exchange(code, sessionStorage.getItem(VERIFIER) ?? "", `${location.origin}/callback`);
-  const subject = String(claims(tokens.access_token).sub ?? "");
-  const session: Session = { accessToken: tokens.access_token, idToken: tokens.id_token, expiresAt: Date.now() + tokens.expires_in * 1000, subject };
-  sessionStorage.setItem(TOKEN, JSON.stringify(session));
+  const tokenClaims = claims(tokens.access_token);
   sessionStorage.removeItem(VERIFIER);
   sessionStorage.removeItem(STATE);
   const back = sessionStorage.getItem(RETURN) ?? "/#/";
-  return /^\/(?!\/)/.test(back) ? back : "/#/";
+  const safeBack = /^\/(?!\/)/.test(back) ? back : "/#/";
+  // A newly registered account is signed in by the registration itself, which records no one-time code in `amr` (DEC-106), so the
+  // API would refuse every call. Send the person through one ordinary sign-in (password and the code just enrolled) instead. This only
+  // chooses the next screen: the API alone decides whether a token shows MFA (SUI-001, IAM-002).
+  if (!hasMfa(tokenClaims)) {
+    if (sessionStorage.getItem(MFA_STEP)) {
+      sessionStorage.removeItem(MFA_STEP);
+      throw new Error("Sign-in did not include your one-time code. Sign in again with your password and authenticator code.");
+    }
+    sessionStorage.setItem(MFA_STEP, "1");
+    const extra: Record<string, string> = { prompt: "login" };
+    if (typeof tokenClaims.preferred_username === "string") extra.login_hint = tokenClaims.preferred_username;
+    await startAuthorization(extra, safeBack);
+    return new Promise<string>(() => { /* the page is navigating to the identity provider */ });
+  }
+  sessionStorage.removeItem(MFA_STEP);
+  const subject = String(tokenClaims.sub ?? "");
+  const session: Session = { accessToken: tokens.access_token, idToken: tokens.id_token, expiresAt: Date.now() + tokens.expires_in * 1000, subject };
+  sessionStorage.setItem(TOKEN, JSON.stringify(session));
+  return safeBack;
+}
+
+/** The authentication methods the API accepts as MFA by default (Auth:Mfa:AcceptedAmr). */
+const MFA_AMR = ["mfa", "otp", "hwk", "swk"];
+
+function hasMfa(tokenClaims: Record<string, unknown>): boolean {
+  const amr = tokenClaims.amr;
+  return Array.isArray(amr) && amr.some((v) => typeof v === "string" && MFA_AMR.includes(v));
 }
 
 export function signOut(): void {

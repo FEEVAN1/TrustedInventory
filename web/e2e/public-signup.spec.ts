@@ -26,7 +26,7 @@ test("a visitor reads the product and plans, signs in and starts a workspace tha
   // Signup: sign in first, then return to the signup page.
   await plans.first().getByRole("link", { name: /^Start with / }).click();
   await expect(page).toHaveURL(/\/signup\?plan=/);
-  await keycloakLogin(page, "bob", () => page.getByRole("button", { name: "Sign in to continue" }).click());
+  await keycloakLogin(page, "bob", () => page.getByRole("button", { name: "I already have an account" }).click());
   await expect(page).toHaveURL(/\/signup/);
   const form = page.getByRole("form", { name: "Business details" });
   await expect(form).toBeVisible();

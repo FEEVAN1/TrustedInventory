@@ -1807,7 +1807,7 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   when Ready, or shows the stable failure code and reference when Failed (ONB-007). A 403 explains email verification and MFA; a 429
   explains the daily limit. The terms and privacy versions are `draft-2026-11`, shown as drafts: the legal texts are launch
   dependencies the owner supplies, and the accepted version is recorded as the server already does.
-- **Account creation** stays with the identity provider (registration is off in the development realm; D02); the page says accounts are
+- **Account creation** (superseded by DEC-106 for development) stays with the identity provider (registration is off in the development realm; D02); the page says accounts are
   managed by the organisation's sign-in provider.
 - **Another workspace:** the workspace chooser links to `/signup` ("starts empty, with its own plan and subscription"); abuse review
   and trial eligibility stay on the server (ONB-003).
@@ -2116,3 +2116,24 @@ Owner-level launch decisions D01–D10 from spec section 21 remain open and are 
   `appsettings.Development.json`, the web app's default authority (`web/src/auth.ts`), the web content security policy, and the
   browser test configuration (no host-resolver rule). README no longer asks for a hosts entry. Recreating the Keycloak container
   applies it; tokens issued before carry the old issuer and are refused, so sign in again.
+
+## DEC-106 Create an account from the web app (M6, ONB-001, IAM-002, SUI-001; supersedes the account-creation line of DEC-088)
+- **Status:** Adopted for development (owner request, 26 Nov 2026). The production identity provider and its registration policy
+  remain D02 (Needs owner).
+- **What:** the development realm allows registration. The public header and the signed-out signup page offer **Create account**
+  (OIDC `prompt=create`) next to sign-in, which existing users keep using unchanged. A new account lands on `/signup`.
+- **Controls kept:** registration enrols an authenticator before the account can be used (`CONFIGURE_TOTP` is a default required
+  action for new users) and verifies the email address (`verifyEmail`), so ONB-001 still holds. Password policy: at least 12
+  characters, not the username or email. Brute-force protection is unchanged.
+- **Conflict and resolution:** Keycloak signs the account in at the end of registration without recording the one-time code in
+  `amr`, so the API correctly refuses that token (403, MFA required). The API is not relaxed. Instead, when the web app receives a
+  token without an accepted MFA method it sends the person straight through one ordinary sign-in (`prompt=login`, username fixed by
+  `login_hint`: password and the newly enrolled code); a second token without MFA ends with a message rather than a loop. This
+  only chooses the next screen; the API alone decides (SUI-001). The same step also covers any other sign-in that arrives without MFA.
+- **Simulated mail (AGT-004):** verification emails go to Mailpit (`axllent/mailpit:v1.21.8`, labelled in `docker-compose.yml`),
+  inbox at http://localhost:8025. Nothing leaves the machine. Production needs a real mail service (D02).
+- **Evidence:** AT-UI-18 (`web/e2e/create-account.spec.ts`) registers a synthetic `example.invalid` user, enrols the authenticator,
+  follows the link from the simulated inbox, completes the MFA sign-in and provisions a workspace to Ready, at handheld and desktop
+  widths (26 Nov 2026). AT-UI-10, AT-UI-03 (desktop) and AT-UI-01 (desktop) still pass.
+- **Applying it:** the realm is imported only when the Keycloak container is created, so run `docker compose up -d --force-recreate keycloak`.
+  Accounts created this way live only in that container and disappear when it is recreated.

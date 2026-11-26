@@ -3,7 +3,7 @@
 // and the screen shows its answer. No price is shown unless the server marks it approved for display (section 28).
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ApiError, describe, request, selectTenant, type Failure } from "./api";
-import { config, currentSession, signIn } from "./auth";
+import { config, createAccount, currentSession, signIn } from "./auth";
 import { Brand, HeroArt, Icon } from "./brand";
 import { Empty, FailureView, useCommand } from "./ui";
 
@@ -69,7 +69,10 @@ function PublicHeader() {
         <a href="/signup">Start a workspace</a>
       </nav>
       <span className="spacer" />
-      <button type="button" className="secondary" onClick={() => void signIn("/")}>Sign in</button>
+      <span className="header-actions">
+        <button type="button" className="secondary" onClick={() => void signIn("/")}>Sign in</button>
+        <button type="button" onClick={() => void createAccount("/signup")}>Create account</button>
+      </span>
     </header>
   );
 }
@@ -264,10 +267,12 @@ export function Signup() {
 function SignedOut() {
   return (
     <div className="panel">
-      <p>A workspace belongs to the person who creates it. Sign in first with an account whose email address is verified and that uses
-        multi-factor authentication; you then enter your business details here.</p>
-      <button type="button" onClick={() => void signIn("/signup")}>Sign in to continue</button>
-      <p className="muted">Accounts are managed by your organisation&apos;s sign-in provider.</p>
+      <p>A workspace belongs to the person who creates it. New here? Create an account: you confirm your email address and set up an
+        authenticator app for one-time codes, then sign in once with both. You then enter your business details here.</p>
+      <p className="actions">
+        <button type="button" onClick={() => void createAccount("/signup")}>Create account</button>
+        <button type="button" className="secondary" onClick={() => void signIn("/signup")}>I already have an account</button>
+      </p>
     </div>
   );
 }
